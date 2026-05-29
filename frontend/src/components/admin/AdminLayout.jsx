@@ -2,6 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   House,
+  CalendarBlank,
   Briefcase,
   UsersThree,
   Gear,
@@ -12,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: House, end: true },
+  { to: "/admin/calendar", label: "Calendar", icon: CalendarBlank, end: false },
   { to: "/admin/gigs", label: "Gigs", icon: Briefcase, end: false },
   { to: "/admin/workers", label: "Workers", icon: UsersThree, end: false },
   { to: "/admin/settings", label: "Settings", icon: Gear, end: false },

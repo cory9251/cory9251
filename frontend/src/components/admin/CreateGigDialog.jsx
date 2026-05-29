@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { format } from "date-fns";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -18,6 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { CalendarBlank, Clock } from "@phosphor-icons/react";
 
 const SUBCATS = {
   cleaning: ["deep", "routine", "moveout", "specialty"],
@@ -25,30 +33,68 @@ const SUBCATS = {
   driver: ["worker_transport", "delivery", "rideshare"],
 };
 
-export default function CreateGigDialog({ open, onOpenChange, onCreated }) {
+const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
+const MINUTES = ["00", "15", "30", "45"];
+
+function buildScheduledAt(date, hour12, minute, ampm) {
+  if (!date) return { iso: null, display: "" };
+  const h12 = parseInt(hour12, 10);
+  const min = parseInt(minute, 10);
+  let h24 = h12 % 12;
+  if (ampm === "PM") h24 += 12;
+  const d = new Date(date);
+  d.setHours(h24, min, 0, 0);
+  return {
+    iso: d.toISOString(),
+    display: format(d, "EEE MMM d · h:mm a"),
+  };
+}
+
+export default function CreateGigDialog({
+  open,
+  onOpenChange,
+  onCreated,
+  initialDate,
+}) {
+  const today = new Date();
   const [form, setForm] = useState({
     title: "",
     description: "",
     category: "cleaning",
     subcategory: "deep",
     location: "",
-    scheduled_date: "",
     pay_rate: "",
     pay_type: "hourly",
     slots: 1,
     duration_hours: "",
     contact_phone: "",
   });
+  const [date, setDate] = useState(initialDate || today);
+  const [hour, setHour] = useState("9");
+  const [minute, setMinute] = useState("00");
+  const [ampm, setAmpm] = useState("AM");
   const [loading, setLoading] = useState(false);
+
+  // Sync initialDate when reopened from calendar cell
+  React.useEffect(() => {
+    if (open && initialDate) setDate(initialDate);
+  }, [open, initialDate]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e) => {
     e.preventDefault();
+    const { iso, display } = buildScheduledAt(date, hour, minute, ampm);
+    if (!iso) {
+      toast.error("Pick a date");
+      return;
+    }
     setLoading(true);
     try {
       await api.post("/gigs", {
         ...form,
+        scheduled_date: display,
+        scheduled_at: iso,
         pay_rate: parseFloat(form.pay_rate || 0),
         slots: parseInt(form.slots || 1),
         duration_hours: form.duration_hours
@@ -58,13 +104,13 @@ export default function CreateGigDialog({ open, onOpenChange, onCreated }) {
       toast.success("Gig created");
       onOpenChange(false);
       onCreated && onCreated();
+      // Reset only the volatile fields
       setForm({
         title: "",
         description: "",
         category: "cleaning",
         subcategory: "deep",
         location: "",
-        scheduled_date: "",
         pay_rate: "",
         pay_type: "hourly",
         slots: 1,
@@ -89,7 +135,10 @@ export default function CreateGigDialog({ open, onOpenChange, onCreated }) {
             Post a new gig
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={submit} className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
+        <form
+          onSubmit={submit}
+          className="grid max-h-[80vh] grid-cols-1 gap-4 overflow-y-auto p-6 md:grid-cols-2"
+        >
           <div className="md:col-span-2">
             <Label className="font-mono-label">Title</Label>
             <Input
@@ -170,16 +219,85 @@ export default function CreateGigDialog({ open, onOpenChange, onCreated }) {
             />
           </div>
 
+          {/* Date picker + time row */}
           <div>
-            <Label className="font-mono-label">When</Label>
-            <Input
-              data-testid="gig-date"
-              required
-              value={form.scheduled_date}
-              onChange={(e) => set("scheduled_date", e.target.value)}
-              className="mt-2 h-11 rounded-none border-[#030712]"
-              placeholder="Fri Mar 14 · 9:00 AM"
-            />
+            <Label className="font-mono-label flex items-center gap-1.5">
+              <CalendarBlank size={12} /> Date
+            </Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="gig-date-trigger"
+                  className="mt-2 flex h-11 w-full items-center justify-between border border-[#030712] bg-white px-3 text-sm hover:bg-[#F9FAFB]"
+                >
+                  <span>{date ? format(date, "EEE MMM d, yyyy") : "Pick a date"}</span>
+                  <CalendarBlank size={16} className="text-[#4B5563]" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-auto rounded-none border-[#030712] p-0"
+                align="start"
+                data-testid="gig-date-popover"
+              >
+                <Calendar
+                  mode="single"
+                  selected={date}
+                  onSelect={(d) => d && setDate(d)}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div>
+            <Label className="font-mono-label flex items-center gap-1.5">
+              <Clock size={12} /> Time
+            </Label>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <Select value={hour} onValueChange={setHour}>
+                <SelectTrigger
+                  data-testid="gig-hour"
+                  className="h-11 rounded-none border-[#030712]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HOURS.map((h) => (
+                    <SelectItem key={h} value={String(h)}>
+                      {h}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={minute} onValueChange={setMinute}>
+                <SelectTrigger
+                  data-testid="gig-minute"
+                  className="h-11 rounded-none border-[#030712]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MINUTES.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      :{m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={ampm} onValueChange={setAmpm}>
+                <SelectTrigger
+                  data-testid="gig-ampm"
+                  className="h-11 rounded-none border-[#030712]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AM">AM</SelectItem>
+                  <SelectItem value="PM">PM</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div>
@@ -252,7 +370,7 @@ export default function CreateGigDialog({ open, onOpenChange, onCreated }) {
             />
           </div>
 
-          <div className="md:col-span-2 mt-2 flex justify-end gap-3">
+          <div className="md:col-span-2 mt-2 flex justify-end gap-3 border-t border-[#E5E7EB] pt-4">
             <Button
               type="button"
               variant="outline"

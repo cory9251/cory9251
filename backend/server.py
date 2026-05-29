@@ -186,7 +186,8 @@ class GigIn(BaseModel):
     category: GigCategory
     subcategory: Optional[str] = None
     location: str
-    scheduled_date: str  # ISO date or display string
+    scheduled_date: str  # display string (kept for backwards compat / human display)
+    scheduled_at: Optional[str] = None  # ISO 8601 datetime — drives the calendar
     pay_rate: float
     pay_type: PayType
     slots: int = 1
@@ -490,6 +491,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "subcategory": payload.subcategory,
         "location": payload.location,
         "scheduled_date": payload.scheduled_date,
+        "scheduled_at": payload.scheduled_at,
         "pay_rate": payload.pay_rate,
         "pay_type": payload.pay_type,
         "slots": payload.slots,
@@ -520,12 +522,13 @@ async def list_gigs(
     user: dict = Depends(get_current_user),
 ):
     query: dict = {}
-    if status:
+    # "all" means: no status filter at all (used by admin calendar / worker accepted list)
+    if status and status != "all":
         query["status"] = status
     if category:
         query["category"] = category
-    # Workers only see open gigs by default
-    if user.get("role") != "admin" and not status:
+    # Workers see only open gigs by default unless they explicitly ask for "all"
+    if user.get("role") != "admin" and status is None:
         query["status"] = "open"
 
     gigs = await db.gigs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)

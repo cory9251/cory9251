@@ -1,0 +1,39 @@
+{
+  "summary": "Validated Iteration 3 (Admin Calendar + scheduled_at + status='all' regression) end-to-end. Backend: 8 new pytest cases (all passing) covering scheduled_at create/persist roundtrip, optional/null scheduled_at, GET /api/gigs?status=all returning both open & filled (regression fix verified), status=open/filled still filtering correctly, worker default returning only open gigs, and worker /api/gigs?status=all attaching my_acceptance for filled gigs. Full regression suite 58/58 passes (35 iter-1 + 15 iter-2 + 8 iter-3). Frontend: nav-calendar link visible in admin sidebar; /admin/calendar loads with admin-calendar testid; 6×7 = 42 day-cell grid rendered; cal-prev / cal-next / cal-today buttons correctly change cursor month (subtitle reflects month name & gig count); chips render with category colors (cleaning=blue, labor=black, driver=amber, confirmed visually); Upcoming sidebar caps at 5 future gigs and each navigates to /admin/gigs/{id} on click; clicking an empty day cell opens the create dialog with the date pre-selected (verified day number in trigger); shadcn Calendar opens inside Popover (gig-date-popover) when trigger clicked; hour/minute/AM-PM Selects present; submitting creates a gig that immediately appears as a chip on the chosen day; clicking the chip navigates to the gig detail. Test gig cleaned up afterwards.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_calendar.py",
+    "/app/test_reports/pytest/calendar_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1030 lines (was 1027). The split into routers flagged in iter-2 is still pending. Recommend extracting gigs, blast, admin/settings, and notifications into separate router modules.",
+    "AdminCalendar.jsx renders gig chips as <span onClick> *inside* a <button> day-cell. Functionally works (stopPropagation prevents the parent), but a clickable <span> inside a <button> is not keyboard-accessible and trips a11y linters. Consider rendering each day cell as a <div> with a separate 'add' affordance, or making chips role=link.",
+    "Outside-month day cells (the leading/trailing days from prev/next month) are still clickable and open the create dialog pre-set to those off-month dates. Likely intentional, but worth confirming with product — currently a user clicking an outside-cell creates a gig that appears only after navigating the cursor to that month.",
+    "scheduled_at is accepted as a free-form string (Optional[str]) on the backend rather than a typed datetime. ISO format is enforced only by the frontend. Recommend changing GigIn.scheduled_at to Optional[datetime] so FastAPI/Pydantic validates ISO-8601 on the server (currently a malformed string would persist and crash parseISO on the calendar).",
+    "GigIn.scheduled_date remains a required free-text string. With scheduled_at now driving the calendar, scheduled_date is effectively a display cache that can drift from the real datetime — consider deriving it server-side from scheduled_at when present, or marking it Optional and making the frontend stop sending it.",
+    "list_gigs default-attaches my_acceptance only when role=='worker'; admins do not get it for their own listing — fine for current UI but worth documenting.",
+    "Calendar.jsx uses date-fns parseISO with no try/catch broadcast — silently swallows bad dates (current try/catch logs nothing). A console.warn would help diagnose data quality issues."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_calendar.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 new, 58/58 overall)",
+    "frontend": "100% of scripted checks (nav, grid, navigation, chips, dialog flow, create→chip→detail)"
+  },
+  "test_credentials": "admin@gigblast.com / GigBlast2026! (from /app/memory/test_credentials.md); a TEST_cal_worker_<uuid>@example.com worker is registered each module run for accept→fill assertions",
+  "seed_data_creation": "Pre-existing seeded calendar gigs (5 chips in May/June 2026) were used for visual verification. Test gigs created during the run are deleted via DELETE /api/gigs/{id} in the fixture teardown and explicit cleanup after the playwright create flow.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 3 adds: backend GigIn.scheduled_at (Optional[str], persisted as-is in db.gigs.scheduled_at) and list_gigs treating status='all' as no-filter. Frontend adds /admin/calendar (AdminCalendar.jsx) + rewritten CreateGigDialog with shadcn Calendar+Popover and time selects. Testids of interest: nav-calendar, admin-calendar, cal-prev/next/today, cal-day-YYYY-MM-DD, cal-chip-{gig_id}, upcoming-{gig_id}, create-gig-dialog, gig-date-trigger, gig-date-popover, gig-hour/minute/ampm, submit-create-gig. Regression suite: pytest /app/backend/tests/ -v (58 tests, ~15s). The status='all' regression was previously matching a literal status field — verify any future worker-side 'my accepted gigs' UI keeps using ?status=all since default still excludes filled gigs.",
+  "rca of the issue": "N/A — no bugs found. Note the regression fix from iter-3 itself (status='all' previously evaluated as query['status']='all' matching nothing): now correctly treated as no-filter inside list_gigs (server.py L526)."
+}
