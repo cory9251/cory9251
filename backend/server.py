@@ -946,7 +946,7 @@ async def test_settings(
                 creds["api_key"],
                 creds["sender"],
                 payload.to,
-                "GigBlast — test email",
+                "HCOB Network — test email",
                 "<p>This is a test email from HCOB Network settings. If you see this, your Resend credentials are working.</p>",
             )
             return {"ok": True, "result": result}

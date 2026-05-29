@@ -47,6 +47,15 @@
 - Fixed `GET /api/gigs?status=all` to mean "no filter" (was matching the literal string)
 - 58/58 backend tests passing (8 new + 50 regression)
 
+## Implemented — 2026-02 (Iteration 4: HCOB Rebrand + Security Fix)
+- Rebranded to **HCOB Network — the gig network for hcobcleaners.com**
+- Landing page rewritten to be worker-focused: "Find gigs from HCOB Cleaners", typical pay per category, footer links to hcobcleaners.com
+- Register page no longer exposes a role selector (workers only on public signup)
+- **Security**: `POST /api/auth/register` now hardcodes `role='worker'` server-side — closes a privilege-escalation regression where a client could POST role=admin
+- New seeded admin: `admin@hcobcleaners.com / HcobAdmin2026!` (legacy admin@gigblast.com retained)
+- Admin/Worker layouts, email subjects, SMS prefixes all carry HCOB Network branding
+- 59/59 backend tests passing
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)
