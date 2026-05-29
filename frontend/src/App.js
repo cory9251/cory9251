@@ -1,53 +1,101 @@
-import { useEffect } from "react";
+import React from "react";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider } from "@/context/AuthContext";
+import { ProtectedRoute, PublicOnly } from "@/components/ProtectedRoute";
+import Landing from "@/pages/Landing";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import AuthCallback from "@/pages/AuthCallback";
+import AdminLayout from "@/components/admin/AdminLayout";
+import AdminDashboard from "@/pages/admin/AdminDashboard";
+import AdminGigs from "@/pages/admin/AdminGigs";
+import GigDetail from "@/pages/admin/GigDetail";
+import AdminWorkers from "@/pages/admin/AdminWorkers";
+import WorkerDetail from "@/pages/admin/WorkerDetail";
+import WorkerLayout from "@/components/worker/WorkerLayout";
+import WorkerFeed from "@/pages/worker/WorkerFeed";
+import WorkerProfile from "@/pages/worker/WorkerProfile";
+import WorkerAccepted from "@/pages/worker/WorkerAccepted";
+import WorkerGigDetail from "@/pages/worker/WorkerGigDetail";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function RouterShell() {
+  const location = useLocation();
+  // CRITICAL: handle Emergent OAuth callback synchronously before normal routes
+  if (location.hash?.includes("session_id=")) {
+    return <AuthCallback />;
+  }
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <PublicOnly>
+            <Landing />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/login"
+        element={
+          <PublicOnly>
+            <Login />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicOnly>
+            <Register />
+          </PublicOnly>
+        }
+      />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+
+      {/* Admin */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute role="admin">
+            <AdminLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<AdminDashboard />} />
+        <Route path="gigs" element={<AdminGigs />} />
+        <Route path="gigs/:gigId" element={<GigDetail />} />
+        <Route path="workers" element={<AdminWorkers />} />
+        <Route path="workers/:userId" element={<WorkerDetail />} />
+      </Route>
+
+      {/* Worker */}
+      <Route
+        path="/app"
+        element={
+          <ProtectedRoute role="worker">
+            <WorkerLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<WorkerFeed />} />
+        <Route path="gigs/:gigId" element={<WorkerGigDetail />} />
+        <Route path="accepted" element={<WorkerAccepted />} />
+        <Route path="profile" element={<WorkerProfile />} />
+      </Route>
+    </Routes>
   );
-};
+}
 
 function App() {
   return (
     <div className="App">
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <RouterShell />
+          <Toaster position="top-right" />
+        </AuthProvider>
       </BrowserRouter>
     </div>
   );
