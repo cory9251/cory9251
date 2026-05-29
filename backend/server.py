@@ -198,6 +198,19 @@ class BlastIn(BaseModel):
     channels: List[Literal["in_app", "email", "sms"]]
 
 
+class SettingsIn(BaseModel):
+    resend_api_key: Optional[str] = None
+    sender_email: Optional[str] = None
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_from_number: Optional[str] = None
+
+
+class SettingsTestIn(BaseModel):
+    channel: Literal["email", "sms"]
+    to: str
+
+
 # ----------------------------------------------------------------------------
 # Auth dependency
 # ----------------------------------------------------------------------------
@@ -667,19 +680,43 @@ def _format_gig_sms(gig: dict) -> str:
     return f"[GigBlast] {gig['title']} — {gig['location']} — {gig['scheduled_date']} — {pay}. Open the app to accept."
 
 
-def _send_email_sync(to: str, subject: str, html: str) -> dict:
-    if not RESEND_API_KEY:
+async def _get_settings_doc() -> dict:
+    """Return the singleton app_settings document (creating an empty one if missing)."""
+    doc = await db.app_settings.find_one({"_id": "global"})
+    return doc or {}
+
+
+async def _resolve_email_creds() -> dict:
+    s = await _get_settings_doc()
+    return {
+        "api_key": (s.get("resend_api_key") or RESEND_API_KEY or "").strip(),
+        "sender": (s.get("sender_email") or SENDER_EMAIL or "").strip(),
+    }
+
+
+async def _resolve_sms_creds() -> dict:
+    s = await _get_settings_doc()
+    return {
+        "sid": (s.get("twilio_account_sid") or TWILIO_SID or "").strip(),
+        "token": (s.get("twilio_auth_token") or TWILIO_TOKEN or "").strip(),
+        "from_": (s.get("twilio_from_number") or TWILIO_FROM or "").strip(),
+    }
+
+
+def _send_email_sync(api_key: str, sender: str, to: str, subject: str, html: str) -> dict:
+    if not api_key:
         return {"skipped": "no_resend_key"}
+    resend.api_key = api_key
     return resend.Emails.send(
-        {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
+        {"from": sender, "to": [to], "subject": subject, "html": html}
     )
 
 
-def _send_sms_sync(to: str, body: str) -> dict:
-    if not (TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM):
+def _send_sms_sync(sid: str, token: str, from_: str, to: str, body: str) -> dict:
+    if not (sid and token and from_):
         return {"skipped": "no_twilio_creds"}
-    c = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
-    m = c.messages.create(body=body, from_=TWILIO_FROM, to=to)
+    c = TwilioClient(sid, token)
+    m = c.messages.create(body=body, from_=from_, to=to)
     return {"sid": m.sid}
 
 
@@ -694,6 +731,9 @@ async def blast_gig(
     workers = await db.users.find(
         {"role": "worker"}, {"_id": 0, "password_hash": 0}
     ).to_list(1000)
+
+    email_creds = await _resolve_email_creds() if "email" in payload.channels else None
+    sms_creds = await _resolve_sms_creds() if "sms" in payload.channels else None
 
     counts = {"in_app": 0, "email": 0, "sms": 0, "email_failed": 0, "sms_failed": 0}
     subject = f"New Gig: {gig['title']}"
@@ -715,16 +755,30 @@ async def blast_gig(
                 }
             )
             counts["in_app"] += 1
-        if "email" in payload.channels and w.get("email"):
+        if "email" in payload.channels and w.get("email") and email_creds:
             try:
-                await asyncio.to_thread(_send_email_sync, w["email"], subject, html)
+                await asyncio.to_thread(
+                    _send_email_sync,
+                    email_creds["api_key"],
+                    email_creds["sender"],
+                    w["email"],
+                    subject,
+                    html,
+                )
                 counts["email"] += 1
             except Exception as e:
                 logger.error(f"Email send failed for {w['email']}: {e}")
                 counts["email_failed"] += 1
-        if "sms" in payload.channels and w.get("phone"):
+        if "sms" in payload.channels and w.get("phone") and sms_creds:
             try:
-                await asyncio.to_thread(_send_sms_sync, w["phone"], sms_body)
+                await asyncio.to_thread(
+                    _send_sms_sync,
+                    sms_creds["sid"],
+                    sms_creds["token"],
+                    sms_creds["from_"],
+                    w["phone"],
+                    sms_body,
+                )
                 counts["sms"] += 1
             except Exception as e:
                 logger.error(f"SMS send failed for {w.get('phone')}: {e}")
@@ -814,6 +868,103 @@ async def admin_stats(admin: dict = Depends(require_admin)):
         "total_acceptances": total_acceptances,
         "pending_id_verification": pending_id,
     }
+
+
+# ---- Admin settings (Resend / Twilio) --------------------------------------
+def _mask(value: Optional[str]) -> dict:
+    v = (value or "").strip()
+    if not v:
+        return {"has_value": False, "last4": ""}
+    return {"has_value": True, "last4": v[-4:] if len(v) >= 4 else v}
+
+
+@api.get("/admin/settings")
+async def get_settings(admin: dict = Depends(require_admin)):
+    """Return masked settings + which channels are usable."""
+    s = await _get_settings_doc()
+    email = await _resolve_email_creds()
+    sms = await _resolve_sms_creds()
+    return {
+        "resend_api_key": _mask(s.get("resend_api_key")),
+        "sender_email": s.get("sender_email") or SENDER_EMAIL or "",
+        "twilio_account_sid": _mask(s.get("twilio_account_sid")),
+        "twilio_auth_token": _mask(s.get("twilio_auth_token")),
+        "twilio_from_number": s.get("twilio_from_number") or TWILIO_FROM or "",
+        "email_ready": bool(email["api_key"] and email["sender"]),
+        "sms_ready": bool(sms["sid"] and sms["token"] and sms["from_"]),
+        "updated_at": s.get("updated_at"),
+        "updated_by": s.get("updated_by"),
+    }
+
+
+@api.put("/admin/settings")
+async def update_settings(
+    payload: SettingsIn, admin: dict = Depends(require_admin)
+):
+    """Update settings. Empty string clears a field; None leaves it unchanged."""
+    incoming = payload.model_dump(exclude_unset=True)
+    update_set: dict = {}
+    unset: dict = {}
+    for k, v in incoming.items():
+        if v is None:
+            continue
+        v = v.strip()
+        if v == "":
+            unset[k] = ""
+        else:
+            update_set[k] = v
+
+    if not update_set and not unset:
+        return {"ok": True, "changed": 0}
+
+    update_set["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_set["updated_by"] = admin["email"]
+    ops: dict = {"$set": update_set}
+    if unset:
+        ops["$unset"] = unset
+
+    await db.app_settings.update_one({"_id": "global"}, ops, upsert=True)
+    return {"ok": True, "changed": len(update_set) + len(unset)}
+
+
+@api.post("/admin/settings/test")
+async def test_settings(
+    payload: SettingsTestIn, admin: dict = Depends(require_admin)
+):
+    """Send a test email or SMS to verify saved credentials."""
+    if payload.channel == "email":
+        creds = await _resolve_email_creds()
+        if not creds["api_key"]:
+            raise HTTPException(400, "Resend API key not set")
+        try:
+            result = await asyncio.to_thread(
+                _send_email_sync,
+                creds["api_key"],
+                creds["sender"],
+                payload.to,
+                "GigBlast — test email",
+                "<p>This is a test email from GigBlast settings. If you see this, your Resend credentials are working.</p>",
+            )
+            return {"ok": True, "result": result}
+        except Exception as e:
+            raise HTTPException(400, f"Email test failed: {e}")
+
+    if payload.channel == "sms":
+        creds = await _resolve_sms_creds()
+        if not (creds["sid"] and creds["token"] and creds["from_"]):
+            raise HTTPException(400, "Twilio credentials incomplete")
+        try:
+            result = await asyncio.to_thread(
+                _send_sms_sync,
+                creds["sid"],
+                creds["token"],
+                creds["from_"],
+                payload.to,
+                "GigBlast — test SMS. Your Twilio credentials are working.",
+            )
+            return {"ok": True, "result": result}
+        except Exception as e:
+            raise HTTPException(400, f"SMS test failed: {e}")
 
 
 # ---- Startup ---------------------------------------------------------------
