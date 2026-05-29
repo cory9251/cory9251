@@ -32,7 +32,7 @@ export default function WorkerLayout() {
               <Lightning weight="fill" size={14} />
             </div>
             <div>
-              <div className="font-display text-base font-black leading-none">GigBlast</div>
+              <div className="font-display text-base font-black leading-none">HCOB Network</div>
               <div className="font-mono-label text-[9px]">{user?.name}</div>
             </div>
           </div>

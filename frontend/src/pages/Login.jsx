@@ -48,17 +48,15 @@ export default function Login() {
           </Link>
           <div>
             <div className="font-display text-6xl font-black leading-[0.95]">
-              Blast.
+              Welcome back
               <br />
-              Track.
-              <br />
-              Fill.
+              to HCOB.
             </div>
             <div className="mt-6 max-w-md text-sm text-white/70">
-              Sign in to your operator console — or the worker app — with a single account.
+              Sign in to the HCOB Network — workers see their feed, HCOB staff see the operations console.
             </div>
           </div>
-          <div className="font-mono-label text-white/60">© GigBlast</div>
+          <div className="font-mono-label text-white/60">© HCOB Network</div>
         </div>
         <div className="flex items-center justify-center p-6 sm:p-12">
           <div className="w-full max-w-md">

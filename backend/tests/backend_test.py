@@ -1,4 +1,4 @@
-"""GigBlast backend regression tests (pytest)."""
+"""HCOB Network backend regression tests (pytest)."""
 import os
 import io
 import uuid
@@ -8,14 +8,17 @@ import pytest
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://work-connect-147.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "admin@gigblast.com"
-ADMIN_PASSWORD = "GigBlast2026!"
+# New seeded admin (iter-4 rebrand)
+ADMIN_EMAIL = "admin@hcobcleaners.com"
+ADMIN_PASSWORD = "HcobAdmin2026!"
+# Legacy admin must still work (back-compat)
+LEGACY_ADMIN_EMAIL = "admin@gigblast.com"
+LEGACY_ADMIN_PASSWORD = "GigBlast2026!"
 
 UNIQUE = uuid.uuid4().hex[:8]
 WORKER_EMAIL = f"TEST_worker_{UNIQUE}@example.com"
 WORKER2_EMAIL = f"TEST_worker2_{UNIQUE}@example.com"
 WORKER_PASSWORD = "Worker123!"
-NEW_ADMIN_EMAIL = f"TEST_admin_{UNIQUE}@example.com"
 
 
 # ---- Fixtures ---------------------------------------------------------------
@@ -58,7 +61,10 @@ def worker2_session():
 def test_root_health():
     r = requests.get(f"{API}/")
     assert r.status_code == 200
-    assert r.json().get("ok") is True
+    data = r.json()
+    assert data.get("ok") is True
+    # iter-4: service renamed
+    assert data.get("service") == "hcob-network", f"expected service=hcob-network got {data}"
 
 
 # ---- Auth -------------------------------------------------------------------
@@ -70,16 +76,39 @@ def test_auth_me_with_cookie(admin_session):
     r = admin_session.get(f"{API}/auth/me")
     assert r.status_code == 200
     assert r.json()["email"] == ADMIN_EMAIL
+    assert r.json()["role"] == "admin"
 
 
-def test_register_admin_role():
+def test_legacy_admin_login_still_works():
+    """iter-4: legacy admin@gigblast.com / GigBlast2026! must STILL return role=admin."""
     s = requests.Session()
+    r = s.post(f"{API}/auth/login", json={"email": LEGACY_ADMIN_EMAIL, "password": LEGACY_ADMIN_PASSWORD})
+    assert r.status_code == 200, f"legacy admin login failed: {r.status_code} {r.text}"
+    data = r.json()
+    assert data["role"] == "admin"
+    assert data["email"] == LEGACY_ADMIN_EMAIL
+    # cookie session also good
+    me = s.get(f"{API}/auth/me")
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin"
+
+
+def test_register_admin_role_is_silently_downgraded_to_worker():
+    """iter-4 SECURITY: client-supplied role=admin on /auth/register must be ignored.
+    User is created as worker regardless. Verified both via response and /auth/me."""
+    s = requests.Session()
+    email = f"TEST_hijack_{UNIQUE}@example.com"
     r = s.post(
         f"{API}/auth/register",
-        json={"email": NEW_ADMIN_EMAIL, "password": "Pwd12345!", "name": "Admin Two", "role": "admin"},
+        json={"email": email, "password": "Pwd12345!", "name": "Hijack Try", "role": "admin"},
     )
-    assert r.status_code == 200
-    assert r.json()["role"] == "admin"
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["role"] == "worker", f"SECURITY: role hijack possible — got {body['role']}"
+    # also verify via /auth/me with the issued session
+    me = s.get(f"{API}/auth/me")
+    assert me.status_code == 200
+    assert me.json()["role"] == "worker", "SECURITY: /auth/me reflects admin role after register hijack"
 
 
 def test_duplicate_register_fails(worker_session):

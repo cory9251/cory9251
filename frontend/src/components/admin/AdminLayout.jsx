@@ -34,7 +34,7 @@ export default function AdminLayout() {
             <Lightning weight="fill" size={18} />
           </div>
           <div>
-            <div className="font-display text-lg font-black leading-none">GigBlast</div>
+            <div className="font-display text-lg font-black leading-none">HCOB Network</div>
             <div className="font-mono-label text-[10px]">Operations Console</div>
           </div>
         </div>
@@ -81,7 +81,7 @@ export default function AdminLayout() {
             <div className="grid h-7 w-7 place-items-center bg-[#030712] text-white">
               <Lightning weight="fill" size={14} />
             </div>
-            <div className="font-display text-base font-black">GigBlast</div>
+            <div className="font-display text-base font-black">HCOB Network</div>
           </div>
           <button
             data-testid="admin-mobile-logout"

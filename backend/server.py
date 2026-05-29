@@ -256,13 +256,13 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
 # ----------------------------------------------------------------------------
 # FastAPI app
 # ----------------------------------------------------------------------------
-app = FastAPI(title="GigBlast API")
+app = FastAPI(title="HCOB Network API")
 api = APIRouter(prefix="/api")
 
 
 @api.get("/")
 async def root():
-    return {"service": "gigblast", "ok": True}
+    return {"service": "hcob-network", "ok": True}
 
 
 # ---- Auth ------------------------------------------------------------------
@@ -294,7 +294,8 @@ async def register(payload: RegisterIn, response: Response):
         "email": email,
         "password_hash": hash_password(payload.password),
         "name": payload.name,
-        "role": payload.role or "worker",
+        # Public registration is always worker — admins are seeded server-side only.
+        "role": "worker",
         "phone": "",
         "address": "",
         "bio": "",
@@ -680,7 +681,7 @@ def _format_gig_sms(gig: dict) -> str:
         if gig["pay_type"] == "hourly"
         else f"${gig['pay_rate']:.0f}"
     )
-    return f"[GigBlast] {gig['title']} — {gig['location']} — {gig['scheduled_date']} — {pay}. Open the app to accept."
+    return f"[HCOB Network] {gig['title']} — {gig['location']} — {gig['scheduled_date']} — {pay}. Open the app to accept."
 
 
 async def _get_settings_doc() -> dict:
@@ -946,7 +947,7 @@ async def test_settings(
                 creds["sender"],
                 payload.to,
                 "GigBlast — test email",
-                "<p>This is a test email from GigBlast settings. If you see this, your Resend credentials are working.</p>",
+                "<p>This is a test email from HCOB Network settings. If you see this, your Resend credentials are working.</p>",
             )
             return {"ok": True, "result": result}
         except Exception as e:
@@ -963,7 +964,7 @@ async def test_settings(
                 creds["token"],
                 creds["from_"],
                 payload.to,
-                "GigBlast — test SMS. Your Twilio credentials are working.",
+                "HCOB Network — test SMS. Your Twilio credentials are working.",
             )
             return {"ok": True, "result": result}
         except Exception as e:

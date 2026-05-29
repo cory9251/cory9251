@@ -3,11 +3,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/context/AuthContext";
 import { getErr } from "@/lib/api";
 import { toast } from "sonner";
-import { GoogleLogo, ArrowLeft } from "@phosphor-icons/react";
+import { GoogleLogo, ArrowLeft, CheckCircle } from "@phosphor-icons/react";
 
 export default function Register() {
   const { register } = useAuth();
@@ -15,7 +14,6 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("worker");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -24,8 +22,8 @@ export default function Register() {
     setErr("");
     setLoading(true);
     try {
-      const u = await register({ email, password, name, role });
-      toast.success("Account created");
+      const u = await register({ email, password, name, role: "worker" });
+      toast.success("Welcome to the HCOB crew");
       nav(u.role === "admin" ? "/admin" : "/app", { replace: true });
     } catch (e) {
       setErr(getErr(e));
@@ -51,19 +49,38 @@ export default function Register() {
           </Link>
           <div>
             <div className="font-display text-6xl font-black leading-[0.95]">
-              Join the crew.
+              Join the
+              <br />
+              HCOB crew.
             </div>
             <div className="mt-6 max-w-md text-sm text-white/70">
-              Workers get a profile, ID upload, and instant access to all open gigs near them.
+              Workers get a profile, ID upload, and direct access to every gig
+              HCOB Cleaners posts.
             </div>
+            <ul className="mt-8 space-y-2 text-sm text-white/80">
+              {[
+                "Cleaning, labor and driver gigs",
+                "Get notified by app, email, or SMS",
+                "Verified by HCOB · No middlemen",
+              ].map((b) => (
+                <li key={b} className="flex items-center gap-2">
+                  <CheckCircle size={16} weight="fill" className="text-[#0044FF]" /> {b}
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="font-mono-label text-white/60">© GigBlast</div>
+          <div className="font-mono-label text-white/60">© HCOB Network</div>
         </div>
 
         <div className="flex items-center justify-center p-6 sm:p-12">
           <div className="w-full max-w-md">
-            <div className="font-mono-label mb-2">Create account</div>
-            <h1 className="font-display text-4xl font-black tracking-tight">Get started</h1>
+            <div className="font-mono-label mb-2">New worker</div>
+            <h1 className="font-display text-4xl font-black tracking-tight">
+              Create your account
+            </h1>
+            <p className="mt-2 text-sm text-[#4B5563]">
+              Free for HCOB workers. Use email or continue with Google.
+            </p>
 
             <form onSubmit={submit} className="mt-8 space-y-4">
               <div>
@@ -103,40 +120,6 @@ export default function Register() {
                 />
               </div>
 
-              <div>
-                <Label className="font-mono-label">I am</Label>
-                <RadioGroup
-                  value={role}
-                  onValueChange={setRole}
-                  className="mt-2 grid grid-cols-2 gap-2"
-                >
-                  <label
-                    data-testid="role-worker"
-                    className={`flex cursor-pointer items-center gap-3 border p-3 ${
-                      role === "worker" ? "border-[#0044FF] bg-[#F0F4FF]" : "border-[#E5E7EB]"
-                    }`}
-                  >
-                    <RadioGroupItem value="worker" id="rw" />
-                    <div>
-                      <div className="text-sm font-semibold">A Worker</div>
-                      <div className="text-xs text-[#4B5563]">Find & accept gigs</div>
-                    </div>
-                  </label>
-                  <label
-                    data-testid="role-admin"
-                    className={`flex cursor-pointer items-center gap-3 border p-3 ${
-                      role === "admin" ? "border-[#0044FF] bg-[#F0F4FF]" : "border-[#E5E7EB]"
-                    }`}
-                  >
-                    <RadioGroupItem value="admin" id="ra" />
-                    <div>
-                      <div className="text-sm font-semibold">A Manager</div>
-                      <div className="text-xs text-[#4B5563]">Post & blast gigs</div>
-                    </div>
-                  </label>
-                </RadioGroup>
-              </div>
-
               {err && (
                 <div data-testid="register-error" className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                   {err}
@@ -149,7 +132,7 @@ export default function Register() {
                 disabled={loading}
                 className="h-12 w-full rounded-none bg-[#030712] text-white hover:bg-[#1f2937]"
               >
-                {loading ? "Creating…" : "Create account"}
+                {loading ? "Creating…" : "Create my account"}
               </Button>
             </form>
 
@@ -169,10 +152,17 @@ export default function Register() {
             </Button>
 
             <div className="mt-8 text-sm text-[#4B5563]">
-              Already have an account?{" "}
+              Already on the crew?{" "}
               <Link to="/login" data-testid="link-login" className="font-semibold text-[#0044FF] hover:underline">
                 Sign in
               </Link>
+            </div>
+            <div className="mt-6 text-[11px] text-[#4B5563]">
+              HCOB management?{" "}
+              <Link to="/login" className="underline">
+                Sign in here
+              </Link>{" "}
+              with your admin credentials — no separate signup.
             </div>
           </div>
         </div>
