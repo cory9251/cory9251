@@ -38,6 +38,15 @@
 - Status cards in the UI flip between READY / NOT CONFIGURED so admins instantly see blast eligibility per channel
 - 50/50 backend tests passing (15 new + 35 regression)
 
+## Implemented — 2026-02 (Iteration 3: Calendar)
+- `/admin/calendar` month-grid view with category-colored chips (cleaning=blue, labor=black, driver=amber)
+- "Upcoming" sidebar shows next 5 scheduled gigs
+- Click an empty day → create-gig dialog pre-set to that date; click a chip → gig detail
+- New `scheduled_at` ISO datetime field added to gigs (legacy `scheduled_date` retained as display string)
+- Rewritten CreateGigDialog uses shadcn Calendar + Popover for date and Select hour/minute/AM-PM
+- Fixed `GET /api/gigs?status=all` to mean "no filter" (was matching the literal string)
+- 58/58 backend tests passing (8 new + 50 regression)
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)
