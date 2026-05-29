@@ -30,6 +30,14 @@
 - Seeded admin: `admin@gigblast.com / GigBlast2026!`
 - 35/35 backend tests passing, end-to-end UI flows verified
 
+## Implemented — 2026-02 (Iteration 2: Admin Settings)
+- `/admin/settings` page with Resend + Twilio credential management
+- Backend `app_settings` collection (singleton); secrets masked on read (`has_value`, `last4`); DB values override env on every blast
+- Partial-update PUT semantics: omitted field = unchanged, empty string = cleared
+- `/admin/settings/test` endpoint to dry-run email or SMS with saved creds
+- Status cards in the UI flip between READY / NOT CONFIGURED so admins instantly see blast eligibility per channel
+- 50/50 backend tests passing (15 new + 35 regression)
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)
