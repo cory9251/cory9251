@@ -27,7 +27,7 @@ export default function AdminLayout() {
     navigate("/", { replace: true });
   };
   return (
-    <div className="flex min-h-screen bg-white" data-testid="admin-layout">
+    <div className="flex min-h-screen flex-col bg-white md:flex-row" data-testid="admin-layout">
       <aside className="hidden md:flex w-64 flex-col border-r border-[#E5E7EB] bg-white">
         <div className="flex items-center gap-2 border-b border-[#E5E7EB] px-6 py-5">
           <div className="grid h-8 w-8 place-items-center bg-[#030712] text-white">
