@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import {
   Select,
@@ -17,6 +18,9 @@ import {
   MapPin,
   Clock,
   CheckCircle,
+  IdentificationCard,
+  ShieldCheck,
+  CaretRight,
 } from "@phosphor-icons/react";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -25,6 +29,9 @@ export default function WorkerFeed() {
   const [gigs, setGigs] = useState([]);
   const [category, setCategory] = useState("all");
   const nav = useNavigate();
+  const { user } = useAuth();
+  const needsId = !user?.id_image_path;
+  const awaitingVerification = !!user?.id_image_path && !user?.id_verified;
 
   const load = async () => {
     try {
@@ -48,6 +55,33 @@ export default function WorkerFeed() {
       <h1 className="mt-1 font-display text-3xl font-black tracking-tight">
         Open gigs
       </h1>
+
+      {(needsId || awaitingVerification) && (
+        <button
+          data-testid="verification-banner"
+          onClick={() => nav("/app/profile")}
+          className="mt-4 flex w-full items-start gap-3 rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-4 text-left hover:bg-[#FEF3C7]"
+        >
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#F59E0B] text-white">
+            {needsId ? (
+              <IdentificationCard size={20} weight="duotone" />
+            ) : (
+              <ShieldCheck size={20} weight="fill" />
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="font-display text-sm font-bold text-[#92400E]">
+              {needsId ? "Upload your ID to claim gigs" : "Awaiting HCOB verification"}
+            </div>
+            <div className="mt-0.5 text-xs text-[#92400E]/80">
+              {needsId
+                ? "You can browse, but you need a verified ID before accepting."
+                : "Your ID is in review. You'll be able to accept gigs as soon as HCOB verifies you."}
+            </div>
+          </div>
+          <CaretRight size={18} className="mt-1 shrink-0 text-[#92400E]" />
+        </button>
+      )}
 
       <div className="mt-4">
         <Select value={category} onValueChange={setCategory}>

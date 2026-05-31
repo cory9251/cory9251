@@ -20,6 +20,26 @@ WORKER_EMAIL = f"TEST_worker_{UNIQUE}@example.com"
 WORKER2_EMAIL = f"TEST_worker2_{UNIQUE}@example.com"
 WORKER_PASSWORD = "Worker123!"
 
+# 1x1 PNG used by fixtures and tests
+PNG_BYTES = bytes.fromhex(
+    "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4"
+    "890000000D49444154789C636060606000000005000150E2C53A0000000049454E44AE426082"
+)
+
+
+def _verify_worker_via_admin(worker_sess: requests.Session) -> None:
+    """Iter-6: upload an ID + have admin mark verified so /accept calls succeed."""
+    import io as _io
+    files = {"file": ("id.png", _io.BytesIO(PNG_BYTES), "image/png")}
+    r = worker_sess.post(f"{API}/profile/id", files=files)
+    assert r.status_code == 200, f"upload_id failed: {r.status_code} {r.text}"
+    me = worker_sess.get(f"{API}/auth/me").json()
+    a = requests.Session()
+    ra = a.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    assert ra.status_code == 200, ra.text
+    rv = a.post(f"{API}/admin/workers/{me['user_id']}/verify-id")
+    assert rv.status_code == 200, rv.text
+
 
 # ---- Fixtures ---------------------------------------------------------------
 @pytest.fixture(scope="module")
@@ -43,6 +63,7 @@ def worker_session():
     user = r.json()
     assert user["role"] == "worker"
     assert user["email"].lower() == WORKER_EMAIL.lower()
+    _verify_worker_via_admin(s)
     return s
 
 
@@ -54,6 +75,7 @@ def worker2_session():
         json={"email": WORKER2_EMAIL, "password": WORKER_PASSWORD, "name": "Test Worker 2", "role": "worker"},
     )
     assert r.status_code == 200, f"worker2 register failed: {r.status_code} {r.text}"
+    _verify_worker_via_admin(s)
     return s
 
 

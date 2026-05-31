@@ -22,6 +22,29 @@ BASE_URL = _load_backend_url()
 ADMIN_EMAIL = "admin@gigblast.com"
 ADMIN_PASSWORD = "GigBlast2026!"
 
+_PNG = bytes.fromhex(
+    "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4"
+    "890000000D49444154789C636060606000000005000150E2C53A0000000049454E44AE426082"
+)
+
+
+def _verify_worker(ws: requests.Session) -> None:
+    """Iter-6: upload ID + admin verify so worker can /accept."""
+    import io as _io
+    files = {"file": ("id.png", _io.BytesIO(_PNG), "image/png")}
+    # multipart upload requires the session NOT to force application/json
+    saved_ct = ws.headers.pop("Content-Type", None)
+    r = ws.post(f"{BASE_URL}/api/profile/id", files=files)
+    if saved_ct:
+        ws.headers["Content-Type"] = saved_ct
+    assert r.status_code == 200, r.text
+    me = ws.get(f"{BASE_URL}/api/auth/me").json()
+    a = requests.Session()
+    a.post(f"{BASE_URL}/api/auth/login",
+           json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    rv = a.post(f"{BASE_URL}/api/admin/workers/{me['user_id']}/verify-id")
+    assert rv.status_code == 200, rv.text
+
 
 def _api(session=None):
     s = session or requests.Session()
@@ -47,6 +70,7 @@ def worker_session():
                      "name": "Cal Worker", "role": "worker"})
     assert r.status_code == 200, r.text
     s.email = email  # type: ignore
+    _verify_worker(s)
     return s
 
 

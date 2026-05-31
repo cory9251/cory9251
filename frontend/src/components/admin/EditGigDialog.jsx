@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { format } from "date-fns";
+import React, { useEffect, useState } from "react";
+import { format, parseISO } from "date-fns";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -36,6 +36,20 @@ const SUBCATS = {
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
 const MINUTES = ["00", "15", "30", "45"];
 
+function decomposeTime(iso) {
+  if (!iso) return { date: new Date(), hour: "9", minute: "00", ampm: "AM" };
+  const d = parseISO(iso);
+  let h = d.getHours();
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  const m = d.getMinutes();
+  const rounded = MINUTES.reduce(
+    (best, cur) => (Math.abs(parseInt(cur) - m) < Math.abs(parseInt(best) - m) ? cur : best),
+    "00"
+  );
+  return { date: d, hour: String(h), minute: rounded, ampm };
+}
+
 function buildScheduledAt(date, hour12, minute, ampm) {
   if (!date) return { iso: null, display: "" };
   const h12 = parseInt(hour12, 10);
@@ -44,19 +58,11 @@ function buildScheduledAt(date, hour12, minute, ampm) {
   if (ampm === "PM") h24 += 12;
   const d = new Date(date);
   d.setHours(h24, min, 0, 0);
-  return {
-    iso: d.toISOString(),
-    display: format(d, "EEE MMM d · h:mm a"),
-  };
+  return { iso: d.toISOString(), display: format(d, "EEE MMM d · h:mm a") };
 }
 
-export default function CreateGigDialog({
-  open,
-  onOpenChange,
-  onCreated,
-  initialDate,
-}) {
-  const today = new Date();
+export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
+  const init = decomposeTime(gig?.scheduled_at);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -70,29 +76,43 @@ export default function CreateGigDialog({
     duration_hours: "",
     contact_phone: "",
   });
-  const [date, setDate] = useState(initialDate || today);
-  const [hour, setHour] = useState("9");
-  const [minute, setMinute] = useState("00");
-  const [ampm, setAmpm] = useState("AM");
+  const [date, setDate] = useState(init.date);
+  const [hour, setHour] = useState(init.hour);
+  const [minute, setMinute] = useState(init.minute);
+  const [ampm, setAmpm] = useState(init.ampm);
   const [loading, setLoading] = useState(false);
 
-  // Sync initialDate when reopened from calendar cell
-  React.useEffect(() => {
-    if (open && initialDate) setDate(initialDate);
-  }, [open, initialDate]);
+  useEffect(() => {
+    if (open && gig) {
+      setForm({
+        title: gig.title || "",
+        description: gig.description || "",
+        category: gig.category || "cleaning",
+        subcategory: gig.subcategory || SUBCATS[gig.category || "cleaning"][0],
+        location: gig.location || "",
+        address_line: gig.address_line || "",
+        pay_rate: gig.pay_rate != null ? String(gig.pay_rate) : "",
+        pay_type: gig.pay_type || "hourly",
+        slots: gig.slots ?? 1,
+        duration_hours: gig.duration_hours != null ? String(gig.duration_hours) : "",
+        contact_phone: gig.contact_phone || "",
+      });
+      const d = decomposeTime(gig.scheduled_at);
+      setDate(d.date);
+      setHour(d.hour);
+      setMinute(d.minute);
+      setAmpm(d.ampm);
+    }
+  }, [open, gig]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e) => {
     e.preventDefault();
-    const { iso, display } = buildScheduledAt(date, hour, minute, ampm);
-    if (!iso) {
-      toast.error("Pick a date");
-      return;
-    }
     setLoading(true);
     try {
-      await api.post("/gigs", {
+      const { iso, display } = buildScheduledAt(date, hour, minute, ampm);
+      await api.put(`/gigs/${gig.gig_id}`, {
         ...form,
         scheduled_date: display,
         scheduled_at: iso,
@@ -101,25 +121,12 @@ export default function CreateGigDialog({
         duration_hours: form.duration_hours
           ? parseFloat(form.duration_hours)
           : null,
+        // empty string clears address_line (treated as null on backend)
         address_line: form.address_line.trim() || null,
       });
-      toast.success("Gig created");
+      toast.success("Gig updated");
       onOpenChange(false);
-      onCreated && onCreated();
-      // Reset only the volatile fields
-      setForm({
-        title: "",
-        description: "",
-        category: "cleaning",
-        subcategory: "deep",
-        location: "",
-        address_line: "",
-        pay_rate: "",
-        pay_type: "hourly",
-        slots: 1,
-        duration_hours: "",
-        contact_phone: "",
-      });
+      onSaved && onSaved();
     } catch (e) {
       toast.error(getErr(e));
     } finally {
@@ -127,15 +134,17 @@ export default function CreateGigDialog({
     }
   };
 
+  if (!gig) return null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-2xl rounded-none border-[#030712] p-0"
-        data-testid="create-gig-dialog"
+        data-testid="edit-gig-dialog"
       >
         <DialogHeader className="border-b border-[#E5E7EB] px-6 py-4">
           <DialogTitle className="font-display text-2xl font-black tracking-tight">
-            Post a new gig
+            Edit gig
           </DialogTitle>
         </DialogHeader>
         <form
@@ -145,18 +154,17 @@ export default function CreateGigDialog({
           <div className="md:col-span-2">
             <Label className="font-mono-label">Title</Label>
             <Input
-              data-testid="gig-title"
+              data-testid="edit-gig-title"
               required
               value={form.title}
               onChange={(e) => set("title", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
-              placeholder="e.g. Deep clean — 4BR home"
             />
           </div>
           <div className="md:col-span-2">
             <Label className="font-mono-label">Description</Label>
             <Textarea
-              data-testid="gig-description"
+              data-testid="edit-gig-description"
               required
               rows={3}
               value={form.description}
@@ -174,10 +182,7 @@ export default function CreateGigDialog({
                 set("subcategory", SUBCATS[v][0]);
               }}
             >
-              <SelectTrigger
-                data-testid="gig-category"
-                className="mt-2 h-11 rounded-none border-[#030712]"
-              >
+              <SelectTrigger className="mt-2 h-11 rounded-none border-[#030712]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -194,10 +199,7 @@ export default function CreateGigDialog({
               value={form.subcategory}
               onValueChange={(v) => set("subcategory", v)}
             >
-              <SelectTrigger
-                data-testid="gig-subcategory"
-                className="mt-2 h-11 rounded-none border-[#030712]"
-              >
+              <SelectTrigger className="mt-2 h-11 rounded-none border-[#030712]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -213,7 +215,7 @@ export default function CreateGigDialog({
           <div className="md:col-span-2">
             <Label className="font-mono-label">Public location (street + zip)</Label>
             <Input
-              data-testid="gig-location"
+              data-testid="edit-gig-location"
               required
               value={form.location}
               onChange={(e) => set("location", e.target.value)}
@@ -230,7 +232,7 @@ export default function CreateGigDialog({
               <EyeSlash size={12} /> Full address (revealed on acceptance)
             </Label>
             <Input
-              data-testid="gig-address"
+              data-testid="edit-gig-address"
               value={form.address_line}
               onChange={(e) => set("address_line", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
@@ -241,7 +243,6 @@ export default function CreateGigDialog({
             </div>
           </div>
 
-          {/* Date picker + time row */}
           <div>
             <Label className="font-mono-label flex items-center gap-1.5">
               <CalendarBlank size={12} /> Date
@@ -250,18 +251,13 @@ export default function CreateGigDialog({
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  data-testid="gig-date-trigger"
                   className="mt-2 flex h-11 w-full items-center justify-between border border-[#030712] bg-white px-3 text-sm hover:bg-[#F9FAFB]"
                 >
                   <span>{date ? format(date, "EEE MMM d, yyyy") : "Pick a date"}</span>
                   <CalendarBlank size={16} className="text-[#4B5563]" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent
-                className="w-auto rounded-none border-[#030712] p-0"
-                align="start"
-                data-testid="gig-date-popover"
-              >
+              <PopoverContent className="w-auto rounded-none border-[#030712] p-0" align="start">
                 <Calendar
                   mode="single"
                   selected={date}
@@ -278,40 +274,27 @@ export default function CreateGigDialog({
             </Label>
             <div className="mt-2 grid grid-cols-3 gap-2">
               <Select value={hour} onValueChange={setHour}>
-                <SelectTrigger
-                  data-testid="gig-hour"
-                  className="h-11 rounded-none border-[#030712]"
-                >
+                <SelectTrigger className="h-11 rounded-none border-[#030712]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {HOURS.map((h) => (
-                    <SelectItem key={h} value={String(h)}>
-                      {h}
-                    </SelectItem>
+                    <SelectItem key={h} value={String(h)}>{h}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Select value={minute} onValueChange={setMinute}>
-                <SelectTrigger
-                  data-testid="gig-minute"
-                  className="h-11 rounded-none border-[#030712]"
-                >
+                <SelectTrigger className="h-11 rounded-none border-[#030712]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {MINUTES.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      :{m}
-                    </SelectItem>
+                    <SelectItem key={m} value={m}>:{m}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Select value={ampm} onValueChange={setAmpm}>
-                <SelectTrigger
-                  data-testid="gig-ampm"
-                  className="h-11 rounded-none border-[#030712]"
-                >
+                <SelectTrigger className="h-11 rounded-none border-[#030712]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -325,26 +308,18 @@ export default function CreateGigDialog({
           <div>
             <Label className="font-mono-label">Duration (hrs)</Label>
             <Input
-              data-testid="gig-duration"
               type="number"
               step="0.5"
               value={form.duration_hours}
               onChange={(e) => set("duration_hours", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
-              placeholder="4"
             />
           </div>
 
           <div>
             <Label className="font-mono-label">Pay type</Label>
-            <Select
-              value={form.pay_type}
-              onValueChange={(v) => set("pay_type", v)}
-            >
-              <SelectTrigger
-                data-testid="gig-paytype"
-                className="mt-2 h-11 rounded-none border-[#030712]"
-              >
+            <Select value={form.pay_type} onValueChange={(v) => set("pay_type", v)}>
+              <SelectTrigger className="mt-2 h-11 rounded-none border-[#030712]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -357,21 +332,19 @@ export default function CreateGigDialog({
           <div>
             <Label className="font-mono-label">Rate (USD)</Label>
             <Input
-              data-testid="gig-rate"
               type="number"
               step="0.01"
               required
               value={form.pay_rate}
               onChange={(e) => set("pay_rate", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
-              placeholder="25"
             />
           </div>
 
           <div>
             <Label className="font-mono-label">Slots</Label>
             <Input
-              data-testid="gig-slots"
+              data-testid="edit-gig-slots"
               type="number"
               min={1}
               required
@@ -379,16 +352,19 @@ export default function CreateGigDialog({
               onChange={(e) => set("slots", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
             />
+            {gig.slots_filled > 0 && (
+              <div className="mt-1 text-[11px] text-[#4B5563]">
+                {gig.slots_filled} worker(s) already accepted — slots can't go below this.
+              </div>
+            )}
           </div>
 
           <div>
             <Label className="font-mono-label">Contact phone</Label>
             <Input
-              data-testid="gig-contact"
               value={form.contact_phone}
               onChange={(e) => set("contact_phone", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
-              placeholder="+1 555 …"
             />
           </div>
 
@@ -402,12 +378,12 @@ export default function CreateGigDialog({
               Cancel
             </Button>
             <Button
-              data-testid="submit-create-gig"
+              data-testid="submit-edit-gig"
               type="submit"
               disabled={loading}
               className="rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
             >
-              {loading ? "Posting…" : "Post gig"}
+              {loading ? "Saving…" : "Save changes"}
             </Button>
           </div>
         </form>

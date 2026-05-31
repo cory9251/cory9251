@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +18,9 @@ import {
   Play,
   Stop,
   Timer,
+  IdentificationCard,
+  ShieldCheck,
+  EyeSlash,
 } from "@phosphor-icons/react";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -34,6 +38,7 @@ function elapsedFrom(iso) {
 export default function WorkerGigDetail() {
   const { gigId } = useParams();
   const nav = useNavigate();
+  const { user } = useAuth();
   const [gig, setGig] = useState(null);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState("0:00:00");
@@ -123,6 +128,11 @@ export default function WorkerGigDetail() {
   const completed = !!acc?.clock_out_at;
   const full = gig.slots_filled >= gig.slots && !accepted;
 
+  // Verification gates — only enforced for unaccepted workers
+  const hasId = !!user?.id_image_path;
+  const verified = !!user?.id_verified;
+  const canAccept = hasId && verified;
+
   return (
     <div className="px-5 py-6" data-testid="worker-gig-detail">
       <button
@@ -156,10 +166,33 @@ export default function WorkerGigDetail() {
           {gig.duration_hours && (
             <Row icon={Clock} label="Duration">{gig.duration_hours} hrs</Row>
           )}
-          {gig.contact_phone && (
+          {gig.contact_phone && accepted && (
             <Row icon={Phone} label="Contact">{gig.contact_phone}</Row>
           )}
         </div>
+
+        {/* Full address — only shown to workers who have accepted */}
+        {accepted && gig.address_line && (
+          <div
+            data-testid="full-address-card"
+            className="mt-4 rounded-xl border border-[#0044FF]/30 bg-[#F0F4FF] p-3"
+          >
+            <div className="font-mono-label flex items-center gap-1.5 text-[#0044FF]">
+              <MapPin size={12} weight="duotone" /> Full address
+            </div>
+            <div className="mt-1 font-display text-base font-bold">
+              {gig.address_line}
+            </div>
+          </div>
+        )}
+        {!accepted && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs text-[#4B5563]">
+            <EyeSlash size={14} weight="duotone" className="mt-0.5 shrink-0" />
+            <div>
+              Full address is revealed after you accept this gig.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Clock card — appears once accepted */}
@@ -258,6 +291,38 @@ export default function WorkerGigDetail() {
           )
         ) : full ? (
           <Button disabled className="h-14 w-full rounded-2xl">All slots filled</Button>
+        ) : !canAccept ? (
+          <div
+            data-testid="verification-required-card"
+            className="rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-5"
+          >
+            <div className="flex items-center gap-2 text-[#92400E]">
+              {hasId ? (
+                <ShieldCheck size={20} weight="fill" />
+              ) : (
+                <IdentificationCard size={20} weight="duotone" />
+              )}
+              <div className="font-display text-base font-bold">
+                {hasId
+                  ? "Awaiting HCOB verification"
+                  : "Upload your ID to claim gigs"}
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-[#92400E]/90">
+              {hasId
+                ? "Your ID is in. An HCOB admin needs to verify your account before you can accept any gigs. You'll be able to claim this gig as soon as you're verified."
+                : "Workers must upload a photo of a government ID and be verified by HCOB before claiming gigs."}
+            </p>
+            {!hasId && (
+              <Button
+                data-testid="go-to-profile-btn"
+                onClick={() => nav("/app/profile")}
+                className="mt-4 h-12 w-full rounded-2xl bg-[#030712] text-white"
+              >
+                Upload my ID →
+              </Button>
+            )}
+          </div>
         ) : (
           <Button
             data-testid="accept-gig-btn"

@@ -185,12 +185,30 @@ class GigIn(BaseModel):
     description: str
     category: GigCategory
     subcategory: Optional[str] = None
-    location: str
+    location: str  # PUBLIC preview — e.g. "Oak Ave · 94110" — visible to all workers
+    address_line: Optional[str] = None  # SENSITIVE — revealed only after accept
     scheduled_date: str  # display string (kept for backwards compat / human display)
     scheduled_at: Optional[str] = None  # ISO 8601 datetime — drives the calendar
     pay_rate: float
     pay_type: PayType
     slots: int = 1
+    duration_hours: Optional[float] = None
+    contact_phone: Optional[str] = None
+
+
+class GigPatch(BaseModel):
+    """All fields optional — partial update from the Edit dialog."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[GigCategory] = None
+    subcategory: Optional[str] = None
+    location: Optional[str] = None
+    address_line: Optional[str] = None
+    scheduled_date: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    pay_rate: Optional[float] = None
+    pay_type: Optional[PayType] = None
+    slots: Optional[int] = None
     duration_hours: Optional[float] = None
     contact_phone: Optional[str] = None
 
@@ -500,6 +518,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "category": payload.category,
         "subcategory": payload.subcategory,
         "location": payload.location,
+        "address_line": payload.address_line,
         "scheduled_date": payload.scheduled_date,
         "scheduled_at": payload.scheduled_at,
         "pay_rate": payload.pay_rate,
@@ -515,6 +534,15 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "last_blast_at": None,
         "blast_channels": [],
     }
+
+
+def _strip_sensitive_for_worker(gig: dict, my_acceptance: Optional[dict]) -> dict:
+    """Hide address_line from workers who have NOT accepted the gig."""
+    if my_acceptance:
+        return gig
+    g = dict(gig)
+    g.pop("address_line", None)
+    return g
 
 
 @api.post("/gigs")
@@ -543,15 +571,19 @@ async def list_gigs(
 
     gigs = await db.gigs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
 
-    # For workers, attach acceptance state
+    # For workers, attach acceptance state + hide sensitive address until accepted
     if user.get("role") == "worker":
         accepted = await db.gig_acceptances.find(
             {"worker_id": user["user_id"]}, {"_id": 0}
         ).to_list(1000)
         accepted_map = {a["gig_id"]: a for a in accepted}
+        out = []
         for g in gigs:
             a = accepted_map.get(g["gig_id"])
+            g = _strip_sensitive_for_worker(g, a)
             g["my_acceptance"] = a
+            out.append(g)
+        return out
     return gigs
 
 
@@ -582,6 +614,7 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
         my = await db.gig_acceptances.find_one(
             {"gig_id": gig_id, "worker_id": user["user_id"]}, {"_id": 0}
         )
+        gig = _strip_sensitive_for_worker(gig, my)
         gig["my_acceptance"] = my
     return gig
 
@@ -595,10 +628,93 @@ async def delete_gig(gig_id: str, admin: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+@api.put("/gigs/{gig_id}")
+async def update_gig(
+    gig_id: str, payload: GigPatch, admin: dict = Depends(require_admin)
+):
+    """Partial update of a gig. Validates slots vs slots_filled and recomputes status."""
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "slots" in updates:
+        new_slots = int(updates["slots"])
+        filled = int(gig.get("slots_filled") or 0)
+        if new_slots < filled:
+            raise HTTPException(
+                400,
+                f"Cannot reduce slots below current acceptances ({filled} workers already accepted)",
+            )
+        # Re-evaluate status when slot count changes
+        if filled >= new_slots:
+            updates["status"] = "filled"
+        elif gig.get("status") == "filled" and filled < new_slots:
+            updates["status"] = "open"
+
+    if not updates:
+        return {**gig, "_id": None} if False else {k: v for k, v in gig.items() if k != "_id"}
+
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updates["updated_by"] = admin["email"]
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": updates})
+    fresh = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
+    return fresh
+
+
+@api.post("/gigs/{gig_id}/duplicate")
+async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
+    """Clone an existing gig into a fresh, empty 'open' gig."""
+    src = await db.gigs.find_one({"gig_id": gig_id})
+    if not src:
+        raise HTTPException(404, "Gig not found")
+    title = src.get("title") or "Gig"
+    suffix = " (copy)" if not title.endswith(" (copy)") else ""
+    doc = {
+        "gig_id": f"gig_{uuid.uuid4().hex[:12]}",
+        "title": f"{title}{suffix}",
+        "description": src.get("description") or "",
+        "category": src.get("category"),
+        "subcategory": src.get("subcategory"),
+        "location": src.get("location"),
+        "address_line": src.get("address_line"),
+        "scheduled_date": src.get("scheduled_date"),
+        "scheduled_at": src.get("scheduled_at"),
+        "pay_rate": src.get("pay_rate"),
+        "pay_type": src.get("pay_type"),
+        "slots": src.get("slots") or 1,
+        "slots_filled": 0,
+        "duration_hours": src.get("duration_hours"),
+        "contact_phone": src.get("contact_phone"),
+        "status": "open",
+        "created_by": admin["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "blast_count": 0,
+        "last_blast_at": None,
+        "blast_channels": [],
+        "duplicated_from": gig_id,
+    }
+    await db.gigs.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
 @api.post("/gigs/{gig_id}/accept")
 async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
     if user.get("role") != "worker":
         raise HTTPException(403, "Only workers can accept gigs")
+
+    # Verification gate — workers can only claim gigs once their ID is uploaded AND
+    # HCOB has marked them verified.
+    if not user.get("id_image_path"):
+        raise HTTPException(
+            403, "Upload a photo of your ID on your profile before accepting gigs"
+        )
+    if not user.get("id_verified"):
+        raise HTTPException(
+            403, "Your account is awaiting verification by HCOB before you can accept gigs"
+        )
+
     gig = await db.gigs.find_one({"gig_id": gig_id})
     if not gig:
         raise HTTPException(404, "Gig not found")

@@ -25,17 +25,23 @@ import {
   ArrowLeft,
   Megaphone,
   Trash,
+  Copy,
+  PencilSimple,
   EnvelopeSimple,
   DeviceMobile,
   Bell,
   CheckCircle,
+  EyeSlash,
 } from "@phosphor-icons/react";
+import EditGigDialog from "@/components/admin/EditGigDialog";
 
 export default function GigDetail() {
   const { gigId } = useParams();
   const nav = useNavigate();
   const [gig, setGig] = useState(null);
   const [blastOpen, setBlastOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [channels, setChannels] = useState({ in_app: true, email: false, sms: false });
   const [blasting, setBlasting] = useState(false);
 
@@ -60,6 +66,19 @@ export default function GigDetail() {
       nav("/admin/gigs");
     } catch (e) {
       toast.error(getErr(e));
+    }
+  };
+
+  const duplicate = async () => {
+    setDuplicating(true);
+    try {
+      const { data } = await api.post(`/gigs/${gigId}/duplicate`);
+      toast.success("Gig duplicated");
+      nav(`/admin/gigs/${data.gig_id}`);
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -115,7 +134,7 @@ export default function GigDetail() {
           <p className="mt-4 text-[#4B5563] leading-relaxed">{gig.description}</p>
 
           <dl className="mt-8 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-            <Item label="Location" value={gig.location} />
+            <Item label="Public location" value={gig.location} />
             <Item label="When" value={gig.scheduled_date} />
             <Item
               label="Pay"
@@ -129,6 +148,17 @@ export default function GigDetail() {
             <Item label="Status" value={gig.status.toUpperCase()} />
             <Item label="Blasts" value={String(gig.blast_count || 0)} />
           </dl>
+
+          {gig.address_line && (
+            <div className="mt-6 border border-[#0044FF]/30 bg-[#F0F4FF] p-4">
+              <div className="font-mono-label flex items-center gap-2 text-[#0044FF]">
+                <EyeSlash size={12} weight="duotone" /> Full address (workers only see after accept)
+              </div>
+              <div className="mt-2 font-display text-base font-bold text-[#030712]">
+                {gig.address_line}
+              </div>
+            </div>
+          )}
         </div>
 
         <aside className="bg-[#F9FAFB] p-6 md:p-10">
@@ -141,6 +171,25 @@ export default function GigDetail() {
             className="mt-6 h-12 w-full rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
           >
             <Megaphone size={18} className="mr-2" weight="fill" /> Blast to workers
+          </Button>
+
+          <Button
+            data-testid="edit-gig-btn"
+            onClick={() => setEditOpen(true)}
+            variant="outline"
+            className="mt-3 h-12 w-full rounded-none border-[#030712]"
+          >
+            <PencilSimple size={18} className="mr-2" /> Edit gig
+          </Button>
+
+          <Button
+            data-testid="duplicate-gig-btn"
+            onClick={duplicate}
+            disabled={duplicating}
+            variant="outline"
+            className="mt-3 h-12 w-full rounded-none border-[#030712]"
+          >
+            <Copy size={18} className="mr-2" /> {duplicating ? "Duplicating…" : "Duplicate"}
           </Button>
 
           <AlertDialog>
@@ -248,8 +297,7 @@ export default function GigDetail() {
         )}
       </div>
 
-      <Dialog open={blastOpen} onOpenChange={setBlastOpen}>
-        <DialogContent className="max-w-lg rounded-none border-[#030712]" data-testid="blast-dialog">
+      <Dialog open={blastOpen} onOpenChange={setBlastOpen}>        <DialogContent className="max-w-lg rounded-none border-[#030712]" data-testid="blast-dialog">
           <DialogHeader>
             <DialogTitle className="font-display text-2xl font-black">
               Blast this gig
@@ -298,6 +346,13 @@ export default function GigDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <EditGigDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        gig={gig}
+        onSaved={load}
+      />
     </div>
   );
 }

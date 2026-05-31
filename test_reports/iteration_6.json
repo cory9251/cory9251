@@ -1,0 +1,38 @@
+{
+  "summary": "Iter-6 testing complete. 91/91 backend tests pass (75 prior + 16 new). All critical iter-6 UI flows verified: admin Edit/Duplicate buttons on gig detail, EditGigDialog pre-populated with location+address, Duplicate creates new gig with '(copy)' title, worker verification banner on /app feed (both 'Upload your ID' and 'Awaiting HCOB' wording), worker verification-required-card on gig detail (with go-to-profile-btn when no ID, without it when ID is uploaded but unverified), accept-gig-btn correctly hidden until verified, full-address-card correctly hidden until accept (sensitive address absent from DOM), and the 'Full address is revealed after you accept' hint shown.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_calendar.py",
+    "/app/backend/tests/test_iter5.py",
+    "/app/test_reports/pytest/all_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is large (>1.6k lines). Consider splitting iter-6 endpoints (PUT /gigs/{id}, POST /gigs/{id}/duplicate, _strip_sensitive_for_worker) into a dedicated gigs router module to keep server.py under the 700-line guideline.",
+    "Regression risk: re-uploading an ID resets id_verified=False (server.py line ~477). This is correct behavior but worth documenting on the worker profile UI so a verified worker doesn't accidentally lose access by re-uploading.",
+    "EditGigDialog and CreateGigDialog share ~80% of the same field-render code. Extract a shared <GigFormFields/> component to remove duplication."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (worker_session + worker2_session fixtures now upload ID + admin-verify so /accept succeeds with the new iter-6 gate)",
+    "/app/backend/tests/test_calendar.py (worker_session fixture now uploads ID + admin-verify; Content-Type header temporarily removed during multipart upload)",
+    "/app/backend/tests/test_iter5.py (_new_worker helper now uploads ID + admin-verify)",
+    "/app/backend/tests/test_iter6.py (NEW — 16 tests covering address_line privacy, verification gate, PUT edit semantics, and POST /duplicate)"
+  ],
+  "success_rate": {"backend": "100% (91/91)", "frontend": "100% (all iter-6 UI flows verified)"},
+  "test_credentials": "Admin: admin@hcobcleaners.com / HcobAdmin2026! (loaded from backend/.env)",
+  "seed_data_creation": "Test workers (TEST_uiw2_*, TEST_uiw3_*) and one duplicated gig 'TEST_iter5_enrich_11d255 (copy)' left in DB. Backend pytest fixtures clean up TEST_-prefixed data they own.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iter-6 backend endpoints (address_line in POST/GET/PUT, /duplicate, verification gate on /accept) work end-to-end. The verified-worker accept->full-address-reveal path was covered via API in test_iter6.py::TestVerificationGate::test_verified_can_accept_and_sees_address (passes) and via UI hidden-then-shown states. The accepted-worker UI screenshot path (full-address-card actually rendering) was deliberately not driven through Playwright to avoid permanently filling slots on shared gigs; the backend test exercises that response shape directly. Admin Create dialog uses testids gig-location/gig-address; Edit dialog uses edit-gig-location/edit-gig-address — both confirmed.",
+  "rca of the issue": "N/A — no issues found."
+}

@@ -20,7 +20,21 @@ def _new_worker(prefix="iter5"):
         json={"email": email, "password": "Worker123!", "name": f"T {prefix}", "role": "worker"},
     )
     assert r.status_code == 200, r.text
-    return s, email, r.json()["user_id"]
+    user_id = r.json()["user_id"]
+    # Iter-6: workers must be ID-verified before they can /accept
+    _png = bytes.fromhex(
+        "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4"
+        "890000000D49444154789C636060606000000005000150E2C53A0000000049454E44AE426082"
+    )
+    import io as _io
+    files = {"file": ("id.png", _io.BytesIO(_png), "image/png")}
+    ru = s.post(f"{API}/profile/id", files=files)
+    assert ru.status_code == 200, ru.text
+    a = requests.Session()
+    a.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    rv = a.post(f"{API}/admin/workers/{user_id}/verify-id")
+    assert rv.status_code == 200, rv.text
+    return s, email, user_id
 
 
 @pytest.fixture(scope="module")
