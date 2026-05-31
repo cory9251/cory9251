@@ -25,7 +25,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarBlank, Clock, EyeSlash } from "@phosphor-icons/react";
+import { CalendarBlank, Clock, EyeSlash, Repeat } from "@phosphor-icons/react";
 
 const SUBCATS = {
   cleaning: ["deep", "routine", "moveout", "specialty"],
@@ -74,6 +74,8 @@ export default function CreateGigDialog({
   const [hour, setHour] = useState("9");
   const [minute, setMinute] = useState("00");
   const [ampm, setAmpm] = useState("AM");
+  const [recurrence, setRecurrence] = useState("none");
+  const [repeatCount, setRepeatCount] = useState(4);
   const [loading, setLoading] = useState(false);
 
   // Sync initialDate when reopened from calendar cell
@@ -92,7 +94,7 @@ export default function CreateGigDialog({
     }
     setLoading(true);
     try {
-      await api.post("/gigs", {
+      const res = await api.post("/gigs", {
         ...form,
         scheduled_date: display,
         scheduled_at: iso,
@@ -102,8 +104,11 @@ export default function CreateGigDialog({
           ? parseFloat(form.duration_hours)
           : null,
         address_line: form.address_line.trim() || null,
+        recurrence,
+        repeat_count: recurrence === "none" ? 1 : parseInt(repeatCount || 1),
       });
-      toast.success("Gig created");
+      const count = res?.data?.created_count || 1;
+      toast.success(count > 1 ? `Created ${count} recurring gigs` : "Gig created");
       onOpenChange(false);
       onCreated && onCreated();
       // Reset only the volatile fields
@@ -390,6 +395,54 @@ export default function CreateGigDialog({
               className="mt-2 h-11 rounded-none border-[#030712]"
               placeholder="+1 555 …"
             />
+          </div>
+
+          <div className="md:col-span-2 border-t border-[#E5E7EB] pt-4">
+            <Label className="font-mono-label flex items-center gap-1.5">
+              <Repeat size={12} /> Recurrence
+            </Label>
+            <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+              <Select value={recurrence} onValueChange={setRecurrence}>
+                <SelectTrigger
+                  data-testid="gig-recurrence"
+                  className="h-11 rounded-none border-[#030712]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">One-time (no repeat)</SelectItem>
+                  <SelectItem value="daily">Every day</SelectItem>
+                  <SelectItem value="weekly">Every week</SelectItem>
+                  <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                  <SelectItem value="monthly">Every month</SelectItem>
+                </SelectContent>
+              </Select>
+              {recurrence !== "none" && (
+                <Input
+                  data-testid="gig-repeat-count"
+                  type="number"
+                  min={2}
+                  max={52}
+                  value={repeatCount}
+                  onChange={(e) => setRepeatCount(e.target.value)}
+                  className="h-11 rounded-none border-[#030712]"
+                  placeholder="How many occurrences? (max 52)"
+                />
+              )}
+            </div>
+            {recurrence !== "none" && (
+              <div className="mt-1 text-[11px] text-[#4B5563]">
+                Creates {repeatCount || 0} gigs spaced{" "}
+                {recurrence === "daily"
+                  ? "1 day"
+                  : recurrence === "weekly"
+                  ? "1 week"
+                  : recurrence === "biweekly"
+                  ? "2 weeks"
+                  : "1 month"}{" "}
+                apart, starting from the date above.
+              </div>
+            )}
           </div>
 
           <div className="md:col-span-2 mt-2 flex justify-end gap-3 border-t border-[#E5E7EB] pt-4">

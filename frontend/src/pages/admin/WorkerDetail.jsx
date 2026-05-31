@@ -32,6 +32,10 @@ import {
   Trash,
   Copy,
   Warning,
+  ClockCounterClockwise,
+  Prohibit,
+  PauseCircle,
+  ThumbsUp,
 } from "@phosphor-icons/react";
 
 export default function WorkerDetail() {
@@ -105,6 +109,23 @@ export default function WorkerDetail() {
       await api.delete(`/admin/workers/${userId}`);
       toast.success("Worker deleted");
       nav("/admin/workers");
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
+  const setStatus = async (action) => {
+    try {
+      await api.post(`/admin/workers/${userId}/${action}`, {});
+      toast.success(
+        {
+          approve: "Worker approved",
+          reject: "Worker rejected",
+          suspend: "Worker suspended",
+          reinstate: "Worker reinstated",
+        }[action]
+      );
+      load();
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -203,7 +224,9 @@ export default function WorkerDetail() {
         </div>
 
         <aside className="bg-[#F9FAFB] p-6 md:p-10">
-          <div className="font-mono-label">Verification</div>
+          <ApplicationStatusCard worker={w} onAction={setStatus} />
+
+          <div className="mt-8 font-mono-label">Verification</div>
           {w.id_image_path ? (
             <>
               <div className="mt-3 overflow-hidden border border-[#E5E7EB] bg-white">
@@ -392,6 +415,104 @@ function StatusPill({ s }) {
     <span className={`inline-block px-2 py-0.5 text-[10px] font-bold tracking-widest text-white ${m.bg}`}>
       {m.label}
     </span>
+  );
+}
+
+function ApplicationStatusCard({ worker, onAction }) {
+  const status = worker.worker_status || "approved";
+  const meta = {
+    pending: {
+      bg: "bg-[#FFFBEB]",
+      border: "border-[#F59E0B]/40",
+      icon: ClockCounterClockwise,
+      title: "Application pending",
+      desc: "This worker registered and is waiting for you to review them.",
+      tone: "text-[#92400E]",
+    },
+    approved: {
+      bg: "bg-[#ECFDF5]",
+      border: "border-[#10B981]/30",
+      icon: CheckCircle,
+      title: "Approved",
+      desc: "Approved to claim gigs (subject to ID verification).",
+      tone: "text-[#065F46]",
+    },
+    rejected: {
+      bg: "bg-[#FEF2F2]",
+      border: "border-[#EF4444]/30",
+      icon: Prohibit,
+      title: "Rejected",
+      desc: "Cannot claim gigs. Reinstate to re-enable.",
+      tone: "text-[#991B1B]",
+    },
+    suspended: {
+      bg: "bg-[#F3F4F6]",
+      border: "border-[#9CA3AF]/40",
+      icon: PauseCircle,
+      title: "Suspended",
+      desc: "Account is suspended. Reinstate to re-enable.",
+      tone: "text-[#374151]",
+    },
+  }[status] || {
+    bg: "bg-[#F9FAFB]",
+    border: "border-[#E5E7EB]",
+    icon: CheckCircle,
+    title: status.toUpperCase(),
+    desc: "",
+    tone: "text-[#030712]",
+  };
+  const Icon = meta.icon;
+  return (
+    <div
+      data-testid="application-status-card"
+      className={`rounded-none border ${meta.border} ${meta.bg} p-4`}
+    >
+      <div className="font-mono-label">Application status</div>
+      <div className={`mt-2 flex items-center gap-2 ${meta.tone}`}>
+        <Icon size={20} weight="fill" />
+        <div className="font-display text-lg font-black">{meta.title}</div>
+      </div>
+      <p className={`mt-2 text-xs ${meta.tone}/90`}>{meta.desc}</p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {status !== "approved" && (
+          <Button
+            data-testid="approve-btn"
+            onClick={() => onAction(status === "rejected" || status === "suspended" ? "reinstate" : "approve")}
+            className="h-9 rounded-none bg-[#10B981] text-white hover:bg-[#0e9971]"
+          >
+            <ThumbsUp size={14} className="mr-1" weight="fill" />
+            {status === "rejected" || status === "suspended" ? "Reinstate" : "Approve"}
+          </Button>
+        )}
+        {status !== "rejected" && (
+          <Button
+            data-testid="reject-btn"
+            onClick={() => onAction("reject")}
+            variant="outline"
+            className="h-9 rounded-none border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+          >
+            <Prohibit size={14} className="mr-1" /> Reject
+          </Button>
+        )}
+        {status === "approved" && (
+          <Button
+            data-testid="suspend-btn"
+            onClick={() => onAction("suspend")}
+            variant="outline"
+            className="h-9 rounded-none border-[#4B5563] text-[#4B5563] hover:bg-[#4B5563] hover:text-white"
+          >
+            <PauseCircle size={14} className="mr-1" /> Suspend
+          </Button>
+        )}
+      </div>
+      {worker.worker_status_at && (
+        <div className="mt-3 font-mono-label text-[10px]">
+          Updated {new Date(worker.worker_status_at).toLocaleString()}
+          {worker.worker_status_by ? ` by ${worker.worker_status_by}` : ""}
+        </div>
+      )}
+    </div>
   );
 }
 

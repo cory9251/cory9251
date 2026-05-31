@@ -39,6 +39,9 @@ def _verify_worker_via_admin(worker_sess: requests.Session) -> None:
     assert ra.status_code == 200, ra.text
     rv = a.post(f"{API}/admin/workers/{me['user_id']}/verify-id")
     assert rv.status_code == 200, rv.text
+    # Iter-7: workers also need approval status to /accept gigs
+    rap = a.post(f"{API}/admin/workers/{me['user_id']}/approve")
+    assert rap.status_code == 200, rap.text
 
 
 # ---- Fixtures ---------------------------------------------------------------

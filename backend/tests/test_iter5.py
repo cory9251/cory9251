@@ -5,7 +5,19 @@ import uuid
 import requests
 import pytest
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+def _load_backend_url() -> str:
+    if os.environ.get("REACT_APP_BACKEND_URL"):
+        return os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
+    env_path = "/app/frontend/.env"
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                if line.startswith("REACT_APP_BACKEND_URL="):
+                    return line.split("=", 1)[1].strip().strip('"').rstrip("/")
+    raise RuntimeError("REACT_APP_BACKEND_URL not configured")
+
+
+BASE_URL = _load_backend_url()
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@hcobcleaners.com"
@@ -34,6 +46,8 @@ def _new_worker(prefix="iter5"):
     a.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     rv = a.post(f"{API}/admin/workers/{user_id}/verify-id")
     assert rv.status_code == 200, rv.text
+    rap = a.post(f"{API}/admin/workers/{user_id}/approve")
+    assert rap.status_code == 200, rap.text
     return s, email, user_id
 
 

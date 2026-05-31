@@ -1,0 +1,56 @@
+{
+  "summary": "Iter-7 testing: Worker approval gate (pending/approved/rejected/suspended/reinstate) + Recurring gigs (daily/weekly/biweekly/monthly with repeat_count, series_id). Created 24 new backend tests in test_iter7.py — ALL 24 PASS. Updated shared `_make_verified_worker` helpers in backend_test.py, test_calendar.py, test_iter5.py, test_iter6.py to also call /admin/workers/{id}/approve (workers default to 'pending' now, accept gate requires both ID verification AND status=approved). Also fixed test_iter6's `test_no_id_uploaded_blocks_accept` and `test_uploaded_but_unverified_blocks_accept` to approve worker first so the ID gate is reached. Total backend pytest suite: 115 passed (91 prior + 24 new). Frontend UI testing confirmed: AdminWorkers 5 status tabs work and URL updates with ?status=pending, application-status-card + Approve/Reject buttons present on /admin/workers/{id}, CreateGigDialog has gig-recurrence dropdown with gig-repeat-count conditionally shown. HOWEVER one major frontend gap was found: AdminDashboard is MISSING the 'Pending apps' KPI tile AND the yellow strip with data-testid='dashboard-pending-apps-link'. Dashboard still shows only 4 tiles (Open gigs / Filled / Workers / Pending ID).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminDashboard.jsx",
+        "issue": "'Pending apps' KPI tile is MISSING. Dashboard renders only 4 tiles (Open gigs / Filled / Workers / Pending ID) and never displays pending_approval count from /admin/stats. Required by iter-7 spec.",
+        "selector": "[data-testid='admin-dashboard'] KPI tiles",
+        "priority": "HIGH"
+      },
+      {
+        "component": "AdminDashboard.jsx",
+        "issue": "Yellow strip with data-testid='dashboard-pending-apps-link' is MISSING. When pending_approval > 0 the dashboard should display a yellow strip that navigates to /admin/workers?status=pending. Not rendered at all.",
+        "selector": "[data-testid='dashboard-pending-apps-link']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7.py",
+    "/app/test_reports/pytest/iter7_results.xml",
+    "/app/test_reports/pytest/iter7_full_regression.xml"
+  ],
+  "action_items": [
+    "Add the 'Pending apps' KPI tile to AdminDashboard.jsx that displays stats.pending_approval (use the same KPI component pattern).",
+    "Add the yellow strip with data-testid='dashboard-pending-apps-link' below the KPI row, only when stats.pending_approval > 0, that on click navigates to /admin/workers?status=pending."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1467 lines — getting close to the 700-line guideline. Consider splitting recurrence logic, worker-status helpers, and admin endpoints into dedicated modules in a future iteration.",
+    "_set_worker_status helper correctly persists worker_status_at + worker_status_by and kills sessions for reject/suspend — well factored.",
+    "Recurrence math uses naive month arithmetic with clamping to last day of month — covered by tests; behavior matches spec.",
+    "Back-compat for users without worker_status field handled via _effective_status helper and list filter includes legacy users in 'approved' — verified."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added /approve call after verify-id)",
+    "/app/backend/tests/test_calendar.py (added /approve call after verify-id)",
+    "/app/backend/tests/test_iter5.py (added /approve call; fixed BASE_URL fallback to read /app/frontend/.env)",
+    "/app/backend/tests/test_iter6.py (added /approve in _admin_verify helper; updated two tests to approve before testing ID gate)",
+    "/app/backend/tests/test_iter7.py (NEW — 24 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (115/115)",
+    "frontend": "~85% — all worker-side states + admin workers list + workers detail + create-gig recurrence in place; dashboard pending-apps KPI + link MISSING"
+  },
+  "test_credentials": "Admin: admin@hcobcleaners.com / HcobAdmin2026! (works)",
+  "seed_data_creation": "Created many TEST_iter7_* workers (all prefixed) via /auth/register and TEST_iter7_* gigs via /api/gigs. Recurring gig tests delete all created instances at end of each test. Worker accounts not cleaned (no delete-user endpoint).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent adds Pending apps KPI tile + dashboard-pending-apps-link yellow strip, re-test by logging in as admin@hcobcleaners.com, navigating to /admin, verifying both elements render. The backend already exposes stats.pending_approval correctly. All 115 backend tests pass — no backend retest required unless server.py changes."
+}

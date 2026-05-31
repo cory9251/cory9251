@@ -44,6 +44,8 @@ def _verify_worker(ws: requests.Session) -> None:
            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     rv = a.post(f"{BASE_URL}/api/admin/workers/{me['user_id']}/verify-id")
     assert rv.status_code == 200, rv.text
+    rap = a.post(f"{BASE_URL}/api/admin/workers/{me['user_id']}/approve")
+    assert rap.status_code == 200, rap.text
 
 
 def _api(session=None):

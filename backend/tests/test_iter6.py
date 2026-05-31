@@ -56,6 +56,8 @@ def _upload_id(ws: requests.Session):
 def _admin_verify(admin_sess: requests.Session, user_id: str):
     r = admin_sess.post(f"{API}/admin/workers/{user_id}/verify-id")
     assert r.status_code == 200, r.text
+    ra = admin_sess.post(f"{API}/admin/workers/{user_id}/approve")
+    assert ra.status_code == 200, ra.text
 
 
 def _create_gig(admin_sess, **overrides):
@@ -127,7 +129,9 @@ class TestVerificationGate:
     def test_no_id_uploaded_blocks_accept(self, admin_session):
         gig = _create_gig(admin_session)
         gid = gig["gig_id"]
-        ws, _, _ = _register_worker("noid")
+        ws, _, uid = _register_worker("noid")
+        # Iter-7: approve first so we hit the ID gate (not the status gate)
+        admin_session.post(f"{API}/admin/workers/{uid}/approve")
         r = ws.post(f"{API}/gigs/{gid}/accept")
         assert r.status_code == 403
         body = r.json()
@@ -138,7 +142,8 @@ class TestVerificationGate:
     def test_uploaded_but_unverified_blocks_accept(self, admin_session):
         gig = _create_gig(admin_session)
         gid = gig["gig_id"]
-        ws, _, _ = _register_worker("uploaded")
+        ws, _, uid = _register_worker("uploaded")
+        admin_session.post(f"{API}/admin/workers/{uid}/approve")
         _upload_id(ws)
         r = ws.post(f"{API}/gigs/{gid}/accept")
         assert r.status_code == 403

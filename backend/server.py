@@ -154,6 +154,7 @@ def cookie_kwargs() -> dict:
 # ----------------------------------------------------------------------------
 GigCategory = Literal["cleaning", "labor", "driver"]
 PayType = Literal["hourly", "flat"]
+GigRecurrence = Literal["none", "daily", "weekly", "biweekly", "monthly"]
 
 
 class RegisterIn(BaseModel):
@@ -194,6 +195,10 @@ class GigIn(BaseModel):
     slots: int = 1
     duration_hours: Optional[float] = None
     contact_phone: Optional[str] = None
+    # Recurrence — optional. If recurrence != 'none', the create endpoint generates
+    # `repeat_count` gig instances spaced by the chosen period.
+    recurrence: Optional[GigRecurrence] = "none"
+    repeat_count: Optional[int] = 1  # ignored when recurrence == 'none'
 
 
 class GigPatch(BaseModel):
@@ -237,6 +242,13 @@ class AdminResetPasswordIn(BaseModel):
 class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=6)
+
+
+WorkerStatus = Literal["pending", "approved", "rejected", "suspended"]
+
+
+class WorkerStatusIn(BaseModel):
+    note: Optional[str] = None  # Optional internal note for the action
 
 
 # ----------------------------------------------------------------------------
@@ -323,6 +335,9 @@ async def register(payload: RegisterIn, response: Response):
         "name": payload.name,
         # Public registration is always worker — admins are seeded server-side only.
         "role": "worker",
+        # New workers start as 'pending' — admin must explicitly approve them
+        # before they can claim any gigs.
+        "worker_status": "pending",
         "phone": "",
         "address": "",
         "bio": "",
@@ -393,6 +408,7 @@ async def google_session(payload: GoogleSessionIn, response: Response):
                 "email": email,
                 "name": data.get("name") or email.split("@")[0],
                 "role": "worker",
+                "worker_status": "pending",
                 "phone": "",
                 "address": "",
                 "bio": "",
@@ -547,10 +563,66 @@ def _strip_sensitive_for_worker(gig: dict, my_acceptance: Optional[dict]) -> dic
 
 @api.post("/gigs")
 async def create_gig(payload: GigIn, admin: dict = Depends(require_admin)):
-    doc = _gig_doc(payload, admin["user_id"])
-    await db.gigs.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    base = _gig_doc(payload, admin["user_id"])
+
+    rec = payload.recurrence or "none"
+    count = max(1, min(52, payload.repeat_count or 1)) if rec != "none" else 1
+
+    if rec == "none" or count == 1:
+        await db.gigs.insert_one(base)
+        base.pop("_id", None)
+        return {**base, "created_count": 1}
+
+    # Need a base ISO datetime to space occurrences. Bail back to single-gig if missing.
+    if not payload.scheduled_at:
+        await db.gigs.insert_one(base)
+        base.pop("_id", None)
+        return {**base, "created_count": 1}
+
+    try:
+        base_dt = datetime.fromisoformat(payload.scheduled_at.replace("Z", "+00:00"))
+    except Exception:
+        await db.gigs.insert_one(base)
+        base.pop("_id", None)
+        return {**base, "created_count": 1}
+
+    series_id = f"ser_{uuid.uuid4().hex[:12]}"
+    docs: List[dict] = []
+    for i in range(count):
+        if rec == "daily":
+            occ_dt = base_dt + timedelta(days=i)
+        elif rec == "weekly":
+            occ_dt = base_dt + timedelta(weeks=i)
+        elif rec == "biweekly":
+            occ_dt = base_dt + timedelta(weeks=i * 2)
+        elif rec == "monthly":
+            # Add i months — naive but predictable; falls back to last-day-of-month
+            month = base_dt.month - 1 + i
+            year = base_dt.year + month // 12
+            month = month % 12 + 1
+            day = min(
+                base_dt.day,
+                [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
+                 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1],
+            )
+            occ_dt = base_dt.replace(year=year, month=month, day=day)
+        else:
+            occ_dt = base_dt
+
+        doc = dict(base)
+        doc["gig_id"] = f"gig_{uuid.uuid4().hex[:12]}"
+        doc["scheduled_at"] = occ_dt.isoformat()
+        doc["scheduled_date"] = occ_dt.strftime("%a %b %d · %-I:%M %p")
+        doc["series_id"] = series_id
+        doc["series_index"] = i
+        doc["series_total"] = count
+        doc["series_recurrence"] = rec
+        docs.append(doc)
+
+    await db.gigs.insert_many(docs)
+    first = docs[0]
+    first.pop("_id", None)
+    return {**first, "created_count": count, "series_id": series_id}
 
 
 @api.get("/gigs")
@@ -699,10 +771,32 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
     return doc
 
 
+def _effective_status(user: dict) -> str:
+    """Existing users without the field default to 'approved' for back-compat."""
+    if user.get("role") == "admin":
+        return "approved"
+    return user.get("worker_status") or "approved"
+
+
 @api.post("/gigs/{gig_id}/accept")
 async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
     if user.get("role") != "worker":
         raise HTTPException(403, "Only workers can accept gigs")
+
+    # Status gate — admin must explicitly approve the worker first.
+    status_ = _effective_status(user)
+    if status_ == "pending":
+        raise HTTPException(
+            403, "Your application is awaiting approval by HCOB. You'll be able to claim gigs once approved."
+        )
+    if status_ == "rejected":
+        raise HTTPException(
+            403, "Your application was not approved by HCOB. Contact HCOB if you believe this is a mistake."
+        )
+    if status_ == "suspended":
+        raise HTTPException(
+            403, "Your account has been suspended. Contact HCOB to reinstate."
+        )
 
     # Verification gate — workers can only claim gigs once their ID is uploaded AND
     # HCOB has marked them verified.
@@ -952,9 +1046,23 @@ async def mark_read(notification_id: str, user: dict = Depends(get_current_user)
 
 # ---- Admin endpoints -------------------------------------------------------
 @api.get("/admin/workers")
-async def list_workers(admin: dict = Depends(require_admin)):
+async def list_workers(
+    status: Optional[str] = Query(None),
+    admin: dict = Depends(require_admin),
+):
+    query: dict = {"role": "worker"}
+    if status == "pending":
+        query["worker_status"] = "pending"
+    elif status == "approved":
+        # Treat missing field as approved for back-compat
+        query["$or"] = [
+            {"worker_status": "approved"},
+            {"worker_status": {"$exists": False}},
+        ]
+    elif status in ("rejected", "suspended"):
+        query["worker_status"] = status
     workers = await db.users.find(
-        {"role": "worker"}, {"_id": 0, "password_hash": 0}
+        query, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
     return workers
 
@@ -989,6 +1097,59 @@ async def verify_worker_id(user_id: str, admin: dict = Depends(require_admin)):
         {"user_id": user_id}, {"$set": {"id_verified": True}}
     )
     return {"ok": True}
+
+
+async def _set_worker_status(
+    user_id: str, status: str, admin: dict, kill_sessions: bool = False
+) -> dict:
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(404, "Worker not found")
+    if user.get("role") == "admin":
+        raise HTTPException(400, "Cannot change status of an admin user")
+    await db.users.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "worker_status": status,
+                "worker_status_at": datetime.now(timezone.utc).isoformat(),
+                "worker_status_by": admin["email"],
+            }
+        },
+    )
+    if kill_sessions:
+        await db.sessions.delete_many({"user_id": user_id})
+    logger.info(f"Admin {admin['email']} set worker {user.get('email')} status -> {status}")
+    return {"ok": True, "worker_status": status}
+
+
+@api.post("/admin/workers/{user_id}/approve")
+async def approve_worker(
+    user_id: str, _: WorkerStatusIn = WorkerStatusIn(), admin: dict = Depends(require_admin)
+):
+    return await _set_worker_status(user_id, "approved", admin)
+
+
+@api.post("/admin/workers/{user_id}/reject")
+async def reject_worker(
+    user_id: str, _: WorkerStatusIn = WorkerStatusIn(), admin: dict = Depends(require_admin)
+):
+    # Rejection invalidates active sessions
+    return await _set_worker_status(user_id, "rejected", admin, kill_sessions=True)
+
+
+@api.post("/admin/workers/{user_id}/suspend")
+async def suspend_worker(
+    user_id: str, _: WorkerStatusIn = WorkerStatusIn(), admin: dict = Depends(require_admin)
+):
+    return await _set_worker_status(user_id, "suspended", admin, kill_sessions=True)
+
+
+@api.post("/admin/workers/{user_id}/reinstate")
+async def reinstate_worker(
+    user_id: str, _: WorkerStatusIn = WorkerStatusIn(), admin: dict = Depends(require_admin)
+):
+    return await _set_worker_status(user_id, "approved", admin)
 
 
 @api.post("/admin/workers/{user_id}/reset-password")
@@ -1136,6 +1297,9 @@ async def admin_stats(admin: dict = Depends(require_admin)):
     pending_id = await db.users.count_documents(
         {"role": "worker", "id_image_path": {"$ne": None}, "id_verified": False}
     )
+    pending_approval = await db.users.count_documents(
+        {"role": "worker", "worker_status": "pending"}
+    )
     return {
         "total_workers": total_workers,
         "open_gigs": open_gigs,
@@ -1143,6 +1307,7 @@ async def admin_stats(admin: dict = Depends(require_admin)):
         "total_gigs": total_gigs,
         "total_acceptances": total_acceptances,
         "pending_id_verification": pending_id,
+        "pending_approval": pending_approval,
     }
 
 

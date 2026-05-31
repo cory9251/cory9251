@@ -30,8 +30,36 @@ export default function WorkerFeed() {
   const [category, setCategory] = useState("all");
   const nav = useNavigate();
   const { user } = useAuth();
-  const needsId = !user?.id_image_path;
-  const awaitingVerification = !!user?.id_image_path && !user?.id_verified;
+  const status = user?.worker_status || "approved";
+  const isPending = status === "pending";
+  const isBlocked = status === "rejected" || status === "suspended";
+  const needsId = status === "approved" && !user?.id_image_path;
+  const awaitingVerification =
+    status === "approved" && !!user?.id_image_path && !user?.id_verified;
+  const showBanner = isPending || isBlocked || needsId || awaitingVerification;
+
+  const bannerCopy = isBlocked
+    ? {
+        title: status === "rejected" ? "Application not approved" : "Account suspended",
+        sub:
+          status === "rejected"
+            ? "HCOB did not approve your application. Contact HCOB if you think this is a mistake."
+            : "Your account has been suspended. Contact HCOB to reinstate.",
+      }
+    : isPending
+    ? {
+        title: "Application under review",
+        sub: "An HCOB admin needs to approve you before you can claim gigs.",
+      }
+    : needsId
+    ? {
+        title: "Upload your ID to claim gigs",
+        sub: "You can browse, but you need a verified ID before accepting.",
+      }
+    : {
+        title: "Awaiting HCOB verification",
+        sub: "Your ID is in review. You'll be able to accept gigs as soon as HCOB verifies you.",
+      };
 
   const load = async () => {
     try {
@@ -56,30 +84,49 @@ export default function WorkerFeed() {
         Open gigs
       </h1>
 
-      {(needsId || awaitingVerification) && (
+      {showBanner && (
         <button
           data-testid="verification-banner"
-          onClick={() => nav("/app/profile")}
-          className="mt-4 flex w-full items-start gap-3 rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-4 text-left hover:bg-[#FEF3C7]"
+          onClick={() => !isBlocked && nav("/app/profile")}
+          disabled={isBlocked}
+          className={`mt-4 flex w-full items-start gap-3 rounded-2xl border p-4 text-left ${
+            isBlocked
+              ? "cursor-default border-[#EF4444]/30 bg-[#FEF2F2]"
+              : "border-[#F59E0B]/40 bg-[#FFFBEB] hover:bg-[#FEF3C7]"
+          }`}
         >
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#F59E0B] text-white">
-            {needsId ? (
+          <div
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white ${
+              isBlocked ? "bg-[#EF4444]" : "bg-[#F59E0B]"
+            }`}
+          >
+            {isPending ? (
+              <ShieldCheck size={20} weight="fill" />
+            ) : needsId ? (
               <IdentificationCard size={20} weight="duotone" />
             ) : (
               <ShieldCheck size={20} weight="fill" />
             )}
           </div>
           <div className="flex-1">
-            <div className="font-display text-sm font-bold text-[#92400E]">
-              {needsId ? "Upload your ID to claim gigs" : "Awaiting HCOB verification"}
+            <div
+              className={`font-display text-sm font-bold ${
+                isBlocked ? "text-[#991B1B]" : "text-[#92400E]"
+              }`}
+            >
+              {bannerCopy.title}
             </div>
-            <div className="mt-0.5 text-xs text-[#92400E]/80">
-              {needsId
-                ? "You can browse, but you need a verified ID before accepting."
-                : "Your ID is in review. You'll be able to accept gigs as soon as HCOB verifies you."}
+            <div
+              className={`mt-0.5 text-xs ${
+                isBlocked ? "text-[#991B1B]/80" : "text-[#92400E]/80"
+              }`}
+            >
+              {bannerCopy.sub}
             </div>
           </div>
-          <CaretRight size={18} className="mt-1 shrink-0 text-[#92400E]" />
+          {!isBlocked && (
+            <CaretRight size={18} className="mt-1 shrink-0 text-[#92400E]" />
+          )}
         </button>
       )}
 

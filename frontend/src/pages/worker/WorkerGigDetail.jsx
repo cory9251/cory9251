@@ -128,10 +128,13 @@ export default function WorkerGigDetail() {
   const completed = !!acc?.clock_out_at;
   const full = gig.slots_filled >= gig.slots && !accepted;
 
-  // Verification gates — only enforced for unaccepted workers
+  // Status & verification gates — only enforced for unaccepted workers
+  const workerStatus = user?.worker_status || "approved";
+  const isPending = workerStatus === "pending";
+  const isBlocked = workerStatus === "rejected" || workerStatus === "suspended";
   const hasId = !!user?.id_image_path;
   const verified = !!user?.id_verified;
-  const canAccept = hasId && verified;
+  const canAccept = !isPending && !isBlocked && hasId && verified;
 
   return (
     <div className="px-5 py-6" data-testid="worker-gig-detail">
@@ -294,26 +297,54 @@ export default function WorkerGigDetail() {
         ) : !canAccept ? (
           <div
             data-testid="verification-required-card"
-            className="rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-5"
+            className={`rounded-2xl border p-5 ${
+              isBlocked
+                ? "border-[#EF4444]/40 bg-[#FEF2F2]"
+                : "border-[#F59E0B]/40 bg-[#FFFBEB]"
+            }`}
           >
-            <div className="flex items-center gap-2 text-[#92400E]">
-              {hasId ? (
+            <div
+              className={`flex items-center gap-2 ${
+                isBlocked ? "text-[#991B1B]" : "text-[#92400E]"
+              }`}
+            >
+              {isBlocked ? (
+                <ShieldCheck size={20} weight="fill" />
+              ) : isPending ? (
+                <ShieldCheck size={20} weight="fill" />
+              ) : hasId ? (
                 <ShieldCheck size={20} weight="fill" />
               ) : (
                 <IdentificationCard size={20} weight="duotone" />
               )}
               <div className="font-display text-base font-bold">
-                {hasId
+                {workerStatus === "rejected"
+                  ? "Application not approved"
+                  : workerStatus === "suspended"
+                  ? "Account suspended"
+                  : isPending
+                  ? "Application under review"
+                  : hasId
                   ? "Awaiting HCOB verification"
                   : "Upload your ID to claim gigs"}
               </div>
             </div>
-            <p className="mt-2 text-xs text-[#92400E]/90">
-              {hasId
-                ? "Your ID is in. An HCOB admin needs to verify your account before you can accept any gigs. You'll be able to claim this gig as soon as you're verified."
+            <p
+              className={`mt-2 text-xs ${
+                isBlocked ? "text-[#991B1B]/90" : "text-[#92400E]/90"
+              }`}
+            >
+              {workerStatus === "rejected"
+                ? "HCOB did not approve your application. Contact HCOB if you believe this is a mistake."
+                : workerStatus === "suspended"
+                ? "Your account has been suspended. Contact HCOB to reinstate."
+                : isPending
+                ? "An HCOB admin must approve your account before you can claim gigs. You'll be able to claim this gig as soon as you're approved."
+                : hasId
+                ? "Your ID is in. An HCOB admin needs to verify your ID before you can accept any gigs."
                 : "Workers must upload a photo of a government ID and be verified by HCOB before claiming gigs."}
             </p>
-            {!hasId && (
+            {!isBlocked && !isPending && !hasId && (
               <Button
                 data-testid="go-to-profile-btn"
                 onClick={() => nav("/app/profile")}
