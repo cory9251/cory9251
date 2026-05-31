@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 10 (admin add/remove worker on a gig) is fully working — 20/20 backend tests pass and the full UI flow (open dialog, search, add, remove with confirm) was verified end-to-end. Iter-8 and iter-9 regressions also remain green (25/25).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter10.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "POST /gigs/{gig_id}/assign correctly handles all branches: fresh assign, convert-from-requested (same acceptance_id reused), duplicate-accepted 400, worker not found / role!=worker 404, status rejected|suspended 400, slots full 400, gig 404, non-admin 403. assigned_by_admin=true is set only on fresh inserts (conversion path keeps existing record without the flag — acceptable; the spec asks for the flag only on records created via /assign, and the converted record's $set could also set assigned_by_admin=true for full parity if desired, but tests don't require it).",
+    "DELETE /gigs/{gig_id}/acceptances/{acceptance_id} correctly differentiates 'requested' (no slot release) from 'accepted'/'on_the_clock'/'completed' (slot released), and re-opens a 'filled' gig back to 'open'. Hard-delete enables re-assignment of the same worker.",
+    "AssignWorkerDialog excludes both pending_requests and acceptances client-side via a Set lookup — correct. data-testids are present on dialog, search, row, and add button.",
+    "GigDetail.removeWorker uses native window.confirm — works but consider a shadcn AlertDialog for visual consistency with delete-gig flow (low priority polish)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter10.py (new)"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% (full UI flow)"},
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026! — read from /app/memory/test_credentials.md",
+  "seed_data_creation": "Tests create their own TEST_iter10_* gigs and TEST_iter10_* workers and clean them up after each case (DELETE /api/gigs/{id} on teardown).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iter10.py covers both endpoints exhaustively (assign happy path, convert-pending, dup, 404 worker, 404 admin-as-target, 400 rejected/suspended, 400 slots full, 404 gig, 403 worker; remove accepted-decrements, remove reopens filled, remove requested no-slot-change, remove notifies, 404 unknown, 404 wrong-gig pairing, 403 worker, re-assign after remove). The iter-8 regression test inside the file also confirms acceptances created via /requests/{aid}/approve do NOT carry assigned_by_admin. Workers must upload ID + admin must verify before they can POST /accept — use the helper _upload_and_verify_id."
+}

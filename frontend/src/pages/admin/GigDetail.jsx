@@ -32,8 +32,11 @@ import {
   Bell,
   CheckCircle,
   EyeSlash,
+  UserPlus,
+  UserMinus,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
+import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
 
 export default function GigDetail() {
   const { gigId } = useParams();
@@ -41,6 +44,7 @@ export default function GigDetail() {
   const [gig, setGig] = useState(null);
   const [blastOpen, setBlastOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [channels, setChannels] = useState({ in_app: true, email: false, sms: false });
   const [blasting, setBlasting] = useState(false);
@@ -79,6 +83,17 @@ export default function GigDetail() {
       toast.error(getErr(e));
     } finally {
       setDuplicating(false);
+    }
+  };
+
+  const removeWorker = async (a) => {
+    if (!confirm(`Remove ${a.worker_name || "this worker"} from this gig?`)) return;
+    try {
+      await api.delete(`/gigs/${gigId}/acceptances/${a.acceptance_id}`);
+      toast.success(`${a.worker_name || "Worker"} removed`);
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
     }
   };
 
@@ -315,10 +330,21 @@ export default function GigDetail() {
           </div>
         )}
 
-        <div className="font-mono-label">Roster</div>
-        <h2 className="mt-1 font-display text-2xl font-black">
-          Approved workers ({(gig.acceptances || []).length})
-        </h2>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="font-mono-label">Roster</div>
+            <h2 className="mt-1 font-display text-2xl font-black">
+              Approved workers ({(gig.acceptances || []).length})
+            </h2>
+          </div>
+          <Button
+            data-testid="add-worker-btn"
+            onClick={() => setAssignOpen(true)}
+            className="h-10 rounded-none bg-[#030712] text-white hover:bg-[#1f2937]"
+          >
+            <UserPlus size={16} className="mr-2" /> Add a worker
+          </Button>
+        </div>
 
         {(!gig.acceptances || gig.acceptances.length === 0) ? (
           <div className="mt-4 border border-dashed border-[#E5E7EB] p-8 text-sm text-[#4B5563]">
@@ -335,6 +361,7 @@ export default function GigDetail() {
                   <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Clock in</th>
                   <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Clock out</th>
                   <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Hours</th>
+                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label"></th>
                 </tr>
               </thead>
               <tbody>
@@ -371,6 +398,16 @@ export default function GigDetail() {
                     </td>
                     <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs font-bold">
                       {a.hours_worked != null ? `${a.hours_worked.toFixed(2)}h` : "—"}
+                    </td>
+                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-right">
+                      <Button
+                        data-testid={`remove-worker-${a.acceptance_id}`}
+                        onClick={() => removeWorker(a)}
+                        variant="outline"
+                        className="h-8 rounded-none border-[#EF4444] px-2 text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+                      >
+                        <UserMinus size={12} className="mr-1" /> Remove
+                      </Button>
                     </td>
                   </tr>
                   );
@@ -436,6 +473,13 @@ export default function GigDetail() {
         onOpenChange={setEditOpen}
         gig={gig}
         onSaved={load}
+      />
+
+      <AssignWorkerDialog
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        gig={gig}
+        onAssigned={load}
       />
     </div>
   );

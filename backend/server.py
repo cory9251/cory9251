@@ -926,6 +926,125 @@ async def reject_request(
     return {"ok": True}
 
 
+class AssignWorkerIn(BaseModel):
+    worker_id: str
+
+
+@api.post("/gigs/{gig_id}/assign")
+async def assign_worker(
+    gig_id: str,
+    payload: AssignWorkerIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin directly places a worker on a gig (skips the request step)."""
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    filled = int(gig.get("slots_filled") or 0)
+    if filled >= int(gig.get("slots", 1)):
+        raise HTTPException(400, "All slots are already filled")
+
+    worker = await db.users.find_one({"user_id": payload.worker_id})
+    if not worker or worker.get("role") != "worker":
+        raise HTTPException(404, "Worker not found")
+    w_status = _effective_status(worker)
+    if w_status in ("rejected", "suspended"):
+        raise HTTPException(400, f"Worker is {w_status} and cannot be assigned")
+
+    existing = await db.gig_acceptances.find_one(
+        {"gig_id": gig_id, "worker_id": payload.worker_id}
+    )
+    if existing:
+        if existing.get("status") == "requested":
+            # Convert their pending request into an admin-assigned acceptance
+            now = datetime.now(timezone.utc).isoformat()
+            await db.gig_acceptances.update_one(
+                {"acceptance_id": existing["acceptance_id"]},
+                {"$set": {"status": "accepted", "accepted_at": now, "approved_by": admin["email"]}},
+            )
+            acceptance_id = existing["acceptance_id"]
+        else:
+            raise HTTPException(400, "Worker is already on this gig")
+    else:
+        acceptance_id = f"acc_{uuid.uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc).isoformat()
+        await db.gig_acceptances.insert_one(
+            {
+                "acceptance_id": acceptance_id,
+                "gig_id": gig_id,
+                "worker_id": payload.worker_id,
+                "status": "accepted",
+                "requested_at": now,
+                "accepted_at": now,
+                "approved_by": admin["email"],
+                "assigned_by_admin": True,
+            }
+        )
+
+    new_filled = filled + 1
+    gig_update = {"slots_filled": new_filled}
+    if new_filled >= int(gig.get("slots", 1)):
+        gig_update["status"] = "filled"
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+
+    await db.notifications.insert_one(
+        {
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": payload.worker_id,
+            "gig_id": gig_id,
+            "title": f"You were added to: {gig.get('title')}",
+            "body": "HCOB added you to this gig. Open the app to see the full address and clock in when you arrive.",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    logger.info(f"Admin {admin['email']} assigned worker {payload.worker_id} to gig {gig_id}")
+    return {"ok": True, "acceptance_id": acceptance_id, "slots_filled": new_filled}
+
+
+@api.delete("/gigs/{gig_id}/acceptances/{acceptance_id}")
+async def remove_worker_from_gig(
+    gig_id: str,
+    acceptance_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Admin removes a worker from a gig. Releases the slot if it was reserved."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+
+    was_reserved = acceptance.get("status") in (
+        "accepted",
+        "on_the_clock",
+        "completed",
+    )
+    await db.gig_acceptances.delete_one({"acceptance_id": acceptance_id})
+
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if gig and was_reserved:
+        new_filled = max(0, int(gig.get("slots_filled") or 0) - 1)
+        gig_update = {"slots_filled": new_filled}
+        if gig.get("status") == "filled" and new_filled < int(gig.get("slots", 1)):
+            gig_update["status"] = "open"
+        await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+
+    await db.notifications.insert_one(
+        {
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": acceptance["worker_id"],
+            "gig_id": gig_id,
+            "title": f"Removed from: {gig.get('title') if gig else 'gig'}",
+            "body": "HCOB removed you from this gig. Reach out if you have questions.",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    logger.info(f"Admin {admin['email']} removed worker {acceptance['worker_id']} from gig {gig_id}")
+    return {"ok": True}
+
+
 @api.post("/gigs/{gig_id}/withdraw")
 async def withdraw_gig(gig_id: str, user: dict = Depends(get_current_user)):
     if user.get("role") != "worker":
