@@ -197,7 +197,7 @@ export default function AdminReports() {
             <option value="">All workers</option>
             {workers.map((w) => (
               <option key={w.user_id} value={w.user_id}>
-                {w.name} · {w.email}
+                {`${w.name} · ${w.email}`}
               </option>
             ))}
           </select>

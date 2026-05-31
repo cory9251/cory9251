@@ -124,9 +124,15 @@
 - [ ] Recurring gigs (auto-blast weekly)
 - [ ] Stripe payouts for completed gigs
 - [ ] Worker chat / direct message admin
-- [ ] CSV export of acceptances per gig
+- [x] CSV export of timesheets per date range — Feb 2026
+- [x] Custom worker pay (default + per-gig override) — Feb 2026
+- [x] Auto-calculate clock-in/out earnings — Feb 2026
+- [x] Timesheet approval flow (worker sees earnings only after approve) — Feb 2026
+- [x] Admin Reports page (date filter, worker filter, totals, day grouping) — Feb 2026
+- [x] Google Sheets export via service-account (one central HCOB account) — Feb 2026
 
 ## Next steps
 1. Wire real Resend + Twilio keys (admin to provide), then enable per-blast email/SMS
-2. Add worker mobile-app PWA install prompt
-3. Add admin settings page for managing channel credentials
+2. Add worker mobile-app PWA install prompt OR convert via Emergent Mobile Agent (Expo/React Native)
+3. Google Auth (optional social login)
+4. Worker reliability/rating system (auto-compute from punctuality, completion, no-shows)
