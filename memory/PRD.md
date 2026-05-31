@@ -104,6 +104,13 @@
 - Dashboard yellow strip + new sidebar entry both link to `/admin/requests`.
 - 8/8 new tests + 17/17 iter-8 regression green.
 
+## Implemented — 2026-05 (Iteration 10: Admin Add/Remove Workers from Gigs)
+- New endpoint `POST /api/gigs/{gig_id}/assign` — admin places a worker directly on a gig (skips the request step). If the worker had a pending request, it's converted in place; if already on the gig, returns 400. Rejected/suspended workers can't be assigned. Slot is reserved, gig flips to `filled` if full, worker gets a notification.
+- New endpoint `DELETE /api/gigs/{gig_id}/acceptances/{acceptance_id}` — admin removes a worker. Releases the slot if it was an accepted/clocked/completed acceptance and flips a `filled` gig back to `open`. Notifies the worker.
+- New `AssignWorkerDialog` — searchable picker over approved workers, excludes anyone already on the gig.
+- Admin gig detail gets an **Add a worker** button above the roster and a **Remove** column on every approved row.
+- 20/20 new tests + 25/25 iter-8/9 regression green.
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)
