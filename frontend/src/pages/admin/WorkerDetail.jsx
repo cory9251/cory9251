@@ -36,6 +36,7 @@ import {
   Prohibit,
   PauseCircle,
   ThumbsUp,
+  CurrencyDollar,
 } from "@phosphor-icons/react";
 
 export default function WorkerDetail() {
@@ -188,11 +189,17 @@ export default function WorkerDetail() {
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Status</th>
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">In</th>
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Out</th>
-                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Hours</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Hrs</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Rate</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Earned</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">TS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {w.accepted_gigs.map((a) => (
+                    {w.accepted_gigs.map((a) => {
+                      const rate = a.pay_rate_applied != null ? a.pay_rate_applied : a.pay_rate_effective;
+                      const ptype = a.pay_type_applied || a.pay_type_effective;
+                      return (
                       <tr key={a.acceptance_id} className="hover:bg-[#F9FAFB]">
                         <td className="border-b border-[#E5E7EB] px-3 py-2 font-semibold">
                           {a.gig_title || a.gig_id}
@@ -214,8 +221,28 @@ export default function WorkerDetail() {
                         <td className="border-b border-[#E5E7EB] px-3 py-2 font-bold">
                           {a.hours_worked != null ? `${a.hours_worked.toFixed(2)}h` : "—"}
                         </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2 text-xs">
+                          {rate != null ? `$${Number(rate).toFixed(2)}${ptype === "hourly" ? "/hr" : " flat"}` : "—"}
+                        </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2 font-bold text-[#10B981]">
+                          {a.earnings != null ? `$${a.earnings.toFixed(2)}` : "—"}
+                        </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2">
+                          {!a.clock_out_at ? (
+                            <span className="text-xs text-[#4B5563]">—</span>
+                          ) : a.timesheet_approved ? (
+                            <span className="inline-flex items-center gap-1 bg-[#10B981] px-2 py-0.5 text-[9px] font-bold tracking-widest text-white">
+                              <CheckCircle size={9} weight="fill" /> OK
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 bg-[#F59E0B] px-2 py-0.5 text-[9px] font-bold tracking-widest text-white">
+                              PENDING
+                            </span>
+                          )}
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -225,6 +252,8 @@ export default function WorkerDetail() {
 
         <aside className="bg-[#F9FAFB] p-6 md:p-10">
           <ApplicationStatusCard worker={w} onAction={setStatus} />
+
+          <DefaultPayCard worker={w} onSaved={load} />
 
           <div className="mt-8 font-mono-label">Verification</div>
           {w.id_image_path ? (
@@ -400,6 +429,137 @@ export default function WorkerDetail() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function DefaultPayCard({ worker, onSaved }) {
+  const [rate, setRate] = useState(
+    worker.default_pay_rate != null ? String(worker.default_pay_rate) : ""
+  );
+  const [type, setType] = useState(worker.default_pay_type || "hourly");
+  const [saving, setSaving] = useState(false);
+
+  // Re-sync if worker prop changes (after save)
+  useEffect(() => {
+    setRate(
+      worker.default_pay_rate != null ? String(worker.default_pay_rate) : ""
+    );
+    setType(worker.default_pay_type || "hourly");
+  }, [worker.default_pay_rate, worker.default_pay_type]);
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {};
+      const trimmed = String(rate).trim();
+      if (trimmed === "") {
+        payload.clear_rate = true;
+      } else {
+        const n = Number(trimmed);
+        if (!Number.isFinite(n) || n < 0) {
+          toast.error("Enter a non-negative number for the rate");
+          setSaving(false);
+          return;
+        }
+        payload.default_pay_rate = n;
+      }
+      payload.default_pay_type = type;
+      await api.put(`/admin/workers/${worker.user_id}/pay`, payload);
+      toast.success("Default pay saved");
+      onSaved && onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearAll = async () => {
+    if (!confirm("Clear this worker's default pay? Future gigs will use the gig's posted rate.")) return;
+    setSaving(true);
+    try {
+      await api.put(`/admin/workers/${worker.user_id}/pay`, {
+        clear_rate: true,
+        clear_type: true,
+      });
+      toast.success("Default pay cleared");
+      onSaved && onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      data-testid="default-pay-card"
+      className="mt-6 rounded-none border border-[#E5E7EB] bg-white p-4"
+    >
+      <div className="font-mono-label flex items-center gap-1.5">
+        <CurrencyDollar size={12} weight="duotone" /> Default pay
+      </div>
+      <p className="mt-2 text-xs text-[#4B5563]">
+        Used as a fallback when a gig doesn't have a per-gig override for this
+        worker. Leave blank to fall back to the posted gig rate.
+      </p>
+
+      <form onSubmit={save} className="mt-4 space-y-3">
+        <div>
+          <Label className="font-mono-label">Rate ($)</Label>
+          <Input
+            data-testid="worker-default-pay-rate"
+            type="number"
+            step="0.01"
+            min="0"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            placeholder="e.g. 22.50"
+            className="mt-1 h-10 rounded-none border-[#030712]"
+          />
+        </div>
+        <div>
+          <Label className="font-mono-label">Pay type</Label>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            {["hourly", "flat"].map((t) => (
+              <button
+                key={t}
+                type="button"
+                data-testid={`worker-default-pay-type-${t}`}
+                onClick={() => setType(t)}
+                className={`h-10 border text-xs font-bold tracking-widest uppercase ${
+                  type === t
+                    ? "border-[#0044FF] bg-[#0044FF] text-white"
+                    : "border-[#030712] bg-white text-[#030712]"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-between gap-2 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={clearAll}
+            disabled={saving}
+            className="h-9 rounded-none border-[#4B5563] text-[11px]"
+          >
+            Clear
+          </Button>
+          <Button
+            type="submit"
+            data-testid="save-worker-default-pay"
+            disabled={saving}
+            className="h-9 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+          >
+            {saving ? "Saving…" : "Save default pay"}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

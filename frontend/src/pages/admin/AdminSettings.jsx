@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   EnvelopeSimple,
   DeviceMobile,
@@ -11,6 +12,7 @@ import {
   WarningCircle,
   Lock,
   PaperPlaneTilt,
+  Table,
 } from "@phosphor-icons/react";
 
 const PLACEHOLDER = "•••••••••• (saved)";
@@ -28,6 +30,9 @@ export default function AdminSettings() {
   const [savingSms, setSavingSms] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
   const [testingSms, setTestingSms] = useState(false);
+  const [gsJson, setGsJson] = useState("");
+  const [gsShareEmail, setGsShareEmail] = useState("");
+  const [savingGs, setSavingGs] = useState(false);
 
   const load = async () => {
     try {
@@ -35,10 +40,12 @@ export default function AdminSettings() {
       setData(data);
       setSenderEmail(data.sender_email || "");
       setTwFrom(data.twilio_from_number || "");
+      setGsShareEmail(data.google_sheets_share_email || "");
       // Secret fields stay blank — user types only to update
       setResendKey("");
       setTwSid("");
       setTwToken("");
+      setGsJson("");
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -120,6 +127,42 @@ export default function AdminSettings() {
       toast.error(getErr(e));
     } finally {
       channel === "email" ? setTestingEmail(false) : setTestingSms(false);
+    }
+  };
+
+  const saveGoogleSheets = async (e) => {
+    e.preventDefault();
+    setSavingGs(true);
+    try {
+      const payload = { google_sheets_share_email: gsShareEmail };
+      if (gsJson.trim() !== "") {
+        try {
+          JSON.parse(gsJson.trim());
+        } catch {
+          toast.error("The pasted text isn't valid JSON. Paste the full service-account JSON file content.");
+          setSavingGs(false);
+          return;
+        }
+        payload.google_service_account_json = gsJson.trim();
+      }
+      await api.put("/admin/settings", payload);
+      toast.success("Google Sheets settings saved");
+      load();
+    } catch (err) {
+      toast.error(getErr(err));
+    } finally {
+      setSavingGs(false);
+    }
+  };
+
+  const clearGoogleSheets = async () => {
+    if (!confirm("Clear the saved Google service account JSON?")) return;
+    try {
+      await api.put("/admin/settings", { google_service_account_json: "" });
+      toast.success("Google service account cleared");
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
     }
   };
 
@@ -399,6 +442,107 @@ export default function AdminSettings() {
           </div>
         </form>
       </div>
+
+      {/* ---- Google Sheets export ---- */}
+      <form
+        onSubmit={saveGoogleSheets}
+        className="border-t border-[#E5E7EB] p-6 md:p-10"
+        data-testid="google-sheets-form"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="font-mono-label flex items-center gap-2">
+              <Table size={14} weight="duotone" /> Reports · Google Sheets
+            </div>
+            <h2 className="mt-2 font-display text-2xl font-black">
+              Google Sheets export
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
+              Paste the full JSON of a Google Cloud{" "}
+              <span className="font-semibold">service account</span> that has the
+              Sheets API + Drive API enabled. HCOB will use it to create fresh
+              spreadsheets when you export reports.
+            </p>
+            <p className="mt-2 max-w-2xl text-xs text-[#4B5563]">
+              How: console.cloud.google.com → IAM &amp; Admin → Service Accounts →
+              Create → Add key (JSON). Enable Sheets API + Drive API. Then paste
+              the JSON below.
+            </p>
+          </div>
+          <div
+            className={`hidden md:block shrink-0 px-3 py-1 text-[10px] font-bold tracking-widest text-white ${
+              data.google_sheets_ready ? "bg-[#10B981]" : "bg-[#F59E0B]"
+            }`}
+            data-testid="gs-status-badge"
+          >
+            {data.google_sheets_ready ? "READY" : "NOT CONFIGURED"}
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-4">
+          <div>
+            <Label className="font-mono-label flex items-center gap-1.5">
+              <Lock size={11} /> Service account JSON
+            </Label>
+            <Textarea
+              data-testid="gs-json"
+              value={gsJson}
+              onChange={(e) => setGsJson(e.target.value)}
+              rows={6}
+              placeholder={
+                data.google_sheets_ready
+                  ? `Saved — service account: ${data.google_sheets_service_email}\nPaste fresh JSON here to replace.`
+                  : '{\n  "type": "service_account",\n  "project_id": "...",\n  ...\n}'
+              }
+              className="mt-2 rounded-none border-[#030712] font-mono text-xs"
+            />
+            {data.google_sheets_ready && (
+              <div className="mt-2 text-xs text-[#065F46]">
+                Connected as <span className="font-semibold">{data.google_sheets_service_email}</span>
+                . Make sure your destination drive share is set below.
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Label className="font-mono-label">Share new sheets with (your Google account email)</Label>
+            <Input
+              data-testid="gs-share-email"
+              type="email"
+              value={gsShareEmail}
+              onChange={(e) => setGsShareEmail(e.target.value)}
+              placeholder="you@hcobcleaners.com"
+              className="mt-2 h-11 rounded-none border-[#030712]"
+            />
+            <div className="mt-1 text-xs text-[#4B5563]">
+              Required — service accounts don't have a Drive UI, so we share each
+              exported sheet with this email so you can open it.
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Button
+            data-testid="save-gs-btn"
+            type="submit"
+            disabled={savingGs}
+            className="h-11 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+          >
+            {savingGs ? "Saving…" : "Save Google Sheets settings"}
+          </Button>
+          {data.google_sheets_ready && (
+            <Button
+              data-testid="clear-gs-btn"
+              type="button"
+              variant="outline"
+              onClick={clearGoogleSheets}
+              className="h-11 rounded-none border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+            >
+              Clear service account
+            </Button>
+          )}
+        </div>
+      </form>
 
       {data.updated_at && (
         <div className="border-t border-[#E5E7EB] px-6 py-4 text-xs text-[#4B5563] md:px-10">

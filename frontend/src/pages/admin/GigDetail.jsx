@@ -34,9 +34,13 @@ import {
   EyeSlash,
   UserPlus,
   UserMinus,
+  CurrencyDollar,
+  ClipboardText,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
+import PayOverrideDialog from "@/components/admin/PayOverrideDialog";
+import ApproveTimesheetDialog from "@/components/admin/ApproveTimesheetDialog";
 
 export default function GigDetail() {
   const { gigId } = useParams();
@@ -45,6 +49,8 @@ export default function GigDetail() {
   const [blastOpen, setBlastOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [payDialog, setPayDialog] = useState(null); // { acceptance }
+  const [approveDialog, setApproveDialog] = useState(null); // { acceptance }
   const [duplicating, setDuplicating] = useState(false);
   const [channels, setChannels] = useState({ in_app: true, email: false, sms: false });
   const [blasting, setBlasting] = useState(false);
@@ -355,13 +361,15 @@ export default function GigDetail() {
             <table className="w-full text-sm">
               <thead className="bg-[#F9FAFB]">
                 <tr className="text-left">
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Name</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Contact</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Status</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Clock in</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Clock out</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Hours</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label"></th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">Name</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">Status</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">In</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">Out</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">Hrs</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">Rate</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">Earned</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label">Timesheet</th>
+                  <th className="border-b border-[#E5E7EB] px-3 py-3 font-mono-label"></th>
                 </tr>
               </thead>
               <tbody>
@@ -374,40 +382,119 @@ export default function GigDetail() {
                     ? "bg-[#10B981] text-white"
                     : "bg-[#0044FF] text-white";
                   const statusLabel = onClock
-                    ? "ON THE CLOCK"
+                    ? "ON CLOCK"
                     : completed
                     ? "COMPLETED"
                     : "ACCEPTED";
+                  const rate = a.pay_rate_applied != null ? a.pay_rate_applied : a.pay_rate_effective;
+                  const ptype = a.pay_type_applied || a.pay_type_effective;
+                  const rateSrc = a.pay_rate_source;
+                  const hasOverride = a.pay_rate_override != null || a.pay_type_override != null;
                   return (
                   <tr key={a.acceptance_id} className="hover:bg-[#F9FAFB]">
-                    <td className="border-b border-[#E5E7EB] px-4 py-3 font-semibold">{a.worker_name || a.worker_id}</td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs">
-                      <div>{a.worker_email}</div>
-                      {a.worker_phone && <div className="text-[#4B5563]">{a.worker_phone}</div>}
+                    <td className="border-b border-[#E5E7EB] px-3 py-3 font-semibold">
+                      {a.worker_name || a.worker_id}
+                      <div className="text-[10px] font-normal text-[#4B5563]">{a.worker_email}</div>
                     </td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3">
+                    <td className="border-b border-[#E5E7EB] px-3 py-3">
                       <span className={`px-2 py-1 text-[10px] font-bold tracking-widest ${statusClass}`}>
                         {statusLabel}
                       </span>
                     </td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs text-[#4B5563]">
-                      {a.clock_in_at ? new Date(a.clock_in_at).toLocaleString() : "—"}
+                    <td className="border-b border-[#E5E7EB] px-3 py-3 text-xs text-[#4B5563]">
+                      {a.clock_in_at ? new Date(a.clock_in_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "—"}
                     </td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs text-[#4B5563]">
-                      {a.clock_out_at ? new Date(a.clock_out_at).toLocaleString() : "—"}
+                    <td className="border-b border-[#E5E7EB] px-3 py-3 text-xs text-[#4B5563]">
+                      {a.clock_out_at ? new Date(a.clock_out_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "—"}
                     </td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs font-bold">
+                    <td className="border-b border-[#E5E7EB] px-3 py-3 text-xs font-bold">
                       {a.hours_worked != null ? `${a.hours_worked.toFixed(2)}h` : "—"}
                     </td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-right">
-                      <Button
-                        data-testid={`remove-worker-${a.acceptance_id}`}
-                        onClick={() => removeWorker(a)}
-                        variant="outline"
-                        className="h-8 rounded-none border-[#EF4444] px-2 text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
-                      >
-                        <UserMinus size={12} className="mr-1" /> Remove
-                      </Button>
+                    <td className="border-b border-[#E5E7EB] px-3 py-3 text-xs">
+                      {rate != null ? (
+                        <div>
+                          <div className="font-semibold">
+                            ${Number(rate).toFixed(2)}
+                            {ptype === "hourly" ? "/hr" : " flat"}
+                          </div>
+                          <div className="text-[9px] uppercase tracking-widest text-[#4B5563]">
+                            {hasOverride
+                              ? "OVERRIDE"
+                              : rateSrc === "worker_default"
+                              ? "WORKER DEFAULT"
+                              : "GIG POSTED"}
+                          </div>
+                        </div>
+                      ) : "—"}
+                    </td>
+                    <td className="border-b border-[#E5E7EB] px-3 py-3 text-xs font-bold text-[#10B981]">
+                      {a.earnings != null
+                        ? `$${a.earnings.toFixed(2)}`
+                        : a.projected_earnings != null
+                        ? <span className="text-[#92400E]">${a.projected_earnings.toFixed(2)} <span className="font-mono-label text-[#92400E]">PROJ</span></span>
+                        : "—"}
+                    </td>
+                    <td className="border-b border-[#E5E7EB] px-3 py-3">
+                      {!completed ? (
+                        <span className="text-xs text-[#4B5563]">—</span>
+                      ) : a.timesheet_approved ? (
+                        <span className="inline-flex items-center gap-1 bg-[#10B981] px-2 py-0.5 text-[9px] font-bold tracking-widest text-white">
+                          <CheckCircle size={9} weight="fill" /> APPROVED
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-[#F59E0B] px-2 py-0.5 text-[9px] font-bold tracking-widest text-white">
+                          PENDING
+                        </span>
+                      )}
+                    </td>
+                    <td className="border-b border-[#E5E7EB] px-3 py-3">
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Button
+                          data-testid={`pay-override-${a.acceptance_id}`}
+                          onClick={() => setPayDialog({ acceptance: a })}
+                          variant="outline"
+                          className="h-7 rounded-none border-[#030712] px-2 text-[10px]"
+                          title="Override pay for this gig"
+                        >
+                          <CurrencyDollar size={10} className="mr-1" weight="duotone" /> Pay
+                        </Button>
+                        {completed && !a.timesheet_approved && (
+                          <Button
+                            data-testid={`approve-timesheet-${a.acceptance_id}`}
+                            onClick={() => setApproveDialog({ acceptance: a })}
+                            className="h-7 rounded-none bg-[#10B981] px-2 text-[10px] text-white hover:bg-[#0e9971]"
+                          >
+                            <ClipboardText size={10} className="mr-1" /> Approve
+                          </Button>
+                        )}
+                        {completed && a.timesheet_approved && (
+                          <Button
+                            data-testid={`unapprove-timesheet-${a.acceptance_id}`}
+                            onClick={async () => {
+                              if (!confirm("Reverse this timesheet approval?")) return;
+                              try {
+                                await api.post(`/gigs/${gigId}/acceptances/${a.acceptance_id}/unapprove-timesheet`);
+                                toast.success("Timesheet un-approved");
+                                load();
+                              } catch (e) {
+                                toast.error(getErr(e));
+                              }
+                            }}
+                            variant="outline"
+                            className="h-7 rounded-none border-[#F59E0B] px-2 text-[10px] text-[#92400E]"
+                          >
+                            Un-approve
+                          </Button>
+                        )}
+                        <Button
+                          data-testid={`remove-worker-${a.acceptance_id}`}
+                          onClick={() => removeWorker(a)}
+                          variant="outline"
+                          className="h-7 rounded-none border-[#EF4444] px-2 text-[10px] text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+                        >
+                          <UserMinus size={10} className="mr-1" /> Remove
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                   );
@@ -480,6 +567,28 @@ export default function GigDetail() {
         onOpenChange={setAssignOpen}
         gig={gig}
         onAssigned={load}
+      />
+
+      <PayOverrideDialog
+        open={!!payDialog}
+        onOpenChange={(o) => !o && setPayDialog(null)}
+        gigId={gigId}
+        acceptance={payDialog?.acceptance}
+        onSaved={() => {
+          setPayDialog(null);
+          load();
+        }}
+      />
+
+      <ApproveTimesheetDialog
+        open={!!approveDialog}
+        onOpenChange={(o) => !o && setApproveDialog(null)}
+        gigId={gigId}
+        acceptance={approveDialog?.acceptance}
+        onSaved={() => {
+          setApproveDialog(null);
+          load();
+        }}
       />
     </div>
   );

@@ -228,6 +228,32 @@ class SettingsIn(BaseModel):
     twilio_account_sid: Optional[str] = None
     twilio_auth_token: Optional[str] = None
     twilio_from_number: Optional[str] = None
+    google_service_account_json: Optional[str] = None
+    google_sheets_share_email: Optional[str] = None
+
+
+class WorkerPayIn(BaseModel):
+    """Set a worker's default pay rate/type. Either field can be cleared with `null`
+    by sending an explicit JSON `null`."""
+    default_pay_rate: Optional[float] = None
+    default_pay_type: Optional[PayType] = None
+    clear_rate: Optional[bool] = False
+    clear_type: Optional[bool] = False
+
+
+class AcceptancePayIn(BaseModel):
+    """Override pay rate/type for a worker on a specific gig."""
+    pay_rate_override: Optional[float] = None
+    pay_type_override: Optional[PayType] = None
+    clear_rate: Optional[bool] = False
+    clear_type: Optional[bool] = False
+
+
+class TimesheetApproveIn(BaseModel):
+    """Optional admin corrections when approving a timesheet."""
+    hours_worked: Optional[float] = None
+    earnings: Optional[float] = None
+    note: Optional[str] = None
 
 
 class SettingsTestIn(BaseModel):
@@ -688,6 +714,19 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
                 a["worker_phone"] = w.get("phone")
                 a["worker_id_verified"] = w.get("id_verified", False)
                 a["worker_status"] = w.get("worker_status", "approved")
+                a["worker_default_pay_rate"] = w.get("default_pay_rate")
+                a["worker_default_pay_type"] = w.get("default_pay_type")
+                # Resolved effective pay for this worker on this gig
+                pay = _resolve_pay(a, w, gig)
+                a["pay_rate_effective"] = pay["pay_rate"]
+                a["pay_type_effective"] = pay["pay_type"]
+                a["pay_rate_source"] = a.get("pay_rate_source") or pay["pay_rate_source"]
+                a["pay_type_source"] = a.get("pay_type_source") or pay["pay_type_source"]
+                # If not yet clocked out, project what they'd earn
+                if a.get("earnings") is None and a.get("hours_worked") is not None:
+                    a["projected_earnings"] = _compute_earnings(
+                        pay["pay_rate"], pay["pay_type"], a.get("hours_worked")
+                    )
         gig["pending_requests"] = [a for a in all_rows if a.get("status") == "requested"]
         gig["acceptances"] = [a for a in all_rows if a.get("status") != "requested"]
     else:
@@ -784,6 +823,56 @@ def _effective_status(user: dict) -> str:
     if user.get("role") == "admin":
         return "approved"
     return user.get("worker_status") or "approved"
+
+
+def _resolve_pay(
+    acceptance: Optional[dict], worker: Optional[dict], gig: Optional[dict]
+) -> dict:
+    """Resolve the effective pay rate + type for a worker on a gig.
+
+    Precedence: per-gig override > worker default > gig posted rate.
+    Rate and type are resolved independently (e.g. worker default rate can apply
+    while gig's pay_type drives whether it's hourly vs flat).
+    """
+    rate = None
+    rate_source = None
+    if acceptance and acceptance.get("pay_rate_override") is not None:
+        rate = float(acceptance["pay_rate_override"])
+        rate_source = "gig_override"
+    elif worker and worker.get("default_pay_rate") is not None:
+        rate = float(worker["default_pay_rate"])
+        rate_source = "worker_default"
+    elif gig and gig.get("pay_rate") is not None:
+        rate = float(gig["pay_rate"])
+        rate_source = "gig_posted"
+
+    ptype = None
+    ptype_source = None
+    if acceptance and acceptance.get("pay_type_override"):
+        ptype = acceptance["pay_type_override"]
+        ptype_source = "gig_override"
+    elif worker and worker.get("default_pay_type"):
+        ptype = worker["default_pay_type"]
+        ptype_source = "worker_default"
+    elif gig and gig.get("pay_type"):
+        ptype = gig["pay_type"]
+        ptype_source = "gig_posted"
+
+    return {
+        "pay_rate": rate,
+        "pay_type": ptype,
+        "pay_rate_source": rate_source,
+        "pay_type_source": ptype_source,
+    }
+
+
+def _compute_earnings(pay_rate: Optional[float], pay_type: Optional[str], hours: Optional[float]) -> Optional[float]:
+    if pay_rate is None or pay_type is None:
+        return None
+    if pay_type == "hourly":
+        return round(float(pay_rate) * float(hours or 0), 2)
+    # flat / fixed rate — full posted amount regardless of hours
+    return round(float(pay_rate), 2)
 
 
 @api.post("/gigs/{gig_id}/accept")
@@ -1286,7 +1375,7 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
         gig_ids = list({a["gig_id"] for a in accepted})
         gigs = await db.gigs.find(
             {"gig_id": {"$in": gig_ids}},
-            {"_id": 0, "gig_id": 1, "title": 1, "category": 1, "scheduled_date": 1},
+            {"_id": 0},
         ).to_list(500)
         gmap = {g["gig_id"]: g for g in gigs}
         for a in accepted:
@@ -1294,6 +1383,17 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
             a["gig_title"] = g.get("title")
             a["gig_category"] = g.get("category")
             a["gig_scheduled_date"] = g.get("scheduled_date")
+            a["gig_pay_rate"] = g.get("pay_rate")
+            a["gig_pay_type"] = g.get("pay_type")
+            # If never clocked out, project resolved pay so admin can see what
+            # the worker WOULD earn at current rate.
+            if a.get("earnings") is None:
+                pay = _resolve_pay(a, w, g)
+                a["pay_rate_effective"] = pay["pay_rate"]
+                a["pay_type_effective"] = pay["pay_type"]
+                a["projected_earnings"] = _compute_earnings(
+                    pay["pay_rate"], pay["pay_type"], a.get("hours_worked")
+                )
     w["accepted_gigs"] = accepted
     return w
 
@@ -1531,17 +1631,36 @@ async def clock_out(gig_id: str, user: dict = Depends(get_current_user)):
     if clock_in_dt.tzinfo is None:
         clock_in_dt = clock_in_dt.replace(tzinfo=timezone.utc)
     hours = round((now - clock_in_dt).total_seconds() / 3600.0, 2)
+
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    worker = await db.users.find_one({"user_id": user["user_id"]})
+    pay = _resolve_pay(acceptance, worker, gig)
+    earnings = _compute_earnings(pay["pay_rate"], pay["pay_type"], hours)
+
     await db.gig_acceptances.update_one(
         {"acceptance_id": acceptance["acceptance_id"]},
         {
             "$set": {
                 "clock_out_at": now.isoformat(),
                 "hours_worked": hours,
+                "pay_rate_applied": pay["pay_rate"],
+                "pay_type_applied": pay["pay_type"],
+                "pay_rate_source": pay["pay_rate_source"],
+                "pay_type_source": pay["pay_type_source"],
+                "earnings": earnings,
+                "timesheet_approved": False,
                 "status": "completed",
             }
         },
     )
-    return {"ok": True, "clock_out_at": now.isoformat(), "hours_worked": hours}
+    return {
+        "ok": True,
+        "clock_out_at": now.isoformat(),
+        "hours_worked": hours,
+        "earnings": earnings,
+        "pay_rate_applied": pay["pay_rate"],
+        "pay_type_applied": pay["pay_type"],
+    }
 
 
 @api.get("/admin/stats")
@@ -1572,6 +1691,553 @@ async def admin_stats(admin: dict = Depends(require_admin)):
     }
 
 
+# ----------------------------------------------------------------------------
+# Pay, timesheet approval, reports, and Google Sheets export
+# ----------------------------------------------------------------------------
+@api.put("/admin/workers/{user_id}/pay")
+async def set_worker_default_pay(
+    user_id: str, payload: WorkerPayIn, admin: dict = Depends(require_admin)
+):
+    """Admin sets a worker's default pay rate / type (used as a fallback when a
+    gig-specific override is not set)."""
+    worker = await db.users.find_one({"user_id": user_id})
+    if not worker or worker.get("role") != "worker":
+        raise HTTPException(404, "Worker not found")
+
+    set_ops: dict = {}
+    unset_ops: dict = {}
+    if payload.clear_rate:
+        unset_ops["default_pay_rate"] = ""
+    elif payload.default_pay_rate is not None:
+        if payload.default_pay_rate < 0:
+            raise HTTPException(400, "pay rate must be >= 0")
+        set_ops["default_pay_rate"] = float(payload.default_pay_rate)
+    if payload.clear_type:
+        unset_ops["default_pay_type"] = ""
+    elif payload.default_pay_type is not None:
+        set_ops["default_pay_type"] = payload.default_pay_type
+
+    if not set_ops and not unset_ops:
+        return {"ok": True, "changed": 0}
+
+    ops: dict = {}
+    if set_ops:
+        ops["$set"] = set_ops
+    if unset_ops:
+        ops["$unset"] = unset_ops
+    await db.users.update_one({"user_id": user_id}, ops)
+    logger.info(f"Admin {admin['email']} set pay for worker {user_id}: {set_ops or unset_ops}")
+    return {"ok": True, "default_pay_rate": set_ops.get("default_pay_rate"), "default_pay_type": set_ops.get("default_pay_type")}
+
+
+@api.put("/gigs/{gig_id}/acceptances/{acceptance_id}/pay")
+async def set_acceptance_pay_override(
+    gig_id: str,
+    acceptance_id: str,
+    payload: AcceptancePayIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin overrides pay rate/type for a single worker on a single gig.
+
+    Useful when one worker earns differently from the posted gig rate (e.g.
+    performance, seniority). If the acceptance is already completed (clocked
+    out), this also recomputes the snapshotted earnings."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+
+    set_ops: dict = {}
+    unset_ops: dict = {}
+    if payload.clear_rate:
+        unset_ops["pay_rate_override"] = ""
+    elif payload.pay_rate_override is not None:
+        if payload.pay_rate_override < 0:
+            raise HTTPException(400, "pay rate must be >= 0")
+        set_ops["pay_rate_override"] = float(payload.pay_rate_override)
+    if payload.clear_type:
+        unset_ops["pay_type_override"] = ""
+    elif payload.pay_type_override is not None:
+        set_ops["pay_type_override"] = payload.pay_type_override
+
+    if not set_ops and not unset_ops:
+        return {"ok": True, "changed": 0}
+
+    ops: dict = {}
+    if set_ops:
+        ops["$set"] = set_ops
+    if unset_ops:
+        ops["$unset"] = unset_ops
+    await db.gig_acceptances.update_one({"acceptance_id": acceptance_id}, ops)
+
+    # Recompute earnings if already clocked out
+    refreshed = await db.gig_acceptances.find_one({"acceptance_id": acceptance_id})
+    if refreshed and refreshed.get("clock_out_at"):
+        gig = await db.gigs.find_one({"gig_id": gig_id})
+        worker = await db.users.find_one({"user_id": refreshed["worker_id"]})
+        pay = _resolve_pay(refreshed, worker, gig)
+        new_earnings = _compute_earnings(pay["pay_rate"], pay["pay_type"], refreshed.get("hours_worked"))
+        await db.gig_acceptances.update_one(
+            {"acceptance_id": acceptance_id},
+            {
+                "$set": {
+                    "pay_rate_applied": pay["pay_rate"],
+                    "pay_type_applied": pay["pay_type"],
+                    "pay_rate_source": pay["pay_rate_source"],
+                    "pay_type_source": pay["pay_type_source"],
+                    "earnings": new_earnings,
+                    # Override invalidates a prior approval — admin should re-approve
+                    "timesheet_approved": False,
+                    "timesheet_approved_at": None,
+                    "timesheet_approved_by": None,
+                }
+            },
+        )
+    logger.info(f"Admin {admin['email']} set per-gig pay override on acceptance {acceptance_id}")
+    return {"ok": True}
+
+
+@api.post("/gigs/{gig_id}/acceptances/{acceptance_id}/approve-timesheet")
+async def approve_timesheet(
+    gig_id: str,
+    acceptance_id: str,
+    payload: TimesheetApproveIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin approves the worker's clocked timesheet — releases earnings to the
+    worker's earnings view. Optionally allows correcting hours_worked / earnings
+    (e.g. worker forgot to clock out)."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+    if not acceptance.get("clock_out_at"):
+        raise HTTPException(400, "Worker hasn't clocked out yet — cannot approve timesheet")
+
+    set_ops: dict = {
+        "timesheet_approved": True,
+        "timesheet_approved_at": datetime.now(timezone.utc).isoformat(),
+        "timesheet_approved_by": admin["email"],
+    }
+    if payload.note:
+        set_ops["timesheet_note"] = payload.note
+
+    # Optional admin corrections (e.g. trim hours, set earnings manually)
+    if payload.hours_worked is not None:
+        if payload.hours_worked < 0:
+            raise HTTPException(400, "hours_worked must be >= 0")
+        set_ops["hours_worked"] = round(float(payload.hours_worked), 2)
+    if payload.earnings is not None:
+        if payload.earnings < 0:
+            raise HTTPException(400, "earnings must be >= 0")
+        set_ops["earnings"] = round(float(payload.earnings), 2)
+        set_ops["earnings_manual_override"] = True
+    elif payload.hours_worked is not None:
+        # Recompute earnings using existing rate snapshot, with the new hours
+        rate = acceptance.get("pay_rate_applied")
+        ptype = acceptance.get("pay_type_applied")
+        # Fallback to a fresh resolution if not snapshotted yet
+        if rate is None or ptype is None:
+            gig = await db.gigs.find_one({"gig_id": gig_id})
+            worker = await db.users.find_one({"user_id": acceptance["worker_id"]})
+            pay = _resolve_pay(acceptance, worker, gig)
+            rate, ptype = pay["pay_rate"], pay["pay_type"]
+            set_ops["pay_rate_applied"] = rate
+            set_ops["pay_type_applied"] = ptype
+        set_ops["earnings"] = _compute_earnings(rate, ptype, set_ops["hours_worked"])
+
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id}, {"$set": set_ops}
+    )
+
+    # Notify worker that their timesheet was approved + earnings now visible
+    gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0, "title": 1})
+    refreshed = await db.gig_acceptances.find_one({"acceptance_id": acceptance_id}, {"_id": 0})
+    earned = refreshed.get("earnings") if refreshed else None
+    await db.notifications.insert_one(
+        {
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": acceptance["worker_id"],
+            "gig_id": gig_id,
+            "title": f"Timesheet approved: {gig.get('title') if gig else 'gig'}",
+            "body": f"You earned ${earned:.2f} for this gig." if earned is not None else "Your timesheet was approved.",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    logger.info(f"Admin {admin['email']} approved timesheet {acceptance_id}")
+    return {"ok": True, "earnings": earned, "timesheet_approved": True}
+
+
+@api.post("/gigs/{gig_id}/acceptances/{acceptance_id}/unapprove-timesheet")
+async def unapprove_timesheet(
+    gig_id: str,
+    acceptance_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Reverse a prior timesheet approval (e.g. if a dispute is raised)."""
+    res = await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id},
+        {
+            "$set": {
+                "timesheet_approved": False,
+                "timesheet_approved_at": None,
+                "timesheet_approved_by": None,
+            }
+        },
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Acceptance not found")
+    return {"ok": True}
+
+
+async def _build_timesheet_rows(
+    start: Optional[str],
+    end: Optional[str],
+    worker_id: Optional[str],
+    gig_id: Optional[str],
+    only_approved: bool,
+) -> List[dict]:
+    """Return enriched timesheet rows, sorted by clock_in (newest first).
+
+    A row is included only if the worker clocked OUT (completed). Filters by
+    optional ISO date strings; only_approved=True restricts to approved
+    timesheets (used for worker-facing endpoints)."""
+    query: dict = {"clock_out_at": {"$ne": None}}
+    if worker_id:
+        query["worker_id"] = worker_id
+    if gig_id:
+        query["gig_id"] = gig_id
+    if only_approved:
+        query["timesheet_approved"] = True
+
+    # Date filter on clock_in_at when provided
+    if start or end:
+        date_filter: dict = {}
+        if start:
+            date_filter["$gte"] = start
+        if end:
+            date_filter["$lte"] = end
+        query["clock_in_at"] = date_filter
+
+    rows = await db.gig_acceptances.find(query, {"_id": 0}).sort("clock_in_at", -1).to_list(5000)
+    if not rows:
+        return []
+    gig_ids = list({r["gig_id"] for r in rows})
+    worker_ids = list({r["worker_id"] for r in rows})
+    gigs = await db.gigs.find({"gig_id": {"$in": gig_ids}}, {"_id": 0}).to_list(5000)
+    gmap = {g["gig_id"]: g for g in gigs}
+    workers = await db.users.find(
+        {"user_id": {"$in": worker_ids}}, {"_id": 0, "password_hash": 0}
+    ).to_list(5000)
+    wmap = {w["user_id"]: w for w in workers}
+    out: List[dict] = []
+    for r in rows:
+        g = gmap.get(r["gig_id"]) or {}
+        w = wmap.get(r["worker_id"]) or {}
+        # If earnings not snapshotted (legacy), compute on the fly using current rates
+        earnings = r.get("earnings")
+        rate = r.get("pay_rate_applied")
+        ptype = r.get("pay_type_applied")
+        if earnings is None:
+            pay = _resolve_pay(r, w, g)
+            rate, ptype = pay["pay_rate"], pay["pay_type"]
+            earnings = _compute_earnings(rate, ptype, r.get("hours_worked"))
+        out.append(
+            {
+                "acceptance_id": r["acceptance_id"],
+                "gig_id": r["gig_id"],
+                "gig_title": g.get("title"),
+                "gig_category": g.get("category"),
+                "gig_scheduled_date": g.get("scheduled_date"),
+                "worker_id": r["worker_id"],
+                "worker_name": w.get("name"),
+                "worker_email": w.get("email"),
+                "clock_in_at": r.get("clock_in_at"),
+                "clock_out_at": r.get("clock_out_at"),
+                "hours_worked": r.get("hours_worked"),
+                "pay_rate_applied": rate,
+                "pay_type_applied": ptype,
+                "earnings": earnings,
+                "timesheet_approved": bool(r.get("timesheet_approved")),
+                "timesheet_approved_at": r.get("timesheet_approved_at"),
+                "timesheet_approved_by": r.get("timesheet_approved_by"),
+            }
+        )
+    return out
+
+
+@api.get("/admin/reports/timesheets")
+async def admin_reports_timesheets(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    worker_id: Optional[str] = Query(None),
+    gig_id: Optional[str] = Query(None),
+    only_approved: bool = Query(False),
+    admin: dict = Depends(require_admin),
+):
+    """Return timesheet rows + totals."""
+    rows = await _build_timesheet_rows(start, end, worker_id, gig_id, only_approved)
+    total_hours = round(sum((r.get("hours_worked") or 0) for r in rows), 2)
+    total_earnings = round(sum((r.get("earnings") or 0) for r in rows), 2)
+    approved_earnings = round(
+        sum((r.get("earnings") or 0) for r in rows if r.get("timesheet_approved")), 2
+    )
+    return {
+        "rows": rows,
+        "totals": {
+            "rows": len(rows),
+            "hours": total_hours,
+            "earnings": total_earnings,
+            "approved_earnings": approved_earnings,
+        },
+        "filter": {"start": start, "end": end, "worker_id": worker_id, "gig_id": gig_id, "only_approved": only_approved},
+    }
+
+
+def _fmt_dt_for_csv(iso: Optional[str]) -> str:
+    if not iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return iso
+
+
+def _csv_escape(v) -> str:
+    if v is None:
+        return ""
+    s = str(v)
+    if any(c in s for c in [",", '"', "\n", "\r"]):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+@api.get("/admin/reports/timesheets.csv")
+async def admin_reports_timesheets_csv(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    worker_id: Optional[str] = Query(None),
+    gig_id: Optional[str] = Query(None),
+    only_approved: bool = Query(False),
+    admin: dict = Depends(require_admin),
+):
+    """Download timesheet report as CSV."""
+    rows = await _build_timesheet_rows(start, end, worker_id, gig_id, only_approved)
+    header = [
+        "Worker", "Worker email", "Gig", "Date", "Clock-in", "Clock-out",
+        "Hours", "Pay rate", "Pay type", "Earnings", "Timesheet approved",
+    ]
+    lines = [",".join(header)]
+    for r in rows:
+        rate = r.get("pay_rate_applied")
+        rate_s = f"{rate:.2f}" if rate is not None else ""
+        earnings = r.get("earnings")
+        earnings_s = f"{earnings:.2f}" if earnings is not None else ""
+        hours = r.get("hours_worked")
+        hours_s = f"{hours:.2f}" if hours is not None else ""
+        lines.append(",".join(_csv_escape(c) for c in [
+            r.get("worker_name") or "",
+            r.get("worker_email") or "",
+            r.get("gig_title") or "",
+            r.get("gig_scheduled_date") or "",
+            _fmt_dt_for_csv(r.get("clock_in_at")),
+            _fmt_dt_for_csv(r.get("clock_out_at")),
+            hours_s,
+            rate_s,
+            r.get("pay_type_applied") or "",
+            earnings_s,
+            "yes" if r.get("timesheet_approved") else "no",
+        ]))
+    body = "\n".join(lines) + "\n"
+    filename = f"hcob-timesheets-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    return FastAPIResponse(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.post("/admin/reports/export-google-sheets")
+async def admin_reports_export_google_sheets(
+    payload: dict,
+    admin: dict = Depends(require_admin),
+):
+    """Export timesheet report to a brand-new Google Sheet using the configured
+    service account JSON in admin settings. Returns the sheet URL."""
+    s = await _get_settings_doc()
+    raw = s.get("google_service_account_json")
+    if not raw:
+        raise HTTPException(400, "Google service account JSON is not configured in admin settings")
+
+    import json as _json
+    try:
+        info = _json.loads(raw)
+    except Exception:
+        raise HTTPException(400, "Saved Google service account JSON is invalid")
+
+    start = payload.get("start")
+    end = payload.get("end")
+    worker_id = payload.get("worker_id")
+    gig_id = payload.get("gig_id")
+    only_approved = bool(payload.get("only_approved"))
+    rows = await _build_timesheet_rows(start, end, worker_id, gig_id, only_approved)
+
+    title_parts = ["HCOB Timesheets"]
+    if start:
+        title_parts.append(start[:10])
+    if end:
+        title_parts.append("→ " + end[:10])
+    title_parts.append(datetime.now(timezone.utc).strftime("%H:%M UTC"))
+    sheet_title = " ".join(title_parts)
+
+    def _build():
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        creds = service_account.Credentials.from_service_account_info(
+            info,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        sheets = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        drive = build("drive", "v3", credentials=creds, cache_discovery=False)
+
+        spreadsheet = sheets.spreadsheets().create(body={
+            "properties": {"title": sheet_title},
+            "sheets": [{"properties": {"title": "Timesheets"}}],
+        }).execute()
+        sheet_id = spreadsheet["spreadsheetId"]
+
+        header = [
+            "Worker", "Worker email", "Gig", "Date", "Clock-in", "Clock-out",
+            "Hours", "Pay rate", "Pay type", "Earnings", "Timesheet approved",
+        ]
+        values = [header]
+        total_hours = 0.0
+        total_earnings = 0.0
+        for r in rows:
+            hours = r.get("hours_worked") or 0
+            earnings = r.get("earnings") or 0
+            total_hours += float(hours)
+            total_earnings += float(earnings)
+            values.append([
+                r.get("worker_name") or "",
+                r.get("worker_email") or "",
+                r.get("gig_title") or "",
+                r.get("gig_scheduled_date") or "",
+                _fmt_dt_for_csv(r.get("clock_in_at")),
+                _fmt_dt_for_csv(r.get("clock_out_at")),
+                float(hours),
+                float(r.get("pay_rate_applied") or 0),
+                r.get("pay_type_applied") or "",
+                float(earnings),
+                "yes" if r.get("timesheet_approved") else "no",
+            ])
+        values.append([])
+        values.append(["TOTALS", "", "", "", "", "", round(total_hours, 2), "", "", round(total_earnings, 2), ""])
+
+        sheets.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range="Timesheets!A1",
+            valueInputOption="RAW",
+            body={"values": values},
+        ).execute()
+
+        # Share with the admin email so they can open it
+        share_email = s.get("google_sheets_share_email")
+        if share_email:
+            try:
+                drive.permissions().create(
+                    fileId=sheet_id,
+                    body={"type": "user", "role": "writer", "emailAddress": share_email},
+                    sendNotificationEmail=False,
+                ).execute()
+            except Exception as e:
+                logger.warning(f"Could not share sheet with {share_email}: {e}")
+
+        return {
+            "spreadsheet_id": sheet_id,
+            "url": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit",
+            "rows": len(rows),
+            "total_hours": round(total_hours, 2),
+            "total_earnings": round(total_earnings, 2),
+        }
+
+    try:
+        result = await asyncio.to_thread(_build)
+    except Exception as e:
+        logger.error(f"Google Sheets export failed: {e}")
+        raise HTTPException(400, f"Google Sheets export failed: {e}")
+    logger.info(f"Admin {admin['email']} exported timesheets to {result['url']}")
+    return result
+
+
+@api.get("/me/earnings")
+async def my_earnings(user: dict = Depends(get_current_user)):
+    """Worker's own approved earnings — totals + per-gig list. Only APPROVED
+    timesheets are released; pending timesheets are summarized separately."""
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Workers only")
+    rows = await db.gig_acceptances.find(
+        {"worker_id": user["user_id"], "clock_out_at": {"$ne": None}}, {"_id": 0}
+    ).sort("clock_out_at", -1).to_list(1000)
+    if not rows:
+        return {
+            "approved": {"rows": [], "total_hours": 0, "total_earnings": 0},
+            "pending": {"count": 0, "hours": 0},
+        }
+    gig_ids = list({r["gig_id"] for r in rows})
+    gigs = await db.gigs.find({"gig_id": {"$in": gig_ids}}, {"_id": 0}).to_list(1000)
+    gmap = {g["gig_id"]: g for g in gigs}
+
+    approved_rows = []
+    approved_hours = 0.0
+    approved_earnings = 0.0
+    pending_count = 0
+    pending_hours = 0.0
+    for r in rows:
+        g = gmap.get(r["gig_id"]) or {}
+        hours = r.get("hours_worked") or 0
+        earnings = r.get("earnings")
+        if r.get("timesheet_approved"):
+            approved_hours += float(hours)
+            approved_earnings += float(earnings or 0)
+            approved_rows.append({
+                "acceptance_id": r["acceptance_id"],
+                "gig_id": r["gig_id"],
+                "gig_title": g.get("title"),
+                "gig_category": g.get("category"),
+                "gig_scheduled_date": g.get("scheduled_date"),
+                "clock_in_at": r.get("clock_in_at"),
+                "clock_out_at": r.get("clock_out_at"),
+                "hours_worked": r.get("hours_worked"),
+                "pay_rate_applied": r.get("pay_rate_applied"),
+                "pay_type_applied": r.get("pay_type_applied"),
+                "earnings": earnings,
+                "timesheet_approved_at": r.get("timesheet_approved_at"),
+            })
+        else:
+            pending_count += 1
+            pending_hours += float(hours)
+    return {
+        "approved": {
+            "rows": approved_rows,
+            "total_hours": round(approved_hours, 2),
+            "total_earnings": round(approved_earnings, 2),
+        },
+        "pending": {
+            "count": pending_count,
+            "hours": round(pending_hours, 2),
+        },
+    }
+
+
+
 # ---- Admin settings (Resend / Twilio) --------------------------------------
 def _mask(value: Optional[str]) -> dict:
     v = (value or "").strip()
@@ -1586,6 +2252,14 @@ async def get_settings(admin: dict = Depends(require_admin)):
     s = await _get_settings_doc()
     email = await _resolve_email_creds()
     sms = await _resolve_sms_creds()
+    gs_json = s.get("google_service_account_json") or ""
+    gs_email = ""
+    if gs_json:
+        try:
+            import json as _json
+            gs_email = _json.loads(gs_json).get("client_email", "")
+        except Exception:
+            gs_email = ""
     return {
         "resend_api_key": _mask(s.get("resend_api_key")),
         "sender_email": s.get("sender_email") or SENDER_EMAIL or "",
@@ -1594,6 +2268,9 @@ async def get_settings(admin: dict = Depends(require_admin)):
         "twilio_from_number": s.get("twilio_from_number") or TWILIO_FROM or "",
         "email_ready": bool(email["api_key"] and email["sender"]),
         "sms_ready": bool(sms["sid"] and sms["token"] and sms["from_"]),
+        "google_sheets_ready": bool(gs_json),
+        "google_sheets_service_email": gs_email,
+        "google_sheets_share_email": s.get("google_sheets_share_email") or "",
         "updated_at": s.get("updated_at"),
         "updated_by": s.get("updated_by"),
     }

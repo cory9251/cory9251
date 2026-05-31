@@ -2,18 +2,23 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
-import { CheckCircle, CurrencyDollar, MapPin, Clock } from "@phosphor-icons/react";
+import { CheckCircle, CurrencyDollar, MapPin, Clock, Hourglass } from "@phosphor-icons/react";
 
 export default function WorkerAccepted() {
   const [items, setItems] = useState([]);
+  const [earnings, setEarnings] = useState(null);
   const nav = useNavigate();
 
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get("/gigs", { params: { status: "all" } });
+        const [g, e] = await Promise.all([
+          api.get("/gigs", { params: { status: "all" } }),
+          api.get("/me/earnings"),
+        ]);
         // we want only ones the worker accepted; backend already attaches my_acceptance
-        setItems(data.filter((g) => g.my_acceptance));
+        setItems(g.data.filter((g) => g.my_acceptance));
+        setEarnings(e.data);
       } catch (e) {
         toast.error(getErr(e));
       }
@@ -27,6 +32,36 @@ export default function WorkerAccepted() {
         My gigs
       </h1>
 
+      {earnings && (
+        <div
+          data-testid="worker-earnings-summary"
+          className="mt-5 grid grid-cols-2 gap-3"
+        >
+          <div className="rounded-2xl border border-[#10B981]/30 bg-[#ECFDF5] p-4">
+            <div className="font-mono-label flex items-center gap-1 text-[#065F46]">
+              <CurrencyDollar size={11} weight="duotone" /> Approved earnings
+            </div>
+            <div className="mt-1 font-display text-2xl font-black text-[#065F46]">
+              ${earnings.approved.total_earnings.toFixed(2)}
+            </div>
+            <div className="mt-0.5 text-[10px] font-mono-label text-[#065F46]/80">
+              {earnings.approved.total_hours.toFixed(2)}h paid
+            </div>
+          </div>
+          <div className="rounded-2xl border border-[#F59E0B]/30 bg-[#FFFBEB] p-4">
+            <div className="font-mono-label flex items-center gap-1 text-[#92400E]">
+              <Hourglass size={11} weight="duotone" /> Pending approval
+            </div>
+            <div className="mt-1 font-display text-2xl font-black text-[#92400E]">
+              {earnings.pending.count}
+            </div>
+            <div className="mt-0.5 text-[10px] font-mono-label text-[#92400E]/80">
+              {earnings.pending.hours.toFixed(2)}h waiting
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mt-5 space-y-4">
         {items.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[#E5E7EB] bg-white p-10 text-center text-sm text-[#4B5563]">
@@ -38,6 +73,7 @@ export default function WorkerAccepted() {
             const isRequested = acc.status === "requested";
             const onClock = acc.clock_in_at && !acc.clock_out_at;
             const completed = !!acc.clock_out_at;
+            const approved = !!acc.timesheet_approved;
             return (
             <button
               key={g.gig_id}
@@ -84,6 +120,25 @@ export default function WorkerAccepted() {
                 <Tag icon={MapPin} v={g.location} />
                 <Tag icon={Clock} v={g.scheduled_date} />
               </div>
+              {completed && (
+                <div
+                  data-testid={`earnings-${g.gig_id}`}
+                  className={`mt-3 flex items-center justify-between rounded-xl border px-3 py-2 text-xs ${
+                    approved
+                      ? "border-[#10B981]/30 bg-[#ECFDF5]"
+                      : "border-[#F59E0B]/30 bg-[#FFFBEB]"
+                  }`}
+                >
+                  <span className={`font-mono-label ${approved ? "text-[#065F46]" : "text-[#92400E]"}`}>
+                    {approved ? "Earnings (approved)" : "Earnings pending HCOB approval"}
+                  </span>
+                  <span className={`font-display text-base font-black ${approved ? "text-[#065F46]" : "text-[#92400E]"}`}>
+                    {approved && acc.earnings != null
+                      ? `$${acc.earnings.toFixed(2)}`
+                      : "—"}
+                  </span>
+                </div>
+              )}
             </button>
             );
           })
@@ -97,3 +152,4 @@ const Tag = ({ icon: I, v }) => (
     <I size={12} weight="duotone" /> {v}
   </span>
 );
+

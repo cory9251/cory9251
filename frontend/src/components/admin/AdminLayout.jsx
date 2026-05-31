@@ -9,6 +9,7 @@ import {
   SignOut,
   Lightning,
   ClockCounterClockwise,
+  ChartBar,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -19,6 +20,7 @@ const nav = [
   { to: "/admin/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: true },
   { to: "/admin/gigs", label: "Gigs", icon: Briefcase, end: false },
   { to: "/admin/workers", label: "Workers", icon: UsersThree, end: false },
+  { to: "/admin/reports", label: "Reports", icon: ChartBar, end: false },
   { to: "/admin/settings", label: "Settings", icon: Gear, end: false },
 ];
 
