@@ -1,4 +1,4 @@
-"""GigBlast — Gig Opportunity Management Platform."""
+"""HCOB Network — Gig Opportunity Management Platform."""
 from dotenv import load_dotenv
 from pathlib import Path
 

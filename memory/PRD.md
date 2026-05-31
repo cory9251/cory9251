@@ -56,6 +56,15 @@
 - Admin/Worker layouts, email subjects, SMS prefixes all carry HCOB Network branding
 - 59/59 backend tests passing
 
+## Implemented — 2026-05 (Iteration 5: Worker Management + Time Tracking)
+- **Admin can reset a worker's password** (manual or auto-generated temp shown once with copy-to-clipboard); all of the worker's sessions are force-invalidated
+- **Admin can delete a worker** — cascades to acceptances/sessions/notifications/files and releases slots on gigs they had claimed (reverts gig back to 'open')
+- **Worker self-service "Change password"** card on profile
+- **Clock-in / Clock-out** per acceptance — live elapsed timer on the worker gig screen, "ON THE CLOCK" pulsing badge on the accepted list, full clock-in/out + hours_worked columns on the admin gig roster and worker history
+- Acceptance state machine: `accepted → on_the_clock → completed`
+- Worker detail endpoint enriched with gig titles + clock-in fields
+- 75/75 backend tests passing (16 new + 59 regression)
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)
