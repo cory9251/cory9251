@@ -152,7 +152,7 @@ export default function GigDetail() {
           {gig.address_line && (
             <div className="mt-6 border border-[#0044FF]/30 bg-[#F0F4FF] p-4">
               <div className="font-mono-label flex items-center gap-2 text-[#0044FF]">
-                <EyeSlash size={12} weight="duotone" /> Full address (workers only see after accept)
+                <EyeSlash size={12} weight="duotone" /> Full address (workers only see after approval)
               </div>
               <div className="mt-2 font-display text-base font-bold text-[#030712]">
                 {gig.address_line}
@@ -235,10 +235,12 @@ export default function GigDetail() {
         {(gig.pending_requests || []).length > 0 && (
           <div className="mb-8">
             <div className="font-mono-label">Pending requests</div>
-            <h2 className="mt-1 font-display text-2xl font-black">
-              {gig.pending_requests.length} worker
-              {gig.pending_requests.length === 1 ? "" : "s"} want to claim this gig
-            </h2>
+            <div className="mt-1">
+              <div className="font-display text-2xl font-black">
+                {gig.pending_requests.length} worker
+                {gig.pending_requests.length === 1 ? " wants" : "s want"} to claim this gig
+              </div>
+            </div>
             <div className="mt-4 overflow-x-auto border border-[#F59E0B]/30">
               <table className="w-full text-sm">
                 <thead className="bg-[#FFFBEB]">

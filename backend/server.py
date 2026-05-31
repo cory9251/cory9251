@@ -891,7 +891,7 @@ async def approve_request(
         }
     )
     logger.info(f"Admin {admin['email']} approved request {acceptance_id} on gig {gig_id}")
-    return {"ok": True, "slots_filled": new_filled, "status": gig_update.get("status", gig["status"])}
+    return {"ok": True, "slots_filled": new_filled, "gig_status": gig_update.get("status", gig["status"])}
 
 
 @api.post("/gigs/{gig_id}/requests/{acceptance_id}/reject")
