@@ -75,6 +75,17 @@
 - After acceptance the worker sees a **Full address** card with the sensitive address
 - 91/91 backend tests passing (16 new + 75 regression)
 
+## Implemented — 2026-05 (Iteration 7: Recurring Gigs + Worker Approval Gate)
+- New worker registrations default to `worker_status='pending'` — admin must approve before they can claim gigs
+- Admin endpoints: `approve`, `reject`, `suspend`, `reinstate` (reject/suspend force-kill sessions)
+- Accept gate now layered: status check → ID upload check → ID verified check, each with a distinct 403 message
+- Backwards compat: existing users without the field are treated as approved
+- AdminDashboard adds **Pending apps** KPI + yellow review strip; AdminWorkers gains status tabs (All / Pending / Approved / Rejected / Suspended) with badges
+- WorkerDetail shows an Application Status card with action buttons (Approve / Reject / Suspend / Reinstate)
+- Recurring gigs in CreateGigDialog — daily / weekly / biweekly / monthly + occurrence count (max 52). Backend generates N gigs spaced by the chosen period, linked by `series_id` / `series_index` / `series_total`
+- Worker feed banner + gig screen extended with explicit messaging per state (pending / rejected / suspended / needs-ID / awaiting-verification)
+- 115/115 backend tests passing (24 new + 91 regression)
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)

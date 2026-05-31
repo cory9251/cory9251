@@ -73,16 +73,40 @@ export default function AdminDashboard() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 border-l border-t border-[#E5E7EB]">
+      <div className="grid grid-cols-2 md:grid-cols-5 border-l border-t border-[#E5E7EB]">
         <KPI label="Open gigs" value={stats?.open_gigs ?? "—"} icon={Briefcase} accent />
         <KPI label="Filled" value={stats?.filled_gigs ?? "—"} icon={CheckCircle} />
         <KPI label="Workers" value={stats?.total_workers ?? "—"} icon={UsersThree} />
+        <KPI
+          label="Pending apps"
+          value={stats?.pending_approval ?? "—"}
+          icon={ClockCounterClockwise}
+        />
         <KPI
           label="Pending ID"
           value={stats?.pending_id_verification ?? "—"}
           icon={IdentificationCard}
         />
       </div>
+
+      {stats?.pending_approval > 0 && (
+        <div className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-3 md:px-10">
+          <button
+            data-testid="dashboard-pending-apps-link"
+            onClick={() => nav("/admin/workers?status=pending")}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2 text-[#92400E]">
+              <ClockCounterClockwise size={18} weight="fill" />
+              <span className="font-display text-sm font-bold">
+                {stats.pending_approval} worker
+                {stats.pending_approval === 1 ? "" : "s"} waiting for your review
+              </span>
+            </div>
+            <span className="font-mono-label">Review now →</span>
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 border-t border-[#E5E7EB]">
         <div className="lg:col-span-2 border-r border-[#E5E7EB]">
