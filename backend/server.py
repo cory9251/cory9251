@@ -256,6 +256,16 @@ class TimesheetApproveIn(BaseModel):
     note: Optional[str] = None
 
 
+class TimesheetEditIn(BaseModel):
+    """Admin edits raw clock-in/out times. Either field accepts an ISO datetime
+    string. Passing `clear_clock_out=true` reverts the acceptance back to
+    on-the-clock state. Editing always recomputes hours+earnings and resets
+    timesheet_approved=false."""
+    clock_in_at: Optional[str] = None
+    clock_out_at: Optional[str] = None
+    clear_clock_out: Optional[bool] = False
+
+
 class SettingsTestIn(BaseModel):
     channel: Literal["email", "sms"]
     to: str
@@ -1891,6 +1901,133 @@ async def unapprove_timesheet(
     if res.matched_count == 0:
         raise HTTPException(404, "Acceptance not found")
     return {"ok": True}
+
+
+def _parse_admin_dt(value: str) -> datetime:
+    """Parse a datetime string from the admin UI. Accepts ISO 8601 with or
+    without timezone (treats naive as UTC) and the `YYYY-MM-DDTHH:MM` shape
+    that `<input type=datetime-local>` emits."""
+    raw = value.strip()
+    if not raw:
+        raise HTTPException(400, "Empty datetime value")
+    # Handle trailing Z
+    raw = raw.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        raise HTTPException(400, f"Invalid datetime: {value}")
+    if dt.tzinfo is None:
+        # datetime-local from the admin's browser is in their local time, but
+        # we don't know the offset. Treat as UTC — the admin form will preview
+        # the value back to them so they can correct if needed.
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+@api.put("/gigs/{gig_id}/acceptances/{acceptance_id}/timesheet")
+async def edit_acceptance_timesheet(
+    gig_id: str,
+    acceptance_id: str,
+    payload: TimesheetEditIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin sets / edits / clears clock-in & clock-out times for an acceptance.
+
+    Recomputes `hours_worked` + `earnings` whenever both times are present.
+    Any edit resets `timesheet_approved=false` so the admin must re-approve.
+    Status is kept in sync: completed if clocked out, accepted if clocked back in only.
+    """
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+
+    # Allow editing only for workers who were actually approved/clocked-in/completed
+    if acceptance.get("status") == "requested":
+        raise HTTPException(
+            400, "Approve the worker for this gig before editing their timesheet"
+        )
+
+    new_in: Optional[datetime] = None
+    new_out: Optional[datetime] = None
+    if payload.clock_in_at is not None:
+        new_in = _parse_admin_dt(payload.clock_in_at)
+    elif acceptance.get("clock_in_at"):
+        new_in = _parse_admin_dt(acceptance["clock_in_at"])
+
+    if payload.clear_clock_out:
+        new_out = None
+    elif payload.clock_out_at is not None:
+        new_out = _parse_admin_dt(payload.clock_out_at)
+    elif acceptance.get("clock_out_at") and not payload.clear_clock_out:
+        new_out = _parse_admin_dt(acceptance["clock_out_at"])
+
+    # Validation
+    if new_in is None and new_out is not None:
+        raise HTTPException(400, "Cannot set a clock-out time without a clock-in time")
+    if new_in and new_out and new_out <= new_in:
+        raise HTTPException(400, "Clock-out must be after clock-in")
+
+    set_ops: dict = {
+        "timesheet_approved": False,
+        "timesheet_approved_at": None,
+        "timesheet_approved_by": None,
+        "timesheet_edited_at": datetime.now(timezone.utc).isoformat(),
+        "timesheet_edited_by": admin["email"],
+    }
+    unset_ops: dict = {}
+
+    if new_in is None:
+        unset_ops["clock_in_at"] = ""
+        unset_ops["hours_worked"] = ""
+        unset_ops["earnings"] = ""
+        set_ops["status"] = "accepted"
+    else:
+        set_ops["clock_in_at"] = new_in.isoformat()
+
+    if new_out is None:
+        unset_ops["clock_out_at"] = ""
+        unset_ops["hours_worked"] = ""
+        unset_ops["earnings"] = ""
+        if new_in is not None:
+            set_ops["status"] = "clocked_in"
+    else:
+        set_ops["clock_out_at"] = new_out.isoformat()
+        hours = round((new_out - new_in).total_seconds() / 3600.0, 2)
+        set_ops["hours_worked"] = hours
+
+        # Recompute earnings using the resolved pay (which respects per-gig
+        # override → worker default → gig posted precedence)
+        gig = await db.gigs.find_one({"gig_id": gig_id})
+        worker = await db.users.find_one({"user_id": acceptance["worker_id"]})
+        pay = _resolve_pay(acceptance, worker, gig)
+        set_ops["pay_rate_applied"] = pay["pay_rate"]
+        set_ops["pay_type_applied"] = pay["pay_type"]
+        set_ops["pay_rate_source"] = pay["pay_rate_source"]
+        set_ops["pay_type_source"] = pay["pay_type_source"]
+        set_ops["earnings"] = _compute_earnings(pay["pay_rate"], pay["pay_type"], hours)
+        set_ops["earnings_manual_override"] = False
+        set_ops["status"] = "completed"
+
+    ops: dict = {"$set": set_ops}
+    if unset_ops:
+        ops["$unset"] = unset_ops
+    await db.gig_acceptances.update_one({"acceptance_id": acceptance_id}, ops)
+
+    logger.info(
+        f"Admin {admin['email']} edited timesheet {acceptance_id}: "
+        f"in={set_ops.get('clock_in_at')} out={set_ops.get('clock_out_at')}"
+    )
+    refreshed = await db.gig_acceptances.find_one({"acceptance_id": acceptance_id}, {"_id": 0})
+    return {
+        "ok": True,
+        "clock_in_at": refreshed.get("clock_in_at"),
+        "clock_out_at": refreshed.get("clock_out_at"),
+        "hours_worked": refreshed.get("hours_worked"),
+        "earnings": refreshed.get("earnings"),
+        "status": refreshed.get("status"),
+    }
 
 
 async def _build_timesheet_rows(

@@ -36,11 +36,13 @@ import {
   UserMinus,
   CurrencyDollar,
   ClipboardText,
+  Clock,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
 import PayOverrideDialog from "@/components/admin/PayOverrideDialog";
 import ApproveTimesheetDialog from "@/components/admin/ApproveTimesheetDialog";
+import EditTimesheetDialog from "@/components/admin/EditTimesheetDialog";
 
 export default function GigDetail() {
   const { gigId } = useParams();
@@ -51,6 +53,7 @@ export default function GigDetail() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [payDialog, setPayDialog] = useState(null); // { acceptance }
   const [approveDialog, setApproveDialog] = useState(null); // { acceptance }
+  const [editTimesheetDialog, setEditTimesheetDialog] = useState(null); // { acceptance }
   const [duplicating, setDuplicating] = useState(false);
   const [channels, setChannels] = useState({ in_app: true, email: false, sms: false });
   const [blasting, setBlasting] = useState(false);
@@ -450,6 +453,15 @@ export default function GigDetail() {
                     <td className="border-b border-[#E5E7EB] px-3 py-3">
                       <div className="flex flex-wrap justify-end gap-1.5">
                         <Button
+                          data-testid={`edit-timesheet-${a.acceptance_id}`}
+                          onClick={() => setEditTimesheetDialog({ acceptance: a })}
+                          variant="outline"
+                          className="h-7 rounded-none border-[#030712] px-2 text-[10px]"
+                          title="Edit clock-in / clock-out times"
+                        >
+                          <Clock size={10} className="mr-1" weight="duotone" /> Edit times
+                        </Button>
+                        <Button
                           data-testid={`pay-override-${a.acceptance_id}`}
                           onClick={() => setPayDialog({ acceptance: a })}
                           variant="outline"
@@ -587,6 +599,17 @@ export default function GigDetail() {
         acceptance={approveDialog?.acceptance}
         onSaved={() => {
           setApproveDialog(null);
+          load();
+        }}
+      />
+
+      <EditTimesheetDialog
+        open={!!editTimesheetDialog}
+        onOpenChange={(o) => !o && setEditTimesheetDialog(null)}
+        gigId={gigId}
+        acceptance={editTimesheetDialog?.acceptance}
+        onSaved={() => {
+          setEditTimesheetDialog(null);
           load();
         }}
       />
