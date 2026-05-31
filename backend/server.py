@@ -335,9 +335,10 @@ async def register(payload: RegisterIn, response: Response):
         "name": payload.name,
         # Public registration is always worker — admins are seeded server-side only.
         "role": "worker",
-        # New workers start as 'pending' — admin must explicitly approve them
-        # before they can claim any gigs.
-        "worker_status": "pending",
+        # Workers are auto-approved at registration. Admin still has Suspend/Reject
+        # to ban bad actors, but the per-gig request flow is where actual approval
+        # happens.
+        "worker_status": "approved",
         "phone": "",
         "address": "",
         "bio": "",
@@ -408,7 +409,7 @@ async def google_session(payload: GoogleSessionIn, response: Response):
                 "email": email,
                 "name": data.get("name") or email.split("@")[0],
                 "role": "worker",
-                "worker_status": "pending",
+                "worker_status": "approved",
                 "phone": "",
                 "address": "",
                 "bio": "",
@@ -553,8 +554,13 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
 
 
 def _strip_sensitive_for_worker(gig: dict, my_acceptance: Optional[dict]) -> dict:
-    """Hide address_line from workers who have NOT accepted the gig."""
-    if my_acceptance:
+    """Hide address_line from workers whose request is still 'requested'.
+
+    The full address is only revealed when the admin has approved the request
+    (status in 'accepted' / 'on_the_clock' / 'completed'), or to admins.
+    """
+    revealed_statuses = {"accepted", "on_the_clock", "completed"}
+    if my_acceptance and my_acceptance.get("status") in revealed_statuses:
         return gig
     g = dict(gig)
     g.pop("address_line", None)
@@ -665,23 +671,25 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
     if not gig:
         raise HTTPException(404, "Gig not found")
     if user.get("role") == "admin":
-        # attach acceptances
-        acc = await db.gig_acceptances.find(
+        # Attach BOTH pending requests and approved acceptances
+        all_rows = await db.gig_acceptances.find(
             {"gig_id": gig_id}, {"_id": 0}
         ).to_list(500)
-        # enrich with worker names
-        if acc:
-            worker_ids = list({a["worker_id"] for a in acc})
+        if all_rows:
+            worker_ids = list({a["worker_id"] for a in all_rows})
             workers = await db.users.find(
                 {"user_id": {"$in": worker_ids}}, {"_id": 0, "password_hash": 0}
             ).to_list(500)
             wmap = {w["user_id"]: w for w in workers}
-            for a in acc:
+            for a in all_rows:
                 w = wmap.get(a["worker_id"]) or {}
                 a["worker_name"] = w.get("name")
                 a["worker_email"] = w.get("email")
                 a["worker_phone"] = w.get("phone")
-        gig["acceptances"] = acc
+                a["worker_id_verified"] = w.get("id_verified", False)
+                a["worker_status"] = w.get("worker_status", "approved")
+        gig["pending_requests"] = [a for a in all_rows if a.get("status") == "requested"]
+        gig["acceptances"] = [a for a in all_rows if a.get("status") != "requested"]
     else:
         my = await db.gig_acceptances.find_one(
             {"gig_id": gig_id, "worker_id": user["user_id"]}, {"_id": 0}
@@ -780,33 +788,29 @@ def _effective_status(user: dict) -> str:
 
 @api.post("/gigs/{gig_id}/accept")
 async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
+    """Worker REQUESTS a gig. Admin must approve before slot is reserved."""
     if user.get("role") != "worker":
-        raise HTTPException(403, "Only workers can accept gigs")
+        raise HTTPException(403, "Only workers can request gigs")
 
-    # Status gate — admin must explicitly approve the worker first.
+    # Ban gate — admins can reject or suspend a bad actor to stop them entirely.
     status_ = _effective_status(user)
-    if status_ == "pending":
-        raise HTTPException(
-            403, "Your application is awaiting approval by HCOB. You'll be able to claim gigs once approved."
-        )
     if status_ == "rejected":
         raise HTTPException(
-            403, "Your application was not approved by HCOB. Contact HCOB if you believe this is a mistake."
+            403, "Your account is not authorized to request gigs. Contact HCOB if you believe this is a mistake."
         )
     if status_ == "suspended":
         raise HTTPException(
             403, "Your account has been suspended. Contact HCOB to reinstate."
         )
 
-    # Verification gate — workers can only claim gigs once their ID is uploaded AND
-    # HCOB has marked them verified.
+    # ID gate — workers must have an ID on file and HCOB-verified before requesting.
     if not user.get("id_image_path"):
         raise HTTPException(
-            403, "Upload a photo of your ID on your profile before accepting gigs"
+            403, "Upload a photo of your ID on your profile before requesting gigs"
         )
     if not user.get("id_verified"):
         raise HTTPException(
-            403, "Your account is awaiting verification by HCOB before you can accept gigs"
+            403, "Your ID is awaiting verification by HCOB before you can request gigs"
         )
 
     gig = await db.gigs.find_one({"gig_id": gig_id})
@@ -814,32 +818,112 @@ async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(404, "Gig not found")
     if gig.get("status") != "open":
         raise HTTPException(400, "Gig is not open")
-    if (gig.get("slots_filled") or 0) >= gig.get("slots", 1):
-        raise HTTPException(400, "All slots filled")
 
     existing = await db.gig_acceptances.find_one(
         {"gig_id": gig_id, "worker_id": user["user_id"]}
     )
     if existing:
-        raise HTTPException(400, "Already accepted")
+        raise HTTPException(400, "You've already requested or been approved for this gig")
 
     acceptance = {
         "acceptance_id": f"acc_{uuid.uuid4().hex[:12]}",
         "gig_id": gig_id,
         "worker_id": user["user_id"],
-        "status": "accepted",
-        "accepted_at": datetime.now(timezone.utc).isoformat(),
+        # NEW model: worker requests, admin approves. Slot is NOT reserved on request.
+        "status": "requested",
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_at": None,
     }
     await db.gig_acceptances.insert_one(acceptance)
-
-    new_filled = (gig.get("slots_filled") or 0) + 1
-    update = {"slots_filled": new_filled}
-    if new_filled >= gig.get("slots", 1):
-        update["status"] = "filled"
-    await db.gigs.update_one({"gig_id": gig_id}, {"$set": update})
-
     acceptance.pop("_id", None)
     return acceptance
+
+
+@api.post("/gigs/{gig_id}/requests/{acceptance_id}/approve")
+async def approve_request(
+    gig_id: str,
+    acceptance_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Admin approves a worker's gig request — reserves the slot."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Request not found")
+    if acceptance.get("status") != "requested":
+        raise HTTPException(400, "Request is not pending approval")
+
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    filled = int(gig.get("slots_filled") or 0)
+    if filled >= int(gig.get("slots", 1)):
+        raise HTTPException(400, "All slots are already filled")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id},
+        {
+            "$set": {
+                "status": "accepted",
+                "accepted_at": now,
+                "approved_by": admin["email"],
+            }
+        },
+    )
+    new_filled = filled + 1
+    gig_update = {"slots_filled": new_filled}
+    if new_filled >= int(gig.get("slots", 1)):
+        gig_update["status"] = "filled"
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+
+    # Notify the worker that their request was approved
+    await db.notifications.insert_one(
+        {
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": acceptance["worker_id"],
+            "gig_id": gig_id,
+            "title": f"Approved for: {gig.get('title')}",
+            "body": "Your gig request was approved. You can now see the full address and clock in.",
+            "read": False,
+            "created_at": now,
+        }
+    )
+    logger.info(f"Admin {admin['email']} approved request {acceptance_id} on gig {gig_id}")
+    return {"ok": True, "slots_filled": new_filled, "status": gig_update.get("status", gig["status"])}
+
+
+@api.post("/gigs/{gig_id}/requests/{acceptance_id}/reject")
+async def reject_request(
+    gig_id: str,
+    acceptance_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Admin rejects a worker's gig request — removes it; slot was never reserved."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Request not found")
+    if acceptance.get("status") != "requested":
+        raise HTTPException(400, "Only pending requests can be rejected")
+
+    gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0, "title": 1})
+    await db.gig_acceptances.delete_one({"acceptance_id": acceptance_id})
+    await db.notifications.insert_one(
+        {
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": acceptance["worker_id"],
+            "gig_id": gig_id,
+            "title": f"Not selected: {gig.get('title') if gig else 'gig'}",
+            "body": "Your gig request was not approved this time.",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    logger.info(f"Admin {admin['email']} rejected request {acceptance_id} on gig {gig_id}")
+    return {"ok": True}
 
 
 @api.post("/gigs/{gig_id}/withdraw")
@@ -850,15 +934,19 @@ async def withdraw_gig(gig_id: str, user: dict = Depends(get_current_user)):
         {"gig_id": gig_id, "worker_id": user["user_id"]}
     )
     if not existing:
-        raise HTTPException(404, "Not accepted")
+        raise HTTPException(404, "Not requested")
+    was_approved = existing.get("status") in ("accepted", "on_the_clock", "completed")
     await db.gig_acceptances.delete_one(
         {"gig_id": gig_id, "worker_id": user["user_id"]}
     )
-    gig = await db.gigs.find_one({"gig_id": gig_id})
-    if gig:
-        new_filled = max(0, (gig.get("slots_filled") or 0) - 1)
-        update = {"slots_filled": new_filled, "status": "open"}
-        await db.gigs.update_one({"gig_id": gig_id}, {"$set": update})
+    if was_approved:
+        gig = await db.gigs.find_one({"gig_id": gig_id})
+        if gig:
+            new_filled = max(0, (gig.get("slots_filled") or 0) - 1)
+            await db.gigs.update_one(
+                {"gig_id": gig_id},
+                {"$set": {"slots_filled": new_filled, "status": "open"}},
+            )
     return {"ok": True}
 
 
@@ -1241,7 +1329,9 @@ async def clock_in(gig_id: str, user: dict = Depends(get_current_user)):
         {"gig_id": gig_id, "worker_id": user["user_id"]}
     )
     if not acceptance:
-        raise HTTPException(400, "You must accept this gig before clocking in")
+        raise HTTPException(400, "You must request and be approved for this gig before clocking in")
+    if acceptance.get("status") == "requested":
+        raise HTTPException(400, "Your request is still pending HCOB approval")
     if acceptance.get("clock_in_at") and not acceptance.get("clock_out_at"):
         raise HTTPException(400, "You're already clocked in")
     if acceptance.get("clock_out_at"):
@@ -1300,6 +1390,9 @@ async def admin_stats(admin: dict = Depends(require_admin)):
     pending_approval = await db.users.count_documents(
         {"role": "worker", "worker_status": "pending"}
     )
+    pending_requests = await db.gig_acceptances.count_documents(
+        {"status": "requested"}
+    )
     return {
         "total_workers": total_workers,
         "open_gigs": open_gigs,
@@ -1308,6 +1401,7 @@ async def admin_stats(admin: dict = Depends(require_admin)):
         "total_acceptances": total_acceptances,
         "pending_id_verification": pending_id,
         "pending_approval": pending_approval,
+        "pending_requests": pending_requests,
     }
 
 

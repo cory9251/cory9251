@@ -1,0 +1,51 @@
+{
+  "summary": "Iter-8 per-gig request/approve/reject acceptance model end-to-end verified. Wrote new /app/backend/tests/test_iter8.py (17 tests, all green) covering register-defaults-approved, accept->'requested', address-gated, clock-in blocked while requested, approve flow (slots increment, gig flips filled, notification, address+clock unlocked), approve 404/400/already-filled, reject deletes + notification + 400 when already accepted, admin GET /gigs/{id} splits pending_requests vs acceptances with worker enrichment, /admin/stats includes pending_requests count, withdraw on requested vs accepted, banned/suspended workers blocked from requesting. Also patched existing tests (backend_test.py, test_iter5.py, test_iter6.py, test_iter7.py, test_calendar.py) that previously assumed /accept reserves a slot — added admin approve step where needed and updated iter-7 pending-default tests to reflect new auto-approved default. Frontend e2e verified via Playwright: 'Request this gig' button, request-pending-card, hidden address + no clock card while pending, admin approve/reject buttons present per requester, post-approve worker sees address+clock-in, 'My gigs' page title, REQUESTED badge on /app/accepted, dashboard strip reads 'X gig requests waiting for your approval'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/gigs/{id}/requests/{aid}/approve", "issue": "Response body returns {'ok', 'slots_filled', 'status': '<gig_status>'} where 'status' refers to the gig status (filled/open), not the acceptance status. Spec wording 'success flips status=accepted' suggested the body's status reflects the acceptance. Recommend renaming the body field to 'gig_status' or also returning the updated acceptance object. Test was relaxed to verify via subsequent GET /gigs/{id}."},
+      {"endpoint": "GET /api/gigs/{id} (admin)", "issue": "pending_requests[] enrichment uses 'worker_email'/'worker_phone'/'worker_id_verified' keys (worker_ prefix) while spec uses bare 'email'/'phone'/'id_verified'. Functionally OK and consistent across pending and accepted lists; just a naming-convention divergence."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin /admin/gigs/{id} Pending requests header", "issues": ["Singular grammar bug: header reads '1 worker want to claim this gig' — should be 'wants' when count is 1."]},
+      {"screen": "Admin /admin/gigs/{id} Full address card", "issues": ["Label still reads 'FULL ADDRESS (WORKERS ONLY SEE AFTER ACCEPT)'. Terminology shifted to 'request/approve' so this should read 'AFTER APPROVAL' for consistency."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8.py",
+    "/app/backend/tests/test_iter7.py",
+    "/app/backend/tests/test_iter6.py",
+    "/app/backend/tests/test_iter5.py",
+    "/app/backend/tests/test_calendar.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [
+    "(minor) Consider returning the updated acceptance object (or renaming the gig 'status' field to 'gig_status') from POST /gigs/{id}/requests/{aid}/approve to avoid the field-name overload.",
+    "(minor) Pluralize header in admin GigDetail Pending requests section ('1 worker wants to claim this gig').",
+    "(minor) Update admin GigDetail address-card sub-label from 'WORKERS ONLY SEE AFTER ACCEPT' to 'WORKERS ONLY SEE AFTER APPROVAL'."
+  ],
+  "critical_code_review_comments": [
+    "Backend /app/backend/server.py is 1561 lines — past the 700-line ceiling; should be split into routers (auth, gigs, acceptances, notifications, admin, profile/uploads). Not blocking iter-8 but increasing risk of regression over time.",
+    "Approve endpoint returns 'status' that means gig status; the test had to be relaxed because the spec wording is ambiguous. Recommend stronger response typing (Pydantic response_model) to avoid this ambiguity surfacing in future tests / clients."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8.py (new)",
+    "/app/backend/tests/backend_test.py (test_accept_gig + test_filled_status_when_slots_full now call admin approve)",
+    "/app/backend/tests/test_iter5.py (clock-in tests now call admin approve)",
+    "/app/backend/tests/test_iter6.py (address-after-accept and slot edit tests now call admin approve)",
+    "/app/backend/tests/test_iter7.py (register-default + pending-block + rejected-detail-message updated to new model)",
+    "/app/backend/tests/test_calendar.py (status=all filled assertions now use admin approve)"
+  ],
+  "success_rate": {"backend": "99.2% (131/132; the only failure is the pre-existing flaky admin_settings blast-degrades test that 502s when the email worker times out — unrelated to iter-8)", "frontend": "100% on iter-8 flows (worker request->admin approve->worker sees address+clock)"},
+  "test_credentials": "Admin admin@hcobcleaners.com / HcobAdmin2026! (from /app/memory/test_credentials.md). Iter-8 tests create their own TEST_iter8_* workers.",
+  "seed_data_creation": "Each iter-8 test creates an ephemeral worker + gig and deletes the gig at the end. No persistent seed data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-8 is the per-gig request/approve/reject acceptance model. New workers default to worker_status='approved'. /accept now produces status='requested' and does NOT reserve a slot — admin must call /gigs/{id}/requests/{aid}/approve before slots_filled increments, address is exposed, and clock-in is allowed. Use the helpers in test_iter8.py (_ready_worker creates an approved+verified worker) when writing future tests touching the acceptance flow. The pre-existing admin_settings test_blast_uses_db_resend_key_and_degrades_gracefully test is flaky (502 from ingress when the route degrades by sleeping/looping over many subscribers); not iter-8 related.",
+  "rca_of_the_issue": "N/A — this iteration was a feature build, not a bug fix. Mitigation for the legacy tests was straightforward: insert an admin approve call between /accept and any assertion about slot fill / clock-in / address visibility."
+}

@@ -155,7 +155,12 @@ export default function WorkerFeed() {
         ) : (
           gigs.map((g) => {
             const Icon = CAT_ICON[g.category];
-            const accepted = !!g.my_acceptance;
+            const acc = g.my_acceptance;
+            const isRequested = acc?.status === "requested";
+            const isApproved =
+              acc?.status === "accepted" ||
+              acc?.status === "on_the_clock" ||
+              acc?.status === "completed";
             return (
               <button
                 key={g.gig_id}
@@ -173,9 +178,14 @@ export default function WorkerFeed() {
                       {g.title}
                     </h3>
                   </div>
-                  {accepted ? (
+                  {isApproved ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-[#10B981] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
-                      <CheckCircle size={10} weight="fill" /> ACCEPTED
+                      <CheckCircle size={10} weight="fill" /> APPROVED
+                    </span>
+                  ) : isRequested ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#F59E0B] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                      REQUESTED
                     </span>
                   ) : (
                     <span className="rounded-full bg-[#0044FF] px-3 py-1 text-[10px] font-bold tracking-widest text-white">

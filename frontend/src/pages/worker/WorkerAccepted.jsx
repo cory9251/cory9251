@@ -24,7 +24,7 @@ export default function WorkerAccepted() {
     <div className="px-5 py-6" data-testid="worker-accepted">
       <div className="font-mono-label">My commitments</div>
       <h1 className="mt-1 font-display text-3xl font-black tracking-tight">
-        Accepted gigs
+        My gigs
       </h1>
 
       <div className="mt-5 space-y-4">
@@ -35,6 +35,7 @@ export default function WorkerAccepted() {
         ) : (
           items.map((g) => {
             const acc = g.my_acceptance || {};
+            const isRequested = acc.status === "requested";
             const onClock = acc.clock_in_at && !acc.clock_out_at;
             const completed = !!acc.clock_out_at;
             return (
@@ -51,7 +52,15 @@ export default function WorkerAccepted() {
                   </div>
                   <div className="mt-1 font-display text-lg font-bold">{g.title}</div>
                 </div>
-                {onClock ? (
+                {isRequested ? (
+                  <span
+                    data-testid={`requested-badge-${g.gig_id}`}
+                    className="inline-flex items-center gap-1 rounded-full bg-[#F59E0B] px-3 py-1 text-[10px] font-bold tracking-widest text-white"
+                  >
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                    REQUESTED
+                  </span>
+                ) : onClock ? (
                   <span
                     data-testid={`on-clock-badge-${g.gig_id}`}
                     className="inline-flex items-center gap-1 rounded-full bg-[#F59E0B] px-3 py-1 text-[10px] font-bold tracking-widest text-white"
@@ -66,7 +75,7 @@ export default function WorkerAccepted() {
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 rounded-full bg-[#0044FF] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
-                    <CheckCircle size={10} weight="fill" /> ACCEPTED
+                    <CheckCircle size={10} weight="fill" /> APPROVED
                   </span>
                 )}
               </div>

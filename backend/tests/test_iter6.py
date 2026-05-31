@@ -117,6 +117,9 @@ class TestAddressLinePrivacy:
         _admin_verify(admin_session, uid)
         ra = ws.post(f"{API}/gigs/{gid}/accept")
         assert ra.status_code == 200, ra.text
+        # ITER-8: must approve to unlock address
+        aid = ra.json()["acceptance_id"]
+        admin_session.post(f"{API}/gigs/{gid}/requests/{aid}/approve")
 
         r2 = ws.get(f"{API}/gigs/{gid}")
         assert r2.status_code == 200
@@ -160,6 +163,9 @@ class TestVerificationGate:
         _admin_verify(admin_session, uid)
         r = ws.post(f"{API}/gigs/{gid}/accept")
         assert r.status_code == 200, r.text
+        # ITER-8: approve to expose address
+        aid = r.json()["acceptance_id"]
+        admin_session.post(f"{API}/gigs/{gid}/requests/{aid}/approve")
         # /auth/me reflects verified state
         me = ws.get(f"{API}/auth/me").json()
         assert me.get("id_verified") is True
@@ -200,6 +206,7 @@ class TestEditGig:
         _upload_id(ws); _admin_verify(admin_session, uid)
         ra = ws.post(f"{API}/gigs/{gid}/accept")
         assert ra.status_code == 200
+        admin_session.post(f"{API}/gigs/{gid}/requests/{ra.json()['acceptance_id']}/approve")
         r = admin_session.put(f"{API}/gigs/{gid}", json={"slots": 0})
         assert r.status_code == 400
         admin_session.delete(f"{API}/gigs/{gid}")
@@ -211,6 +218,7 @@ class TestEditGig:
         _upload_id(ws); _admin_verify(admin_session, uid)
         ra = ws.post(f"{API}/gigs/{gid}/accept")
         assert ra.status_code == 200
+        admin_session.post(f"{API}/gigs/{gid}/requests/{ra.json()['acceptance_id']}/approve")
         # confirm filled
         assert admin_session.get(f"{API}/gigs/{gid}").json()["status"] == "filled"
         # increase slots -> open again
@@ -226,7 +234,8 @@ class TestEditGig:
         gid = gig["gig_id"]
         ws, _, uid = _register_worker("recompute")
         _upload_id(ws); _admin_verify(admin_session, uid)
-        ws.post(f"{API}/gigs/{gid}/accept")
+        rac = ws.post(f"{API}/gigs/{gid}/accept")
+        admin_session.post(f"{API}/gigs/{gid}/requests/{rac.json()['acceptance_id']}/approve")
         # status still open (1/3 filled)
         assert admin_session.get(f"{API}/gigs/{gid}").json()["status"] == "open"
         r = admin_session.put(f"{API}/gigs/{gid}", json={"slots": 1})

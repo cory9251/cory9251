@@ -264,11 +264,15 @@ def test_get_gig_admin_has_acceptances(admin_session):
     assert "acceptances" in r.json()
 
 
-def test_accept_gig(worker_session):
+def test_accept_gig(worker_session, admin_session):
     gid = created_gigs["cleaning"]
     r = worker_session.post(f"{API}/gigs/{gid}/accept")
     assert r.status_code == 200, r.text
-    # verify slots_filled increased
+    assert r.json()["status"] == "requested"
+    aid = r.json()["acceptance_id"]
+    # Admin must approve before slot is reserved
+    ra = admin_session.post(f"{API}/gigs/{gid}/requests/{aid}/approve")
+    assert ra.status_code == 200
     r2 = worker_session.get(f"{API}/gigs/{gid}")
     assert r2.json()["slots_filled"] == 1
 
@@ -301,6 +305,9 @@ def test_filled_status_when_slots_full(admin_session, worker_session):
     created_gigs["one_slot"] = gid
     r2 = worker_session.post(f"{API}/gigs/{gid}/accept")
     assert r2.status_code == 200
+    aid = r2.json()["acceptance_id"]
+    rap = admin_session.post(f"{API}/gigs/{gid}/requests/{aid}/approve")
+    assert rap.status_code == 200
     r3 = admin_session.get(f"{API}/gigs/{gid}")
     assert r3.json()["status"] == "filled"
 

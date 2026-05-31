@@ -71,7 +71,7 @@ export default function WorkerGigDetail() {
     setBusy(true);
     try {
       await api.post(`/gigs/${gigId}/accept`);
-      toast.success("Gig accepted");
+      toast.success("Request sent — waiting for HCOB approval");
       load();
     } catch (e) {
       toast.error(getErr(e));
@@ -123,18 +123,20 @@ export default function WorkerGigDetail() {
 
   const Icon = CAT_ICON[gig.category];
   const acc = gig.my_acceptance;
-  const accepted = !!acc;
+  const hasAcceptance = !!acc;
+  const isRequested = acc?.status === "requested";
+  const isApproved =
+    acc?.status === "accepted" || acc?.status === "on_the_clock" || acc?.status === "completed";
   const onClock = !!acc?.clock_in_at && !acc?.clock_out_at;
   const completed = !!acc?.clock_out_at;
-  const full = gig.slots_filled >= gig.slots && !accepted;
+  const full = gig.slots_filled >= gig.slots && !isApproved;
 
-  // Status & verification gates — only enforced for unaccepted workers
+  // Status & verification gates — only enforced before requesting
   const workerStatus = user?.worker_status || "approved";
-  const isPending = workerStatus === "pending";
   const isBlocked = workerStatus === "rejected" || workerStatus === "suspended";
   const hasId = !!user?.id_image_path;
   const verified = !!user?.id_verified;
-  const canAccept = !isPending && !isBlocked && hasId && verified;
+  const canRequest = !isBlocked && hasId && verified;
 
   return (
     <div className="px-5 py-6" data-testid="worker-gig-detail">
@@ -169,13 +171,13 @@ export default function WorkerGigDetail() {
           {gig.duration_hours && (
             <Row icon={Clock} label="Duration">{gig.duration_hours} hrs</Row>
           )}
-          {gig.contact_phone && accepted && (
+          {gig.contact_phone && isApproved && (
             <Row icon={Phone} label="Contact">{gig.contact_phone}</Row>
           )}
         </div>
 
-        {/* Full address — only shown to workers who have accepted */}
-        {accepted && gig.address_line && (
+        {/* Full address — only shown to workers whose request is approved */}
+        {isApproved && gig.address_line && (
           <div
             data-testid="full-address-card"
             className="mt-4 rounded-xl border border-[#0044FF]/30 bg-[#F0F4FF] p-3"
@@ -188,18 +190,18 @@ export default function WorkerGigDetail() {
             </div>
           </div>
         )}
-        {!accepted && (
+        {!isApproved && (
           <div className="mt-4 flex items-start gap-2 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs text-[#4B5563]">
             <EyeSlash size={14} weight="duotone" className="mt-0.5 shrink-0" />
             <div>
-              Full address is revealed after you accept this gig.
+              Full address is revealed after HCOB approves your request.
             </div>
           </div>
         )}
       </div>
 
-      {/* Clock card — appears once accepted */}
-      {accepted && (
+      {/* Clock card — appears once admin has approved the request */}
+      {isApproved && (
         <div
           data-testid="worker-clock-card"
           className={`mt-5 rounded-2xl border p-5 ${
@@ -272,7 +274,7 @@ export default function WorkerGigDetail() {
 
       {/* Bottom actions */}
       <div className="mt-6">
-        {accepted ? (
+        {hasAcceptance ? (
           completed ? (
             <div className="flex items-center gap-2 rounded-2xl border border-[#10B981]/30 bg-[#ECFDF5] p-4 text-sm">
               <CheckCircle size={20} weight="fill" className="text-[#10B981]" />
@@ -280,6 +282,31 @@ export default function WorkerGigDetail() {
                 <div className="font-bold text-[#065F46]">Gig complete.</div>
                 <div className="text-xs text-[#065F46]/80">Thanks for the work.</div>
               </div>
+            </div>
+          ) : isRequested ? (
+            <div
+              data-testid="request-pending-card"
+              className="rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-5"
+            >
+              <div className="flex items-center gap-2 text-[#92400E]">
+                <ShieldCheck size={20} weight="fill" />
+                <div className="font-display text-base font-bold">
+                  Request pending HCOB approval
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-[#92400E]/90">
+                We've sent your request to HCOB. You'll see the full address and
+                be able to clock in once they approve you for this gig.
+              </p>
+              <Button
+                data-testid="withdraw-btn"
+                onClick={withdraw}
+                disabled={busy}
+                variant="outline"
+                className="mt-4 h-11 w-full rounded-2xl border-[#92400E]/50 text-[#92400E] hover:bg-[#92400E] hover:text-white"
+              >
+                Cancel my request
+              </Button>
             </div>
           ) : onClock ? null : (
             <Button
@@ -294,7 +321,7 @@ export default function WorkerGigDetail() {
           )
         ) : full ? (
           <Button disabled className="h-14 w-full rounded-2xl">All slots filled</Button>
-        ) : !canAccept ? (
+        ) : !canRequest ? (
           <div
             data-testid="verification-required-card"
             className={`rounded-2xl border p-5 ${
@@ -308,25 +335,19 @@ export default function WorkerGigDetail() {
                 isBlocked ? "text-[#991B1B]" : "text-[#92400E]"
               }`}
             >
-              {isBlocked ? (
-                <ShieldCheck size={20} weight="fill" />
-              ) : isPending ? (
-                <ShieldCheck size={20} weight="fill" />
-              ) : hasId ? (
+              {hasId ? (
                 <ShieldCheck size={20} weight="fill" />
               ) : (
                 <IdentificationCard size={20} weight="duotone" />
               )}
               <div className="font-display text-base font-bold">
                 {workerStatus === "rejected"
-                  ? "Application not approved"
+                  ? "Account not authorized"
                   : workerStatus === "suspended"
                   ? "Account suspended"
-                  : isPending
-                  ? "Application under review"
                   : hasId
-                  ? "Awaiting HCOB verification"
-                  : "Upload your ID to claim gigs"}
+                  ? "Awaiting HCOB ID verification"
+                  : "Upload your ID to request gigs"}
               </div>
             </div>
             <p
@@ -335,16 +356,14 @@ export default function WorkerGigDetail() {
               }`}
             >
               {workerStatus === "rejected"
-                ? "HCOB did not approve your application. Contact HCOB if you believe this is a mistake."
+                ? "Your account is not authorized to request gigs. Contact HCOB if you believe this is a mistake."
                 : workerStatus === "suspended"
                 ? "Your account has been suspended. Contact HCOB to reinstate."
-                : isPending
-                ? "An HCOB admin must approve your account before you can claim gigs. You'll be able to claim this gig as soon as you're approved."
                 : hasId
-                ? "Your ID is in. An HCOB admin needs to verify your ID before you can accept any gigs."
-                : "Workers must upload a photo of a government ID and be verified by HCOB before claiming gigs."}
+                ? "Your ID is in. An HCOB admin needs to verify it before you can request any gigs."
+                : "Workers must upload a photo of a government ID and be verified by HCOB before requesting gigs."}
             </p>
-            {!isBlocked && !isPending && !hasId && (
+            {!isBlocked && !hasId && (
               <Button
                 data-testid="go-to-profile-btn"
                 onClick={() => nav("/app/profile")}
@@ -361,7 +380,7 @@ export default function WorkerGigDetail() {
             disabled={busy}
             className="h-14 w-full rounded-2xl bg-[#0044FF] text-base font-bold tracking-wide text-white hover:bg-[#0036cc]"
           >
-            {busy ? "Accepting…" : "Accept this gig"}
+            {busy ? "Sending request…" : "Request this gig"}
           </Button>
         )}
       </div>

@@ -153,6 +153,10 @@ class TestDeleteWorker:
         # accept fills the only slot -> status=filled
         ra = ws.post(f"{API}/gigs/{gig_id}/accept")
         assert ra.status_code == 200
+        aid = ra.json()["acceptance_id"]
+        # ITER-8: admin must approve before slot is reserved
+        rap = admin_session.post(f"{API}/gigs/{gig_id}/requests/{aid}/approve")
+        assert rap.status_code == 200
         g_before = admin_session.get(f"{API}/gigs/{gig_id}").json()
         assert g_before["status"] == "filled"
         assert g_before["slots_filled"] == 1
@@ -226,6 +230,10 @@ class TestClockInOut:
         ws, _, uid = _new_worker("clk1")
         ra = ws.post(f"{API}/gigs/{gig_id}/accept")
         assert ra.status_code == 200
+        aid = ra.json()["acceptance_id"]
+        # ITER-8: admin must approve so worker can clock in
+        rap = admin_session.post(f"{API}/gigs/{gig_id}/requests/{aid}/approve")
+        assert rap.status_code == 200
 
         # clock in
         rin = ws.post(f"{API}/gigs/{gig_id}/clock-in")
@@ -291,7 +299,9 @@ class TestAdminWorkerDetailEnrichment:
     def test_accepted_gigs_enriched(self, admin_session):
         gig_id = _create_gig(admin_session, slots=2, title_suffix="enrich")
         ws, _, uid = _new_worker("enr1")
-        ws.post(f"{API}/gigs/{gig_id}/accept")
+        rac = ws.post(f"{API}/gigs/{gig_id}/accept")
+        aid = rac.json()["acceptance_id"]
+        admin_session.post(f"{API}/gigs/{gig_id}/requests/{aid}/approve")
         ws.post(f"{API}/gigs/{gig_id}/clock-in")
         time.sleep(1.1)
         ws.post(f"{API}/gigs/{gig_id}/clock-out")

@@ -231,9 +231,91 @@ export default function GigDetail() {
       </div>
 
       <div className="px-6 py-8 md:px-10">
+        {/* Pending requests — admin reviews before accepting */}
+        {(gig.pending_requests || []).length > 0 && (
+          <div className="mb-8">
+            <div className="font-mono-label">Pending requests</div>
+            <h2 className="mt-1 font-display text-2xl font-black">
+              {gig.pending_requests.length} worker
+              {gig.pending_requests.length === 1 ? "" : "s"} want to claim this gig
+            </h2>
+            <div className="mt-4 overflow-x-auto border border-[#F59E0B]/30">
+              <table className="w-full text-sm">
+                <thead className="bg-[#FFFBEB]">
+                  <tr className="text-left">
+                    <th className="border-b border-[#F59E0B]/30 px-4 py-3 font-mono-label">Worker</th>
+                    <th className="border-b border-[#F59E0B]/30 px-4 py-3 font-mono-label">Contact</th>
+                    <th className="border-b border-[#F59E0B]/30 px-4 py-3 font-mono-label">ID</th>
+                    <th className="border-b border-[#F59E0B]/30 px-4 py-3 font-mono-label">Requested at</th>
+                    <th className="border-b border-[#F59E0B]/30 px-4 py-3 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gig.pending_requests.map((r) => (
+                    <tr key={r.acceptance_id} data-testid={`request-row-${r.acceptance_id}`} className="hover:bg-[#FFFBEB]/50">
+                      <td className="border-b border-[#F59E0B]/30 px-4 py-3 font-semibold">{r.worker_name || r.worker_id}</td>
+                      <td className="border-b border-[#F59E0B]/30 px-4 py-3 text-xs">
+                        <div>{r.worker_email}</div>
+                        {r.worker_phone && <div className="text-[#4B5563]">{r.worker_phone}</div>}
+                      </td>
+                      <td className="border-b border-[#F59E0B]/30 px-4 py-3 text-xs">
+                        {r.worker_id_verified ? (
+                          <span className="inline-flex items-center gap-1 text-[#065F46]">
+                            <CheckCircle size={12} weight="fill" /> Verified
+                          </span>
+                        ) : (
+                          <span className="text-[#92400E]">Not verified</span>
+                        )}
+                      </td>
+                      <td className="border-b border-[#F59E0B]/30 px-4 py-3 text-xs text-[#4B5563]">
+                        {r.requested_at ? new Date(r.requested_at).toLocaleString() : "—"}
+                      </td>
+                      <td className="border-b border-[#F59E0B]/30 px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            data-testid={`approve-request-${r.acceptance_id}`}
+                            onClick={async () => {
+                              try {
+                                await api.post(`/gigs/${gigId}/requests/${r.acceptance_id}/approve`);
+                                toast.success(`${r.worker_name || "Worker"} approved`);
+                                load();
+                              } catch (e) {
+                                toast.error(getErr(e));
+                              }
+                            }}
+                            className="h-9 rounded-none bg-[#10B981] px-3 text-white hover:bg-[#0e9971]"
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            data-testid={`reject-request-${r.acceptance_id}`}
+                            onClick={async () => {
+                              try {
+                                await api.post(`/gigs/${gigId}/requests/${r.acceptance_id}/reject`);
+                                toast.success("Request rejected");
+                                load();
+                              } catch (e) {
+                                toast.error(getErr(e));
+                              }
+                            }}
+                            variant="outline"
+                            className="h-9 rounded-none border-[#EF4444] px-3 text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         <div className="font-mono-label">Roster</div>
         <h2 className="mt-1 font-display text-2xl font-black">
-          Accepted workers ({(gig.acceptances || []).length})
+          Approved workers ({(gig.acceptances || []).length})
         </h2>
 
         {(!gig.acceptances || gig.acceptances.length === 0) ? (

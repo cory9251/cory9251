@@ -78,8 +78,8 @@ export default function AdminDashboard() {
         <KPI label="Filled" value={stats?.filled_gigs ?? "—"} icon={CheckCircle} />
         <KPI label="Workers" value={stats?.total_workers ?? "—"} icon={UsersThree} />
         <KPI
-          label="Pending apps"
-          value={stats?.pending_approval ?? "—"}
+          label="Pending requests"
+          value={stats?.pending_requests ?? "—"}
           icon={ClockCounterClockwise}
         />
         <KPI
@@ -89,18 +89,18 @@ export default function AdminDashboard() {
         />
       </div>
 
-      {stats?.pending_approval > 0 && (
+      {stats?.pending_requests > 0 && (
         <div className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-3 md:px-10">
           <button
             data-testid="dashboard-pending-apps-link"
-            onClick={() => nav("/admin/workers?status=pending")}
+            onClick={() => nav("/admin/gigs")}
             className="flex w-full items-center justify-between text-left"
           >
             <div className="flex items-center gap-2 text-[#92400E]">
               <ClockCounterClockwise size={18} weight="fill" />
               <span className="font-display text-sm font-bold">
-                {stats.pending_approval} worker
-                {stats.pending_approval === 1 ? "" : "s"} waiting for your review
+                {stats.pending_requests} gig request
+                {stats.pending_requests === 1 ? "" : "s"} waiting for your approval
               </span>
             </div>
             <span className="font-mono-label">Review now →</span>

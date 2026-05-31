@@ -163,9 +163,13 @@ class TestStatusAllFilter:
         gid_filled = r2.json()["gig_id"]
         created_gig_ids.append(gid_filled)
 
-        # Worker accepts the second gig => it becomes 'filled'
+        # Worker accepts the second gig => requested; admin approves => 'filled'
         ra = worker_session.post(f"{BASE_URL}/api/gigs/{gid_filled}/accept")
         assert ra.status_code == 200, ra.text
+        aid = ra.json()["acceptance_id"]
+        rap = admin_session.post(
+            f"{BASE_URL}/api/gigs/{gid_filled}/requests/{aid}/approve")
+        assert rap.status_code == 200
 
         # Verify filled status
         g = admin_session.get(f"{BASE_URL}/api/gigs/{gid_filled}").json()
@@ -215,6 +219,8 @@ class TestStatusAllFilter:
 
         ra = worker_session.post(f"{BASE_URL}/api/gigs/{gid}/accept")
         assert ra.status_code == 200
+        aid = ra.json()["acceptance_id"]
+        admin_session.post(f"{BASE_URL}/api/gigs/{gid}/requests/{aid}/approve")
 
         r_all = worker_session.get(f"{BASE_URL}/api/gigs?status=all")
         assert r_all.status_code == 200
