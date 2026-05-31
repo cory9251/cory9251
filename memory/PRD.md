@@ -97,6 +97,13 @@
 - Suspend / Reject worker buttons retained — useful for banning bad actors at the account level (the old per-applicant gate is dormant but kept for back-compat).
 - 131/132 backend tests passing (17 new + 114 regression; 1 flake in pre-existing blast degradation test unrelated to this iteration).
 
+## Implemented — 2026-05 (Iteration 9: Global Requests Review Queue)
+- New top-level admin page `/admin/requests` — single global queue of every pending gig request across the platform with Approve / Reject inline per row.
+- New endpoint `GET /api/admin/requests` returns enriched rows (worker + gig data) sorted oldest first.
+- Sidebar gets a new **Requests** entry between Calendar and Gigs with a live **amber count badge** (`99+` cap). Auto-refreshes on route change AND on a `hcob:requests-changed` custom event after Approve/Reject.
+- Dashboard yellow strip + new sidebar entry both link to `/admin/requests`.
+- 8/8 new tests + 17/17 iter-8 regression green.
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)

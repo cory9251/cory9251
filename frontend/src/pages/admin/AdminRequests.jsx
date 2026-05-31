@@ -55,6 +55,8 @@ export default function AdminRequests() {
       );
       // Remove the row from the queue
       setRows((rs) => rs.filter((r) => r.acceptance_id !== row.acceptance_id));
+      // Tell the sidebar badge to refresh
+      window.dispatchEvent(new Event("hcob:requests-changed"));
     } catch (e) {
       toast.error(getErr(e));
     } finally {

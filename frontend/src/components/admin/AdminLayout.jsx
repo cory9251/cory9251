@@ -39,6 +39,9 @@ export default function AdminLayout() {
 
   useEffect(() => {
     refreshPending();
+    const onChange = () => refreshPending();
+    window.addEventListener("hcob:requests-changed", onChange);
+    return () => window.removeEventListener("hcob:requests-changed", onChange);
   }, [location.pathname]);
 
   const onLogout = async () => {
