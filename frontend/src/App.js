@@ -15,6 +15,7 @@ import AdminWorkers from "@/pages/admin/AdminWorkers";
 import WorkerDetail from "@/pages/admin/WorkerDetail";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminCalendar from "@/pages/admin/AdminCalendar";
+import AdminRequests from "@/pages/admin/AdminRequests";
 import WorkerLayout from "@/components/worker/WorkerLayout";
 import WorkerFeed from "@/pages/worker/WorkerFeed";
 import WorkerProfile from "@/pages/worker/WorkerProfile";
@@ -67,6 +68,7 @@ function RouterShell() {
       >
         <Route index element={<AdminDashboard />} />
         <Route path="calendar" element={<AdminCalendar />} />
+        <Route path="requests" element={<AdminRequests />} />
         <Route path="gigs" element={<AdminGigs />} />
         <Route path="gigs/:gigId" element={<GigDetail />} />
         <Route path="workers" element={<AdminWorkers />} />

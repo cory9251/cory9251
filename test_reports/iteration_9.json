@@ -1,0 +1,39 @@
+{
+  "summary": "Iter-9 global /admin/requests review queue verified end-to-end. Wrote new /app/backend/tests/test_iter9.py (8 tests, all green) covering: GET /admin/requests returns rows sorted oldest-first with full gig+worker enrichment, [] when empty (covered via the 'after approve/reject the row disappears' tests), 401 unauth, 403 worker, approve/reject remove the row from the queue, /admin/stats.pending_requests == len(/admin/requests) at all times, and the per-gig pending_requests[] enrichment from iter-8 is still populated (regression). Iter-8 regression suite (17/17) still green. Frontend verified via Playwright: sidebar nav-requests sits BETWEEN Calendar and Gigs, amber nav-requests-count badge appears when count>0 with value 4 then 3 after approve, /admin/requests renders header 'Approval queue / Requests' + black pill in top-right, 4 enriched rows render with worker block (name/email/ID-VERIFIED badge), gig block (title clickable -> /admin/gigs/{id}, category, pay, location, scheduled_date) and Approve/Reject buttons. Approve removes the row, decrements the in-page pill from 4 to 3, fires a success toast 'Test Worker approved for \"TEST_iter8_adminsplit\"' (worker + gig in text), and the sidebar badge updates to 3 after the next route change. Reject removes the row, pill 3->2, generic 'Request rejected' toast. Dashboard yellow strip 'X gig requests waiting for your approval' navigates to /admin/requests as specified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/register", "issue": "Worker phone passed in registration is not persisted (worker_phone returns '' even when caller sent +1555000xxxx). Not iter-9 specific but it makes the global requests queue show empty phone for any newly registered worker. Recommend either documenting phone is profile-only OR persisting it during register."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Sidebar nav-requests-count after approve/reject on /admin/requests", "issue": "AdminLayout only polls /admin/stats on route change (useEffect deps=[location.pathname]). Approving/rejecting from the queue page itself updates the in-page pill but the sidebar badge stays stale until the user navigates elsewhere. Spec says 'Clicking Approve removes the row, decrements the sidebar badge by 1'. Fix: AdminRequests should optimistically tell the layout to refresh, e.g. via a custom event or moving pendingCount into a shared context.", "affected_selectors": ["nav-requests-count"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [
+    "(minor) After Approve/Reject on /admin/requests, refresh the AdminLayout sidebar badge in-place (currently only refreshes on route change) so the badge tracks the in-page pill.",
+    "(unrelated minor) Persist `phone` on POST /api/auth/register so the global requests queue shows the worker phone for newly self-registered workers."
+  ],
+  "critical_code_review_comments": [
+    "AdminLayout fetches /admin/stats on every pathname change. With many sidebar clicks this thrashes the stats endpoint. Consider a single SWR/react-query cache or a websocket/polling interval with stale-while-revalidate.",
+    "/app/backend/server.py is now ~1610 lines (was 1561 in iter-8). Still over the 700-line ceiling; the admin block (stats, requests queue, worker verify/ban) is a natural router to extract next.",
+    "list_pending_requests loads up to 1000 rows + 1000 gigs + 1000 workers per call with no pagination. Fine today but if pending requests grow past a few hundred this needs limit/offset and an index on gig_acceptances.status+requested_at."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter9.py (new)"
+  ],
+  "success_rate": {"backend": "100% on iter-9 (8/8); iter-8 regression 17/17", "frontend": "100% on iter-9 spec (one minor stale-badge UX gap noted)"},
+  "test_credentials": "Admin admin@hcobcleaners.com / HcobAdmin2026! (from /app/memory/test_credentials.md). Iter-9 tests register ephemeral TEST_iter9_* workers.",
+  "seed_data_creation": "Each iter-9 test creates its own gig + worker and deletes the gig at the end. After the Playwright run, 2 rejected and 2 approved iter-8/9 test rows remain in the DB; the queue ended at 2 pending real workers requesting TEST_iter9_enrich.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-9 is purely additive: GET /api/admin/requests + frontend /admin/requests page + amber sidebar badge that polls /admin/stats on route change. The sidebar badge does NOT live-update when you approve/reject from within /admin/requests itself — that is a noted minor UX bug. All iter-8 endpoints continue to be the source of truth; /admin/requests is read-only and just joins gig_acceptances{status=requested} with gigs+users. test_iter9.py reuses helpers identical to test_iter8.py (_ready_worker, _create_gig, etc.) — copy those for any further request-flow tests.",
+  "rca_of_the_issue": "N/A — additive feature iteration, no bugs to RCA."
+}

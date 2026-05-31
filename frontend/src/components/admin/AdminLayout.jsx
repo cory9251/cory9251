@@ -1,5 +1,5 @@
-import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   House,
   CalendarBlank,
@@ -8,12 +8,15 @@ import {
   Gear,
   SignOut,
   Lightning,
+  ClockCounterClockwise,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
+import { api } from "@/lib/api";
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: House, end: true },
   { to: "/admin/calendar", label: "Calendar", icon: CalendarBlank, end: false },
+  { to: "/admin/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: true },
   { to: "/admin/gigs", label: "Gigs", icon: Briefcase, end: false },
   { to: "/admin/workers", label: "Workers", icon: UsersThree, end: false },
   { to: "/admin/settings", label: "Settings", icon: Gear, end: false },
@@ -22,6 +25,22 @@ const nav = [
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [pendingCount, setPendingCount] = useState(null);
+
+  const refreshPending = async () => {
+    try {
+      const { data } = await api.get("/admin/stats");
+      setPendingCount(data?.pending_requests ?? 0);
+    } catch {
+      // silent
+    }
+  };
+
+  useEffect(() => {
+    refreshPending();
+  }, [location.pathname]);
+
   const onLogout = async () => {
     await logout();
     navigate("/", { replace: true });
@@ -56,7 +75,15 @@ export default function AdminLayout() {
                 }
               >
                 <n.icon size={18} weight="duotone" />
-                {n.label}
+                <span className="flex-1">{n.label}</span>
+                {n.badge && pendingCount > 0 && (
+                  <span
+                    data-testid="nav-requests-count"
+                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                  >
+                    {pendingCount > 99 ? "99+" : pendingCount}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>

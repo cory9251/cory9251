@@ -93,7 +93,7 @@ export default function AdminDashboard() {
         <div className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-3 md:px-10">
           <button
             data-testid="dashboard-pending-apps-link"
-            onClick={() => nav("/admin/gigs")}
+            onClick={() => nav("/admin/requests")}
             className="flex w-full items-center justify-between text-left"
           >
             <div className="flex items-center gap-2 text-[#92400E]">

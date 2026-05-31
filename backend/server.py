@@ -1179,6 +1179,54 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
     return w
 
 
+@api.get("/admin/requests")
+async def list_pending_requests(admin: dict = Depends(require_admin)):
+    """Return ALL pending gig requests across the platform, flat, sorted oldest first.
+
+    Enriched with gig and worker fields so the admin can decide without opening each gig.
+    """
+    rows = await db.gig_acceptances.find(
+        {"status": "requested"}, {"_id": 0}
+    ).sort("requested_at", 1).to_list(1000)
+    if not rows:
+        return []
+    gig_ids = list({r["gig_id"] for r in rows})
+    worker_ids = list({r["worker_id"] for r in rows})
+    gigs = await db.gigs.find(
+        {"gig_id": {"$in": gig_ids}},
+        {
+            "_id": 0,
+            "gig_id": 1,
+            "title": 1,
+            "category": 1,
+            "subcategory": 1,
+            "location": 1,
+            "scheduled_date": 1,
+            "scheduled_at": 1,
+            "pay_rate": 1,
+            "pay_type": 1,
+            "slots": 1,
+            "slots_filled": 1,
+            "status": 1,
+        },
+    ).to_list(1000)
+    gmap = {g["gig_id"]: g for g in gigs}
+    workers = await db.users.find(
+        {"user_id": {"$in": worker_ids}}, {"_id": 0, "password_hash": 0}
+    ).to_list(1000)
+    wmap = {w["user_id"]: w for w in workers}
+    for r in rows:
+        g = gmap.get(r["gig_id"]) or {}
+        w = wmap.get(r["worker_id"]) or {}
+        r["gig"] = g
+        r["worker_name"] = w.get("name")
+        r["worker_email"] = w.get("email")
+        r["worker_phone"] = w.get("phone")
+        r["worker_id_verified"] = w.get("id_verified", False)
+        r["worker_status"] = w.get("worker_status", "approved")
+    return rows
+
+
 @api.post("/admin/workers/{user_id}/verify-id")
 async def verify_worker_id(user_id: str, admin: dict = Depends(require_admin)):
     await db.users.update_one(
