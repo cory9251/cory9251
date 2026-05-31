@@ -3,18 +3,45 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, API, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   ArrowLeft,
   CheckCircle,
   Phone,
   EnvelopeSimple,
   MapPin,
+  Key,
+  Trash,
+  Copy,
+  Warning,
 } from "@phosphor-icons/react";
 
 export default function WorkerDetail() {
   const { userId } = useParams();
   const nav = useNavigate();
   const [w, setW] = useState(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [resetResult, setResetResult] = useState(null);
+  const [resetting, setResetting] = useState(false);
 
   const load = async () => {
     try {
@@ -35,6 +62,49 @@ export default function WorkerDetail() {
       await api.post(`/admin/workers/${userId}/verify-id`);
       toast.success("ID verified");
       load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
+  const doReset = async () => {
+    setResetting(true);
+    try {
+      const { data } = await api.post(
+        `/admin/workers/${userId}/reset-password`,
+        { new_password: newPassword || null }
+      );
+      setResetResult(data.new_password);
+      setNewPassword("");
+      toast.success("Password reset — share it with the worker");
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const closeReset = () => {
+    setResetOpen(false);
+    setResetResult(null);
+    setNewPassword("");
+  };
+
+  const copyPassword = async () => {
+    if (!resetResult) return;
+    try {
+      await navigator.clipboard.writeText(resetResult);
+      toast.success("Copied to clipboard");
+    } catch {
+      toast.error("Copy failed — select the text manually");
+    }
+  };
+
+  const remove = async () => {
+    try {
+      await api.delete(`/admin/workers/${userId}`);
+      toast.success("Worker deleted");
+      nav("/admin/workers");
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -85,23 +155,49 @@ export default function WorkerDetail() {
           )}
 
           <div className="mt-10">
-            <div className="font-mono-label">Accepted gigs ({(w.accepted_gigs || []).length})</div>
+            <div className="font-mono-label">Gig history ({(w.accepted_gigs || []).length})</div>
             {(!w.accepted_gigs || w.accepted_gigs.length === 0) ? (
               <div className="mt-3 text-sm text-[#4B5563]">None yet.</div>
             ) : (
-              <ul className="mt-3 divide-y divide-[#E5E7EB] border border-[#E5E7EB]">
-                {w.accepted_gigs.map((a) => (
-                  <li
-                    key={a.acceptance_id}
-                    className="flex items-center justify-between px-4 py-3"
-                  >
-                    <span className="text-sm font-semibold">{a.gig_id}</span>
-                    <span className="text-xs text-[#4B5563]">
-                      {new Date(a.accepted_at).toLocaleString()}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-3 overflow-x-auto border border-[#E5E7EB]">
+                <table className="w-full text-sm">
+                  <thead className="bg-[#F9FAFB]">
+                    <tr className="text-left">
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Gig</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Status</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">In</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Out</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {w.accepted_gigs.map((a) => (
+                      <tr key={a.acceptance_id} className="hover:bg-[#F9FAFB]">
+                        <td className="border-b border-[#E5E7EB] px-3 py-2 font-semibold">
+                          {a.gig_title || a.gig_id}
+                          {a.gig_scheduled_date && (
+                            <div className="text-[10px] font-normal text-[#4B5563]">
+                              {a.gig_scheduled_date}
+                            </div>
+                          )}
+                        </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2">
+                          <StatusPill s={a.status} />
+                        </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2 text-xs">
+                          {a.clock_in_at ? new Date(a.clock_in_at).toLocaleString() : "—"}
+                        </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2 text-xs">
+                          {a.clock_out_at ? new Date(a.clock_out_at).toLocaleString() : "—"}
+                        </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2 font-bold">
+                          {a.hours_worked != null ? `${a.hours_worked.toFixed(2)}h` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
@@ -143,9 +239,159 @@ export default function WorkerDetail() {
               </div>
             </div>
           )}
+
+          <div className="mt-10 border-t border-[#E5E7EB] pt-6">
+            <div className="font-mono-label">Account management</div>
+            <Button
+              data-testid="reset-password-btn"
+              onClick={() => setResetOpen(true)}
+              variant="outline"
+              className="mt-3 h-11 w-full rounded-none border-[#030712]"
+            >
+              <Key size={16} className="mr-2" /> Reset password
+            </Button>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  data-testid="delete-worker-btn"
+                  variant="outline"
+                  className="mt-3 h-11 w-full rounded-none border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+                >
+                  <Trash size={16} className="mr-2" /> Delete worker
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="rounded-none">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this worker?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Permanently removes <span className="font-semibold">{w.name}</span> ({w.email})
+                    along with all of their gig acceptances, sessions, and uploaded files.
+                    Slots on currently accepted gigs will be released back to open.
+                    This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="rounded-none">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    data-testid="confirm-delete-worker"
+                    className="rounded-none bg-[#EF4444]"
+                    onClick={remove}
+                  >
+                    Delete permanently
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </aside>
       </div>
+
+      {/* Reset-password dialog */}
+      <Dialog open={resetOpen} onOpenChange={(o) => (o ? setResetOpen(true) : closeReset())}>
+        <DialogContent
+          className="max-w-md rounded-none border-[#030712]"
+          data-testid="reset-password-dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-black">
+              Reset password
+            </DialogTitle>
+          </DialogHeader>
+
+          {resetResult ? (
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 border border-[#F59E0B] bg-[#FFFBEB] p-3 text-xs text-[#92400E]">
+                <Warning size={16} weight="fill" className="mt-0.5 shrink-0" />
+                <div>
+                  This password is shown <strong>once</strong>. Copy it and send it
+                  to the worker now — you won't be able to see it again.
+                </div>
+              </div>
+              <div>
+                <div className="font-mono-label">New password</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <code
+                    data-testid="new-password-value"
+                    className="flex-1 select-all break-all border border-[#030712] bg-[#F9FAFB] px-3 py-2 font-mono text-lg font-bold"
+                  >
+                    {resetResult}
+                  </code>
+                  <Button
+                    data-testid="copy-password-btn"
+                    onClick={copyPassword}
+                    className="h-11 rounded-none bg-[#030712] text-white"
+                  >
+                    <Copy size={14} className="mr-1" /> Copy
+                  </Button>
+                </div>
+              </div>
+              <Button
+                data-testid="reset-done-btn"
+                onClick={closeReset}
+                className="h-11 w-full rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+              >
+                Done
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-[#4B5563]">
+                Set a new password for <strong>{w.name}</strong>. Leave blank to
+                auto-generate a short, easy-to-share temp password. The worker's
+                existing sessions will be force-signed-out.
+              </p>
+              <div>
+                <Label className="font-mono-label">New password (optional)</Label>
+                <Input
+                  data-testid="reset-password-input"
+                  type="text"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Leave blank to auto-generate"
+                  className="mt-2 h-11 rounded-none border-[#030712] font-mono"
+                />
+                <div className="mt-1 text-[11px] text-[#4B5563]">
+                  Minimum 6 characters if you set it manually.
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-none"
+                  onClick={closeReset}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  data-testid="confirm-reset-btn"
+                  onClick={doReset}
+                  disabled={resetting}
+                  className="rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+                >
+                  {resetting ? "Resetting…" : "Reset password"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function StatusPill({ s }) {
+  const map = {
+    accepted: { bg: "bg-[#0044FF]", label: "ACCEPTED" },
+    on_the_clock: { bg: "bg-[#F59E0B]", label: "ON THE CLOCK" },
+    completed: { bg: "bg-[#10B981]", label: "COMPLETED" },
+  };
+  const m = map[s] || { bg: "bg-[#4B5563]", label: (s || "").toUpperCase() };
+  return (
+    <span className={`inline-block px-2 py-0.5 text-[10px] font-bold tracking-widest text-white ${m.bg}`}>
+      {m.label}
+    </span>
   );
 }
 

@@ -197,22 +197,51 @@ export default function GigDetail() {
               <thead className="bg-[#F9FAFB]">
                 <tr className="text-left">
                   <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Name</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Email</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Phone</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Accepted at</th>
+                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Contact</th>
+                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Status</th>
+                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Clock in</th>
+                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Clock out</th>
+                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Hours</th>
                 </tr>
               </thead>
               <tbody>
-                {gig.acceptances.map((a) => (
+                {gig.acceptances.map((a) => {
+                  const onClock = a.clock_in_at && !a.clock_out_at;
+                  const completed = !!a.clock_out_at;
+                  const statusClass = onClock
+                    ? "bg-[#F59E0B] text-white"
+                    : completed
+                    ? "bg-[#10B981] text-white"
+                    : "bg-[#0044FF] text-white";
+                  const statusLabel = onClock
+                    ? "ON THE CLOCK"
+                    : completed
+                    ? "COMPLETED"
+                    : "ACCEPTED";
+                  return (
                   <tr key={a.acceptance_id} className="hover:bg-[#F9FAFB]">
                     <td className="border-b border-[#E5E7EB] px-4 py-3 font-semibold">{a.worker_name || a.worker_id}</td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3">{a.worker_email}</td>
-                    <td className="border-b border-[#E5E7EB] px-4 py-3">{a.worker_phone || "—"}</td>
+                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs">
+                      <div>{a.worker_email}</div>
+                      {a.worker_phone && <div className="text-[#4B5563]">{a.worker_phone}</div>}
+                    </td>
+                    <td className="border-b border-[#E5E7EB] px-4 py-3">
+                      <span className={`px-2 py-1 text-[10px] font-bold tracking-widest ${statusClass}`}>
+                        {statusLabel}
+                      </span>
+                    </td>
                     <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs text-[#4B5563]">
-                      {new Date(a.accepted_at).toLocaleString()}
+                      {a.clock_in_at ? new Date(a.clock_in_at).toLocaleString() : "—"}
+                    </td>
+                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs text-[#4B5563]">
+                      {a.clock_out_at ? new Date(a.clock_out_at).toLocaleString() : "—"}
+                    </td>
+                    <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs font-bold">
+                      {a.hours_worked != null ? `${a.hours_worked.toFixed(2)}h` : "—"}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

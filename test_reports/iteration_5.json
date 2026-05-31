@@ -1,0 +1,32 @@
+{
+  "summary": "Iter-5 (worker management + clock-in/out) validated end-to-end. Added /app/backend/tests/test_iter5.py with 16 new pytest cases covering admin reset-password (generated + custom + short + on-admin + 404), delete-worker (cascade releases slot + reopens gig + 400 on admin + 404 on missing), self-service change-password (success preserves session + 401 wrong-current + 422 short-new), clock-in/clock-out full flow (success path + double clock-in 400 + clock-in without acceptance 400 + clock-out without clock-in 400 + double clock-out 400 + admin 403), and admin worker-detail enrichment (gig_title / gig_category / gig_scheduled_date + clock fields). All 16 new tests pass (~11s). Regression: prior 59 tests from iters 1-4 still 100% green (backend_test.py + test_admin_settings.py + test_calendar.py = 59/59 in 17s). Total backend: 75/75. Frontend Playwright E2E run validated every spec testid: register-name/email/password/submit lands on /app; WorkerProfile change-password-card -> toggle-change-password -> current-password -> new-password -> submit-change-password succeeds and /auth/me still returns 200 (session preserved). WorkerGigDetail: clock-in-btn -> elapsed-timer appears, withdraw-btn HIDDEN while on the clock, clock-out-btn visible. WorkerAccepted shows on-clock-badge-<gigId> while on clock. After clock-out my_acceptance.status='completed'. AdminWorkerDetail: reset-password-btn + delete-worker-btn visible; reset-password-dialog opens; confirm-reset-btn produces new-password-value (10-char alphanumeric) and copy-password-btn is visible; reset-done-btn closes dialog. delete-worker-btn + confirm-delete-worker actually deletes (GET worker returns 404) and toast 'Worker deleted' shown.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter5.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter5_results.xml",
+    "/app/test_reports/pytest/iter5_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py keeps growing (now ~1180+ lines after iter-5 additions admin_reset_password / delete_worker / change_password / clock_in / clock_out). Carry-over from iters 2-4: split into routers (auth.py, gigs.py, admin.py, files.py) before it crosses 1500.",
+    "Temp-password generator uses secrets.token_urlsafe then strips '-' and '_' before slicing to 10 — when the random token has many separators the result can theoretically dip below the >=6-char spec. Empirically the test consistently saw 10 chars, but consider generating until len>=8 to remove the (small) probability of an unusually short temp password.",
+    "POST /api/auth/change-password applies pydantic min_length=6 (returns 422), while POST /api/admin/workers/{id}/reset-password validates manually and returns 400 for the same '< 6 chars' violation. Two different status codes for the same business rule — keep, but document for API consumers (frontend already shows toast for both).",
+    "Acceptance schema: new fields clock_in_at / clock_out_at / hours_worked are optional, so legacy acceptances without them still load fine (verified — admin GET /gigs/{id} returns them as null/absent without 500). Good.",
+    "Iter-4 carry-over still open: server.py:949 test email subject still says 'GigBlast — test email' (string-only, no functional impact)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter5.py"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 new iter-5 tests + 59/59 regression = 75/75)",
+    "frontend": "100% of scripted iter-5 UI testids verified (register, change-password card, clock-in/out, on-clock badge, withdraw hidden while on the clock, admin reset-password dialog with copy button, admin delete-worker AlertDialog + 404 confirmation)"
+  },
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026!. Workers self-register via /api/auth/register; each E2E run creates a fresh TEST_e2e_<uuid>@example.com and is deleted at the end of the admin flow.",
+  "seed_data_creation": "test_iter5.py creates ephemeral TEST_<prefix>_<uuid>@example.com workers (one per test, role hard-coded to worker by server). Several TEST_iter5_<suffix>_<hash> gigs are posted by admin_session and left in Mongo (the existing suite cleans only its own gigs in test_delete_gig); not blocking but consider adding teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-5 backend endpoints (all green): POST /api/admin/workers/{uid}/reset-password (200 with new_password, 400 on admin/short, 404 on missing); DELETE /api/admin/workers/{uid} (cascades acceptances + decrements slots_filled + reverts gig status from filled->open + kills sessions); POST /api/auth/change-password (200 preserves session, 401 wrong current, 422 short new); POST /api/gigs/{gid}/clock-in and clock-out (worker-only, 403 for admin, 400 for invalid transitions). GET /api/gigs/{id} now returns acceptances enriched with clock_in_at/clock_out_at/hours_worked/status; GET /api/admin/workers/{uid} enriches accepted_gigs with gig_title/gig_category/gig_scheduled_date plus clock fields. Frontend testids of interest for next iteration: reset-password-btn, delete-worker-btn, confirm-delete-worker, reset-password-dialog, confirm-reset-btn, reset-password-input, new-password-value, copy-password-btn, reset-done-btn, clock-in-btn, clock-out-btn, elapsed-timer, on-clock-badge-<gigId>, change-password-card, toggle-change-password, current-password, new-password, submit-change-password. Hours_worked is computed from (clock_out_at - clock_in_at)/3600 and may round to 0.00 for sub-minute tests; backend spec says >= 0 so that's allowed.",
+  "rca of the issue": "N/A — no bugs reproduced. Initial Playwright run reported a register 'timeout' but logs show navigation to /app actually succeeded; this was a wait_for_url race in the test (multiple SPA route changes on /app/feed re-fire load events), not an app bug. Subsequent flows (profile, clock, admin) all completed successfully, confirming the register actually worked."
+}

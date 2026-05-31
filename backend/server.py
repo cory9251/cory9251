@@ -212,6 +212,15 @@ class SettingsTestIn(BaseModel):
     to: str
 
 
+class AdminResetPasswordIn(BaseModel):
+    new_password: Optional[str] = None  # If None/blank, server generates a temp password
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)
+
+
 # ----------------------------------------------------------------------------
 # Auth dependency
 # ----------------------------------------------------------------------------
@@ -842,6 +851,18 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
     accepted = await db.gig_acceptances.find(
         {"worker_id": user_id}, {"_id": 0}
     ).sort("accepted_at", -1).to_list(500)
+    if accepted:
+        gig_ids = list({a["gig_id"] for a in accepted})
+        gigs = await db.gigs.find(
+            {"gig_id": {"$in": gig_ids}},
+            {"_id": 0, "gig_id": 1, "title": 1, "category": 1, "scheduled_date": 1},
+        ).to_list(500)
+        gmap = {g["gig_id"]: g for g in gigs}
+        for a in accepted:
+            g = gmap.get(a["gig_id"]) or {}
+            a["gig_title"] = g.get("title")
+            a["gig_category"] = g.get("category")
+            a["gig_scheduled_date"] = g.get("scheduled_date")
     w["accepted_gigs"] = accepted
     return w
 
@@ -852,6 +873,141 @@ async def verify_worker_id(user_id: str, admin: dict = Depends(require_admin)):
         {"user_id": user_id}, {"$set": {"id_verified": True}}
     )
     return {"ok": True}
+
+
+@api.post("/admin/workers/{user_id}/reset-password")
+async def admin_reset_password(
+    user_id: str,
+    payload: AdminResetPasswordIn,
+    admin: dict = Depends(require_admin),
+):
+    """Set a new password for a worker. Invalidates all of their sessions."""
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(404, "Worker not found")
+    if user.get("role") == "admin":
+        raise HTTPException(400, "Admins must use the self-service change-password flow")
+
+    new_password = (payload.new_password or "").strip()
+    if not new_password:
+        # Generate an easy-to-share temp password
+        new_password = secrets.token_urlsafe(8).replace("-", "").replace("_", "")[:10]
+    elif len(new_password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"password_hash": hash_password(new_password)}},
+    )
+    # Force re-login by killing all of their sessions
+    await db.sessions.delete_many({"user_id": user_id})
+    logger.info(f"Admin {admin['email']} reset password for {user.get('email')}")
+    return {"ok": True, "new_password": new_password}
+
+
+@api.delete("/admin/workers/{user_id}")
+async def delete_worker(user_id: str, admin: dict = Depends(require_admin)):
+    """Delete a worker and cascade clean their acceptances, sessions, files."""
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(404, "Worker not found")
+    if user.get("role") == "admin":
+        raise HTTPException(400, "Cannot delete an admin from this endpoint")
+
+    # Free up gig slots for any open acceptances
+    acceptances = await db.gig_acceptances.find({"worker_id": user_id}).to_list(1000)
+    for a in acceptances:
+        gig = await db.gigs.find_one({"gig_id": a["gig_id"]})
+        if not gig:
+            continue
+        new_filled = max(0, (gig.get("slots_filled") or 0) - 1)
+        new_status = (
+            "open" if new_filled < gig.get("slots", 1) else gig.get("status", "open")
+        )
+        await db.gigs.update_one(
+            {"gig_id": a["gig_id"]},
+            {"$set": {"slots_filled": new_filled, "status": new_status}},
+        )
+
+    await db.gig_acceptances.delete_many({"worker_id": user_id})
+    await db.sessions.delete_many({"user_id": user_id})
+    await db.notifications.delete_many({"user_id": user_id})
+    await db.files.delete_many({"owner_id": user_id})
+    await db.users.delete_one({"user_id": user_id})
+    logger.info(f"Admin {admin['email']} deleted worker {user.get('email')}")
+    return {"ok": True}
+
+
+# ---- Self-service password change ------------------------------------------
+@api.post("/auth/change-password")
+async def change_password(
+    payload: ChangePasswordIn, user: dict = Depends(get_current_user)
+):
+    db_user = await db.users.find_one({"user_id": user["user_id"]})
+    if not db_user or not db_user.get("password_hash"):
+        raise HTTPException(400, "Password change unavailable for this account")
+    if not verify_password(payload.current_password, db_user["password_hash"]):
+        raise HTTPException(401, "Current password is incorrect")
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"password_hash": hash_password(payload.new_password)}},
+    )
+    return {"ok": True}
+
+
+# ---- Clock in / out --------------------------------------------------------
+@api.post("/gigs/{gig_id}/clock-in")
+async def clock_in(gig_id: str, user: dict = Depends(get_current_user)):
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Only workers can clock in")
+    acceptance = await db.gig_acceptances.find_one(
+        {"gig_id": gig_id, "worker_id": user["user_id"]}
+    )
+    if not acceptance:
+        raise HTTPException(400, "You must accept this gig before clocking in")
+    if acceptance.get("clock_in_at") and not acceptance.get("clock_out_at"):
+        raise HTTPException(400, "You're already clocked in")
+    if acceptance.get("clock_out_at"):
+        raise HTTPException(400, "Already completed — cannot clock in again")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance["acceptance_id"]},
+        {"$set": {"clock_in_at": now, "status": "on_the_clock"}},
+    )
+    return {"ok": True, "clock_in_at": now}
+
+
+@api.post("/gigs/{gig_id}/clock-out")
+async def clock_out(gig_id: str, user: dict = Depends(get_current_user)):
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Only workers can clock out")
+    acceptance = await db.gig_acceptances.find_one(
+        {"gig_id": gig_id, "worker_id": user["user_id"]}
+    )
+    if not acceptance:
+        raise HTTPException(400, "No acceptance for this gig")
+    if not acceptance.get("clock_in_at"):
+        raise HTTPException(400, "You haven't clocked in yet")
+    if acceptance.get("clock_out_at"):
+        raise HTTPException(400, "You've already clocked out")
+
+    now = datetime.now(timezone.utc)
+    clock_in_dt = datetime.fromisoformat(acceptance["clock_in_at"])
+    if clock_in_dt.tzinfo is None:
+        clock_in_dt = clock_in_dt.replace(tzinfo=timezone.utc)
+    hours = round((now - clock_in_dt).total_seconds() / 3600.0, 2)
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance["acceptance_id"]},
+        {
+            "$set": {
+                "clock_out_at": now.isoformat(),
+                "hours_worked": hours,
+                "status": "completed",
+            }
+        },
+    )
+    return {"ok": True, "clock_out_at": now.isoformat(), "hours_worked": hours}
 
 
 @api.get("/admin/stats")

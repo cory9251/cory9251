@@ -240,6 +240,95 @@ export default function WorkerProfile() {
           {saving ? "Saving…" : "Save profile"}
         </Button>
       </form>
+
+      <ChangePasswordCard />
+    </div>
+  );
+}
+
+function ChangePasswordCard() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (next.length < 6) {
+      toast.error("New password must be at least 6 characters");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post("/auth/change-password", {
+        current_password: current,
+        new_password: next,
+      });
+      toast.success("Password updated");
+      setCurrent("");
+      setNext("");
+      setOpen(false);
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="mt-6 gb-tactile rounded-2xl border border-black/5 bg-white p-5"
+      data-testid="change-password-card"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between"
+        data-testid="toggle-change-password"
+      >
+        <div>
+          <div className="font-mono-label">Security</div>
+          <div className="mt-1 font-display text-lg font-bold">Change password</div>
+        </div>
+        <span className="font-mono-label text-[#0044FF]">
+          {open ? "Close" : "Edit"}
+        </span>
+      </button>
+      {open && (
+        <form onSubmit={submit} className="mt-4 space-y-3 border-t border-[#E5E7EB] pt-4">
+          <div>
+            <Label className="font-mono-label">Current password</Label>
+            <Input
+              data-testid="current-password"
+              type="password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              required
+              className="mt-2 h-11 rounded-xl border-[#E5E7EB]"
+            />
+          </div>
+          <div>
+            <Label className="font-mono-label">New password</Label>
+            <Input
+              data-testid="new-password"
+              type="password"
+              minLength={6}
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              required
+              className="mt-2 h-11 rounded-xl border-[#E5E7EB]"
+            />
+          </div>
+          <Button
+            data-testid="submit-change-password"
+            type="submit"
+            disabled={busy}
+            className="h-11 w-full rounded-2xl bg-[#0044FF] text-white hover:bg-[#0036cc]"
+          >
+            {busy ? "Updating…" : "Update password"}
+          </Button>
+        </form>
+      )}
     </div>
   );
 }
