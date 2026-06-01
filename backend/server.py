@@ -160,24 +160,58 @@ GigRecurrence = Literal["none", "daily", "weekly", "biweekly", "monthly"]
 # Canonical worker skill tags. Workers select these on their profile; admins
 # filter on them. Sub-category strings on gigs use the same values.
 WORKER_SKILLS = [
+    # Cleaning
     "deep_cleaning",
     "routine_cleaning",
     "moveouts",
+    "detailing",
+    "window_cleaning",
+    "carpet_cleaning",
+    "post_construction",
+    # Labor
     "hourly_labor",
+    "heavy_lifting",
+    "forklift",
+    "moving",
+    "warehouse",
+    "landscaping",
+    "painting",
+    # Driver / transport
     "driving",
+    "delivery",
+    "cdl",
+    # Soft skills HCOB cares about
+    "fast_learner",
+    "bilingual",
+    "team_lead",
 ]
 SKILL_LABELS = {
     "deep_cleaning": "Deep cleaning",
     "routine_cleaning": "Routine cleaning",
     "moveouts": "Move-outs",
+    "detailing": "Detailing",
+    "window_cleaning": "Window cleaning",
+    "carpet_cleaning": "Carpet cleaning",
+    "post_construction": "Post-construction",
     "hourly_labor": "Hourly labor",
+    "heavy_lifting": "Heavy lifting",
+    "forklift": "Forklift",
+    "moving": "Moving",
+    "warehouse": "Warehouse",
+    "landscaping": "Landscaping",
+    "painting": "Painting",
     "driving": "Driving",
+    "delivery": "Delivery",
+    "cdl": "CDL",
+    "fast_learner": "Fast learner",
+    "bilingual": "Bilingual",
+    "team_lead": "Team lead",
 }
 # Map a gig's category → which skill tags qualify a worker for it
 GIG_CATEGORY_TO_SKILLS = {
-    "cleaning": ["deep_cleaning", "routine_cleaning", "moveouts"],
-    "labor": ["hourly_labor"],
-    "driver": ["driving"],
+    "cleaning": ["deep_cleaning", "routine_cleaning", "moveouts", "detailing", "window_cleaning", "carpet_cleaning", "post_construction"],
+    "labor": ["hourly_labor", "heavy_lifting", "forklift", "moving", "warehouse", "landscaping", "painting"],
+    "driver": ["driving", "delivery", "cdl"],
 }
 
 AVAILABILITY_OPTIONS = ["weekdays", "weekends", "mornings", "evenings", "overnight", "full_time"]
@@ -636,15 +670,13 @@ async def profile_options(user: dict = Depends(get_current_user)):
 async def update_profile(payload: ProfileUpdateIn, user: dict = Depends(get_current_user)):
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
 
-    # Validate enum-ish fields
+    # Validate enum-ish fields. For multi-select chip fields we silently drop
+    # values we don't recognize rather than 400 — keeps saves working even when
+    # legacy free-text data is still on the record.
     if "skills" in updates:
-        bad = [s for s in updates["skills"] if s not in WORKER_SKILLS]
-        if bad:
-            raise HTTPException(400, f"Unknown skill(s): {', '.join(bad)}")
+        updates["skills"] = [s for s in updates["skills"] if s in WORKER_SKILLS]
     if "availability" in updates:
-        bad = [a for a in updates["availability"] if a not in AVAILABILITY_OPTIONS]
-        if bad:
-            raise HTTPException(400, f"Unknown availability value(s): {', '.join(bad)}")
+        updates["availability"] = [a for a in updates["availability"] if a in AVAILABILITY_OPTIONS]
     if "experience_level" in updates and updates["experience_level"] and updates["experience_level"] not in EXPERIENCE_OPTIONS:
         raise HTTPException(400, f"experience_level must be one of {EXPERIENCE_OPTIONS}")
     if "tshirt_size" in updates and updates["tshirt_size"] and updates["tshirt_size"] not in TSHIRT_SIZES:
@@ -1856,15 +1888,13 @@ async def admin_update_worker_profile(
 
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
 
-    # Validate enum-ish fields (same rules as PUT /profile)
+    # Validate enum-ish fields (same rules as PUT /profile — silently drop
+    # unknown skill/availability values so legacy/free-text data doesn't break
+    # admin saves).
     if "skills" in updates:
-        bad = [s for s in updates["skills"] if s not in WORKER_SKILLS]
-        if bad:
-            raise HTTPException(400, f"Unknown skill(s): {', '.join(bad)}")
+        updates["skills"] = [s for s in updates["skills"] if s in WORKER_SKILLS]
     if "availability" in updates:
-        bad = [a for a in updates["availability"] if a not in AVAILABILITY_OPTIONS]
-        if bad:
-            raise HTTPException(400, f"Unknown availability value(s): {', '.join(bad)}")
+        updates["availability"] = [a for a in updates["availability"] if a in AVAILABILITY_OPTIONS]
     if "experience_level" in updates and updates["experience_level"] and updates["experience_level"] not in EXPERIENCE_OPTIONS:
         raise HTTPException(400, f"experience_level must be one of {EXPERIENCE_OPTIONS}")
     if "tshirt_size" in updates and updates["tshirt_size"] and updates["tshirt_size"] not in TSHIRT_SIZES:
