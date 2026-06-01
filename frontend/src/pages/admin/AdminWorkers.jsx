@@ -4,6 +4,7 @@ import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { StarsDisplay } from "@/components/admin/RatingDialog";
 import {
   CheckCircle,
   IdentificationCard,
@@ -15,6 +16,7 @@ import {
   X,
   MagnifyingGlass,
   MapPin,
+  Star,
 } from "@phosphor-icons/react";
 
 const TABS = [
@@ -72,6 +74,7 @@ export default function AdminWorkers() {
   const [zipPrefix, setZipPrefix] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [profileComplete, setProfileComplete] = useState("");
+  const [minRating, setMinRating] = useState("");
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const nav = useNavigate();
@@ -87,6 +90,7 @@ export default function AdminWorkers() {
       if (vehicle) q.vehicle = vehicle;
       if (profileComplete === "complete") q.profile_complete = true;
       else if (profileComplete === "incomplete") q.profile_complete = false;
+      if (minRating) q.min_rating = minRating;
       if (search.trim()) q.search = search.trim();
       const { data } = await api.get("/admin/workers", { params: q });
       setWorkers(data);
@@ -98,7 +102,7 @@ export default function AdminWorkers() {
   useEffect(() => {
     load();
     // eslint-disable-next-line
-  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, search]);
+  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, search]);
 
   const toggleArr = (arr, setter, v) =>
     setter(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
@@ -110,6 +114,7 @@ export default function AdminWorkers() {
     setZipPrefix("");
     setVehicle("");
     setProfileComplete("");
+    setMinRating("");
     setSearch("");
   };
 
@@ -120,6 +125,7 @@ export default function AdminWorkers() {
     (zipPrefix ? 1 : 0) +
     (vehicle ? 1 : 0) +
     (profileComplete ? 1 : 0) +
+    (minRating ? 1 : 0) +
     (search ? 1 : 0);
 
   return (
@@ -308,6 +314,25 @@ export default function AdminWorkers() {
                 </FilterChip>
               </div>
             </div>
+
+            <div>
+              <div className="font-mono-label mb-2">Min rating</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[3, 4, 4.5, 5].map((r) => (
+                  <FilterChip
+                    key={r}
+                    testId={`filter-min-rating-${r}`}
+                    active={minRating === String(r)}
+                    onClick={() =>
+                      setMinRating(minRating === String(r) ? "" : String(r))
+                    }
+                  >
+                    <Star size={9} weight="fill" className="mr-0.5 inline" />
+                    {r}+
+                  </FilterChip>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -375,6 +400,15 @@ export default function AdminWorkers() {
                       {w.zip_code}
                     </span>
                   )}
+                </div>
+
+                {/* Rating stars */}
+                <div className="mt-2">
+                  <StarsDisplay
+                    value={w.rating_avg}
+                    count={w.rating_count}
+                    size={11}
+                  />
                 </div>
 
                 {/* Skills */}

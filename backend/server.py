@@ -341,6 +341,28 @@ class TimesheetEditIn(BaseModel):
     clear_clock_out: Optional[bool] = False
 
 
+class AdminRatingIn(BaseModel):
+    """Admin sets a 1-5 star rating for a worker on a specific gig. Optional
+    private note. Passing `clear=true` removes the rating."""
+    stars: Optional[int] = None
+    note: Optional[str] = None
+    clear: Optional[bool] = False
+
+
+class ClientRatingLinkIn(BaseModel):
+    """Generate (or regenerate) a public client-feedback link for an
+    acceptance. Optional `client_email` is stored for reference."""
+    client_email: Optional[str] = None
+    regenerate: Optional[bool] = False
+
+
+class ClientRatingSubmitIn(BaseModel):
+    """Body of the public client rating submission."""
+    stars: int
+    note: Optional[str] = None
+    client_name: Optional[str] = None
+
+
 class SettingsTestIn(BaseModel):
     channel: Literal["email", "sms"]
     to: str
@@ -375,10 +397,40 @@ async def _get_user_by_id(user_id: str) -> Optional[dict]:
         missing = _profile_missing_fields(user)
         user["profile_complete"] = len(missing) == 0
         user["profile_missing_fields"] = missing
+        # Attach rating aggregates — pulled across all of this worker's
+        # acceptances. Admin-only data, but always returned (the worker UI
+        # is responsible for not displaying it).
+        stats = await _worker_rating_stats(user_id)
+        user.update(stats)
     else:
         user["profile_complete"] = True
         user["profile_missing_fields"] = []
     return user
+
+
+async def _worker_rating_stats(user_id: str) -> dict:
+    """Return rating aggregates for a worker — combined avg + per-source
+    breakdowns (admin vs client). Considers only non-null star values."""
+    cur = db.gig_acceptances.find(
+        {"worker_id": user_id},
+        {"_id": 0, "admin_rating": 1, "client_rating": 1},
+    )
+    admin_stars: list = []
+    client_stars: list = []
+    async for a in cur:
+        if isinstance(a.get("admin_rating"), (int, float)):
+            admin_stars.append(a["admin_rating"])
+        if isinstance(a.get("client_rating"), (int, float)):
+            client_stars.append(a["client_rating"])
+    all_stars = admin_stars + client_stars
+    return {
+        "rating_avg": round(sum(all_stars) / len(all_stars), 2) if all_stars else None,
+        "rating_count": len(all_stars),
+        "admin_rating_avg": round(sum(admin_stars) / len(admin_stars), 2) if admin_stars else None,
+        "admin_rating_count": len(admin_stars),
+        "client_rating_avg": round(sum(client_stars) / len(client_stars), 2) if client_stars else None,
+        "client_rating_count": len(client_stars),
+    }
 
 
 async def get_current_user(request: Request) -> dict:
@@ -1503,6 +1555,7 @@ async def list_workers(
     zip_prefix: Optional[str] = Query(None, description="First N digits of ZIP for 'nearby' filter"),
     vehicle: Optional[str] = Query(None, description="one of: any, car, truck, cdl"),
     profile_complete: Optional[bool] = Query(None),
+    min_rating: Optional[float] = Query(None, ge=0, le=5, description="Hide workers below this avg rating"),
     search: Optional[str] = Query(None, description="Free-text search across name/email/phone"),
     admin: dict = Depends(require_admin),
 ):
@@ -1558,16 +1611,24 @@ async def list_workers(
         query, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
 
-    # Enrich with computed profile_complete + missing
+    # Enrich with computed profile_complete + missing + rating stats
     for w in workers:
         miss = _profile_missing_fields(w)
         w["profile_complete"] = len(miss) == 0
         w["profile_missing_fields"] = miss
+        stats = await _worker_rating_stats(w["user_id"])
+        w.update(stats)
 
     if profile_complete is True:
         workers = [w for w in workers if w["profile_complete"]]
     elif profile_complete is False:
         workers = [w for w in workers if not w["profile_complete"]]
+
+    if min_rating is not None:
+        # Only include workers WITH a rating and at or above threshold. If
+        # they have no rating yet, exclude — matches admin intent of "show me
+        # 4-star+ workers."
+        workers = [w for w in workers if (w.get("rating_avg") or 0) >= min_rating]
 
     return workers
 
@@ -2433,6 +2494,162 @@ async def edit_acceptance_timesheet(
     }
 
 
+
+# ----------------------------------------------------------------------------
+# Worker ratings — admin manual stars + public client feedback link
+# ----------------------------------------------------------------------------
+@api.put("/gigs/{gig_id}/acceptances/{acceptance_id}/rating")
+async def admin_set_rating(
+    gig_id: str,
+    acceptance_id: str,
+    payload: AdminRatingIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin sets a 1-5 star rating + optional private note for a worker on a
+    specific gig. Pass `clear=true` to remove the rating."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+
+    set_ops: dict = {}
+    unset_ops: dict = {}
+    if payload.clear:
+        unset_ops["admin_rating"] = ""
+        unset_ops["admin_rating_note"] = ""
+        unset_ops["admin_rating_at"] = ""
+        unset_ops["admin_rating_by"] = ""
+    else:
+        if payload.stars is None:
+            raise HTTPException(400, "stars (1-5) required unless clear=true")
+        if payload.stars < 1 or payload.stars > 5:
+            raise HTTPException(400, "stars must be between 1 and 5")
+        set_ops["admin_rating"] = int(payload.stars)
+        set_ops["admin_rating_at"] = datetime.now(timezone.utc).isoformat()
+        set_ops["admin_rating_by"] = admin["email"]
+        if payload.note is not None:
+            set_ops["admin_rating_note"] = payload.note
+
+    ops: dict = {}
+    if set_ops:
+        ops["$set"] = set_ops
+    if unset_ops:
+        ops["$unset"] = unset_ops
+    await db.gig_acceptances.update_one({"acceptance_id": acceptance_id}, ops)
+    logger.info(
+        f"Admin {admin['email']} set rating {payload.stars} on {acceptance_id}"
+    )
+    return {"ok": True, "admin_rating": set_ops.get("admin_rating")}
+
+
+@api.post("/gigs/{gig_id}/acceptances/{acceptance_id}/rating-link")
+async def admin_generate_client_rating_link(
+    gig_id: str,
+    acceptance_id: str,
+    payload: ClientRatingLinkIn,
+    admin: dict = Depends(require_admin),
+):
+    """Generate (or regenerate) a public client-feedback token for an
+    acceptance. Returns the absolute URL the admin can share with the client.
+
+    Tokens never expire — they're invalidated once a client submits OR when
+    regenerate=true is sent."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+
+    token = acceptance.get("client_rating_token")
+    if not token or payload.regenerate:
+        token = secrets.token_urlsafe(20)
+
+    set_ops: dict = {
+        "client_rating_token": token,
+        "client_rating_token_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if payload.client_email is not None:
+        set_ops["client_email"] = payload.client_email.strip().lower() or None
+    # Regenerate also clears any previous submission so the new token is valid
+    if payload.regenerate:
+        set_ops["client_rating"] = None
+        set_ops["client_rating_note"] = None
+        set_ops["client_rating_at"] = None
+        set_ops["client_rating_submitted_name"] = None
+    await db.gig_acceptances.update_one({"acceptance_id": acceptance_id}, {"$set": set_ops})
+
+    base = os.environ.get("FRONTEND_BASE_URL", "").rstrip("/")
+    url = f"{base}/rate/{token}" if base else f"/rate/{token}"
+    return {
+        "token": token,
+        "url": url,
+        "client_email": set_ops.get("client_email"),
+    }
+
+
+@api.get("/public/rating/{token}")
+async def public_rating_lookup(token: str):
+    """Public, no-auth lookup. Returns minimum info needed for the client to
+    leave a rating: worker name, gig title, gig date, gig location."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"client_rating_token": token}, {"_id": 0}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Rating link not found or already used")
+    gig = await db.gigs.find_one(
+        {"gig_id": acceptance["gig_id"]},
+        {"_id": 0, "title": 1, "category": 1, "scheduled_date": 1, "location": 1},
+    )
+    worker = await db.users.find_one(
+        {"user_id": acceptance["worker_id"]},
+        {"_id": 0, "name": 1},
+    )
+    return {
+        "token": token,
+        "worker_name": (worker or {}).get("name") or "Worker",
+        "gig_title": (gig or {}).get("title") or "",
+        "gig_category": (gig or {}).get("category") or "",
+        "gig_scheduled_date": (gig or {}).get("scheduled_date") or "",
+        "gig_location": (gig or {}).get("location") or "",
+    }
+
+
+@api.post("/public/rating/{token}")
+async def public_rating_submit(token: str, payload: ClientRatingSubmitIn):
+    """Public submission of a client rating. After submission, the token is
+    burned so the URL can't be reused. Admin can regenerate."""
+    if payload.stars < 1 or payload.stars > 5:
+        raise HTTPException(400, "stars must be between 1 and 5")
+    acceptance = await db.gig_acceptances.find_one({"client_rating_token": token})
+    if not acceptance:
+        raise HTTPException(404, "Rating link not found or already used")
+    if acceptance.get("client_rating") is not None:
+        raise HTTPException(
+            400,
+            "This rating has already been submitted. Ask HCOB for a new link if you want to change it.",
+        )
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance["acceptance_id"]},
+        {
+            "$set": {
+                "client_rating": int(payload.stars),
+                "client_rating_note": (payload.note or "").strip() or None,
+                "client_rating_at": datetime.now(timezone.utc).isoformat(),
+                "client_rating_submitted_name": (payload.client_name or "").strip() or None,
+                "client_rating_token": None,  # burn so it can't be replayed
+            }
+        },
+    )
+    logger.info(
+        f"Client rating submitted: {payload.stars} on {acceptance['acceptance_id']}"
+    )
+    return {"ok": True, "stars": payload.stars}
+
+
+
+
+
 async def _build_workers_report(
     skills: Optional[str],
     zip_code: Optional[str],
@@ -2693,6 +2910,14 @@ async def _build_activity_report(
             for a in a_list
             if a.get("timesheet_approved")
         )
+        # Rating aggregates — combine admin + client stars across these accs
+        stars = []
+        for a in a_list:
+            if isinstance(a.get("admin_rating"), (int, float)):
+                stars.append(a["admin_rating"])
+            if isinstance(a.get("client_rating"), (int, float)):
+                stars.append(a["client_rating"])
+        avg_rating = round(sum(stars) / len(stars), 2) if stars else None
         if requested == 0 and not worker_id:
             # Skip totally-inactive workers unless explicitly asked
             continue
@@ -2707,6 +2932,8 @@ async def _build_activity_report(
             "no_shows": no_show,
             "total_hours": round(total_hours, 2),
             "total_earned": round(total_earned, 2),
+            "avg_rating": avg_rating,
+            "ratings_count": len(stars),
             "id_verified": "yes" if w.get("id_verified") else "no",
         })
     rows.sort(key=lambda r: r["gigs_completed"], reverse=True)
@@ -2724,6 +2951,8 @@ def _activity_cols() -> List[dict]:
         {"key": "no_shows", "label": "No-shows"},
         {"key": "total_hours", "label": "Total hours"},
         {"key": "total_earned", "label": "Total earned"},
+        {"key": "avg_rating", "label": "Avg rating"},
+        {"key": "ratings_count", "label": "# ratings"},
         {"key": "id_verified", "label": "ID verified"},
     ]
 

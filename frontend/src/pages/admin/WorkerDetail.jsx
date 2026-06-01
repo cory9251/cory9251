@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { StarsDisplay } from "@/components/admin/RatingDialog";
 import {
   Dialog,
   DialogContent,
@@ -153,6 +154,16 @@ export default function WorkerDetail() {
             {w.name}
           </h1>
           <div className="mt-1 text-sm text-[#4B5563]">{w.email}</div>
+          <div className="mt-3">
+            <StarsDisplay value={w.rating_avg} count={w.rating_count} size={14} />
+            {w.admin_rating_count > 0 && w.client_rating_count > 0 && (
+              <div className="mt-1 text-[10px] text-[#4B5563]">
+                Admin: {w.admin_rating_avg?.toFixed(1)} ({w.admin_rating_count})
+                {" · "}
+                Client: {w.client_rating_avg?.toFixed(1)} ({w.client_rating_count})
+              </div>
+            )}
+          </div>
 
           <AdminProfileEditor worker={w} onSaved={load} />
 

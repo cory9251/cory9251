@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 16 review — Gigs report date-filter fix + full worker rating system (admin rating, client public link, public RatePage, workers list/detail rating stats, min_rating filter). Backend: 20/21 pytest pass. Frontend: Gigs tab clears date range (119 rows now show), Timesheets restores defaults, public RatePage (lookup/submit/token burn/invalid) works end-to-end, StarsDisplay visible on Workers cards. One genuine backend bug found: GET /api/admin/workers/{user_id} does NOT include rating_avg / rating_count / per-source breakdown — review_request explicitly required this, header on WorkerDetail page will not show stars unless fixed.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/admin/workers/{user_id}", "issue": "Response missing rating_avg, rating_count, admin_rating_avg, admin_rating_count, client_rating_avg, client_rating_count. _worker_rating_stats(user_id) is never merged into the worker doc returned from get_worker(). Per review_request: 'worker doc includes rating_avg + rating_count + per-source breakdown'. Without this, WorkerDetail header StarsDisplay (which reads worker.rating_avg) will render empty / 'No ratings' even for workers with ratings.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Public /rate/:token page", "issue": "Console shows /auth/me 401s on the public rate page. Page still works (it doesn't depend on auth), but it's noisy. Likely the global layout/auth provider is mounted even for the public route, attempting to call /auth/me before recognising /rate/:token is outside the auth gate.", "affected_selectors": ["/rate/:token"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter16.py",
+    "/app/test_reports/pytest/iter16_results.xml"
+  ],
+  "action_items": [
+    "Fix GET /api/admin/workers/{user_id}: in get_worker() (server.py ~line 1722-1754), enrich the returned worker doc with rating stats. Insert before `w['accepted_gigs'] = accepted; return w` something like: `stats = await _worker_rating_stats(user_id); w.update(stats)` (so rating_avg, rating_count and the admin_/client_ breakdown fields are exposed). Verify WorkerDetail header StarsDisplay then renders.",
+    "(Minor) Suppress /auth/me probe on the public /rate/:token route, or short-circuit the auth provider when window.location.pathname starts with '/rate/'. Functional impact: none; cosmetic/log noise only."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 3747 lines — exceeds 700-line guideline. Recommend splitting (auth, gigs, ratings, admin reports, etc.) into modules for maintainability.",
+    "_worker_rating_stats is correctly invoked from list_workers and the activity report but missed in get_worker — same enrichment helper not used consistently across the three endpoints that surface worker rating data.",
+    "Public RatePage (/rate/:token) loads under the same global layout that calls /auth/me; consider mounting a minimal layout for public routes to avoid leaking 401 calls and to harden against future side-effects in the auth provider."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter16.py (new — 21 pytest cases covering rating endpoints, min_rating filter, validation, regression)"
+  ],
+  "success_rate": {"backend": "95% (20/21)", "frontend": "100% (manual playwright flows all pass)"},
+  "test_credentials": "Admin: admin@hcobcleaners.com / HcobAdmin2026!  (verified working via /api/auth/login → 200). Worker fixtures auto-created via /api/auth/register and approved by admin.",
+  "seed_data_creation": "Session-scoped fixture creates 1 fresh worker (TEST_iter16_*) + 1 gig (TEST iter16 gig) + 1 acceptance. Also created 1 disposable gig (UI test) + acceptance for the frontend RatePage playwright run. No persistent pollution beyond TEST_-prefixed rows.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All rating-system backend endpoints tested and green except GET /admin/workers/{id} which lacks rating fields (single line fix). Public /rate/:token end-to-end flow (lookup → star pick with hover preview → submit → token burn → invalid-token state) is verified via Playwright. Gigs tab in /admin/reports correctly clears default date range — 119 rows now render. StarsDisplay confirmed visible on /admin/workers cards. RatingDialog modal in GigDetail and the min-rating chip filter on AdminWorkers were NOT explicitly clicked through in playwright (deferred — backend behaviour covers their data contract); if main agent wants UI coverage of those two, retest after fix.",
+  "rca_of_the_issue": "Backend get_worker() pre-dates the rating system. When _worker_rating_stats helper was added (used by list_workers + activity report), get_worker was not updated to call it. Fix: one extra line inside get_worker before return."
+}

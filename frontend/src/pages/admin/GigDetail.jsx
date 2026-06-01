@@ -37,12 +37,14 @@ import {
   CurrencyDollar,
   ClipboardText,
   Clock,
+  Star,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
 import PayOverrideDialog from "@/components/admin/PayOverrideDialog";
 import ApproveTimesheetDialog from "@/components/admin/ApproveTimesheetDialog";
 import EditTimesheetDialog from "@/components/admin/EditTimesheetDialog";
+import RatingDialog, { StarsDisplay } from "@/components/admin/RatingDialog";
 
 export default function GigDetail() {
   const { gigId } = useParams();
@@ -53,7 +55,8 @@ export default function GigDetail() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [payDialog, setPayDialog] = useState(null); // { acceptance }
   const [approveDialog, setApproveDialog] = useState(null); // { acceptance }
-  const [editTimesheetDialog, setEditTimesheetDialog] = useState(null); // { acceptance }
+  const [editTimesheetDialog, setEditTimesheetDialog] = useState(null);
+  const [ratingDialog, setRatingDialog] = useState(null); // { acceptance }
   const [duplicating, setDuplicating] = useState(false);
   const [channels, setChannels] = useState({ in_app: true, email: false, sms: false });
   const [blasting, setBlasting] = useState(false);
@@ -470,6 +473,24 @@ export default function GigDetail() {
                         >
                           <CurrencyDollar size={10} className="mr-1" weight="duotone" /> Pay
                         </Button>
+                        <Button
+                          data-testid={`rating-${a.acceptance_id}`}
+                          onClick={() => setRatingDialog({ acceptance: a })}
+                          variant="outline"
+                          className={`h-7 rounded-none px-2 text-[10px] ${
+                            a.admin_rating || a.client_rating
+                              ? "border-[#F59E0B] text-[#92400E]"
+                              : "border-[#030712]"
+                          }`}
+                          title="Rate worker / share client link"
+                        >
+                          <Star
+                            size={10}
+                            weight={a.admin_rating ? "fill" : "duotone"}
+                            className="mr-1"
+                          />
+                          {a.admin_rating ? `${a.admin_rating}★` : "Rate"}
+                        </Button>
                         {completed && !a.timesheet_approved && (
                           <Button
                             data-testid={`approve-timesheet-${a.acceptance_id}`}
@@ -610,6 +631,16 @@ export default function GigDetail() {
         acceptance={editTimesheetDialog?.acceptance}
         onSaved={() => {
           setEditTimesheetDialog(null);
+          load();
+        }}
+      />
+
+      <RatingDialog
+        open={!!ratingDialog}
+        onOpenChange={(o) => !o && setRatingDialog(null)}
+        gigId={gigId}
+        acceptance={ratingDialog?.acceptance}
+        onSaved={() => {
           load();
         }}
       />

@@ -195,7 +195,18 @@ export default function AdminReports() {
   useEffect(() => {
     setData(null);
     setLastExportUrl(null);
-  }, [type]);
+    // Gigs report works against `scheduled_date` strings — many of which are
+    // free-text ("today", "Fri Mar 6 · 9:00 AM"). Clear the default 90-day
+    // window so the admin sees ALL gigs and can opt-in to a range.
+    if (type === "gigs") {
+      setStart("");
+      setEnd("");
+    } else if (!start && !end) {
+      // Restore defaults when leaving Gigs
+      setStart(ninetyDaysAgo());
+      setEnd(todayISO());
+    }
+  }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const t = setTimeout(() => {
