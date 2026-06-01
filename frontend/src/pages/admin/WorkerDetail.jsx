@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -148,33 +149,12 @@ export default function WorkerDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 border-b border-[#E5E7EB]">
         <div className="lg:col-span-2 border-r border-[#E5E7EB] p-6 md:p-10">
           <div className="font-mono-label">Worker profile</div>
-          <h1 className="mt-2 font-display text-4xl font-black tracking-tight">{w.name}</h1>
+          <h1 className="mt-2 font-display text-4xl font-black tracking-tight">
+            {w.name}
+          </h1>
+          <div className="mt-1 text-sm text-[#4B5563]">{w.email}</div>
 
-          <div className="mt-6 space-y-2 text-sm">
-            <div className="flex items-center gap-3"><EnvelopeSimple size={16} /> {w.email}</div>
-            {w.phone && <div className="flex items-center gap-3"><Phone size={16} /> {w.phone}</div>}
-            {w.address && <div className="flex items-center gap-3"><MapPin size={16} /> {w.address}</div>}
-          </div>
-
-          {w.bio && (
-            <div className="mt-6">
-              <div className="font-mono-label">Bio</div>
-              <p className="mt-2 text-sm text-[#4B5563]">{w.bio}</p>
-            </div>
-          )}
-
-          {w.skills && w.skills.length > 0 && (
-            <div className="mt-6">
-              <div className="font-mono-label">Skills</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {w.skills.map((s) => (
-                  <span key={s} className="border border-[#030712] px-2 py-1 text-xs font-semibold">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          <AdminProfileEditor worker={w} onSaved={load} />
 
           <div className="mt-10">
             <div className="font-mono-label">Gig history ({(w.accepted_gigs || []).length})</div>
@@ -432,6 +412,440 @@ export default function WorkerDetail() {
     </div>
   );
 }
+
+// Static option lists (mirror /api/profile/options server-side enums)
+const ADMIN_SKILLS = [
+  { value: "deep_cleaning", label: "Deep cleaning" },
+  { value: "routine_cleaning", label: "Routine cleaning" },
+  { value: "moveouts", label: "Move-outs" },
+  { value: "hourly_labor", label: "Hourly labor" },
+  { value: "driving", label: "Driving" },
+];
+const ADMIN_AVAILABILITY = [
+  { value: "weekdays", label: "Weekdays" },
+  { value: "weekends", label: "Weekends" },
+  { value: "mornings", label: "Mornings" },
+  { value: "evenings", label: "Evenings" },
+  { value: "overnight", label: "Overnight" },
+  { value: "full_time", label: "Full-time" },
+];
+const ADMIN_EXPERIENCE = [
+  { value: "", label: "—" },
+  { value: "none", label: "No experience" },
+  { value: "0_1_yr", label: "Under 1 year" },
+  { value: "1_3_yr", label: "1–3 years" },
+  { value: "3_plus_yr", label: "3+ years" },
+];
+const ADMIN_TSHIRT = ["", "XS", "S", "M", "L", "XL", "XXL", "XXXL"];
+const ADMIN_STATUSES = [
+  { value: "approved", label: "Approved" },
+  { value: "pending", label: "Pending" },
+  { value: "rejected", label: "Rejected" },
+  { value: "suspended", label: "Suspended" },
+];
+
+/**
+ * Inline admin editor for a worker's full profile. Mirrors the worker
+ * self-serve form (skills, availability, vehicle, contact, etc.) and adds
+ * admin-only fields (email, worker_status, id_verified). Saves directly to
+ * PUT /admin/workers/{id}/profile.
+ */
+function AdminProfileEditor({ worker, onSaved }) {
+  const [form, setForm] = useState(() => fromWorker(worker));
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  // Re-sync from props after parent refetch
+  useEffect(() => {
+    setForm(fromWorker(worker));
+    setDirty(false);
+  }, [worker.user_id, worker.updated_at]);
+
+  const set = (k, v) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setDirty(true);
+  };
+  const toggleArr = (k, v) => {
+    setForm((f) => {
+      const arr = f[k] || [];
+      return {
+        ...f,
+        [k]: arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v],
+      };
+    });
+    setDirty(true);
+  };
+
+  const save = async (e) => {
+    e?.preventDefault();
+    setSaving(true);
+    try {
+      // Only send keys that are non-undefined; backend treats Optional fields
+      // — but we DO want to send empty strings ("clear bio") so we keep them.
+      const payload = { ...form };
+      // Normalize ZIP / state
+      if (payload.zip_code) payload.zip_code = String(payload.zip_code).trim();
+      if (payload.state) payload.state = String(payload.state).toUpperCase().slice(0, 2);
+      const { data } = await api.put(
+        `/admin/workers/${worker.user_id}/profile`,
+        payload
+      );
+      toast.success("Worker profile saved");
+      setDirty(false);
+      onSaved && onSaved(data);
+    } catch (err) {
+      toast.error(getErr(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={save}
+      className="mt-6 space-y-6"
+      data-testid="admin-profile-editor"
+    >
+      {/* Admin override controls (status + ID verified) */}
+      <Section title="Admin overrides">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <FieldRow label="Worker status">
+            <select
+              data-testid="admin-edit-worker-status"
+              value={form.worker_status || "approved"}
+              onChange={(e) => set("worker_status", e.target.value)}
+              className="h-10 w-full border border-[#030712] bg-white px-2 text-sm"
+            >
+              {ADMIN_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+          <FieldRow label="ID verified">
+            <label className="flex h-10 cursor-pointer items-center gap-2 border border-[#030712] bg-white px-3 text-sm">
+              <input
+                data-testid="admin-edit-id-verified"
+                type="checkbox"
+                checked={!!form.id_verified}
+                onChange={(e) => set("id_verified", e.target.checked)}
+                className="accent-[#0044FF]"
+              />
+              <span>Mark ID as verified</span>
+            </label>
+          </FieldRow>
+        </div>
+      </Section>
+
+      {/* Identity */}
+      <Section title="Identity">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <FieldRow label="Full name">
+            <Input
+              data-testid="admin-edit-name"
+              value={form.name || ""}
+              onChange={(e) => set("name", e.target.value)}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+          <FieldRow label="Email (login)">
+            <Input
+              data-testid="admin-edit-email"
+              type="email"
+              value={form.email || ""}
+              onChange={(e) => set("email", e.target.value)}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+          <FieldRow label="Phone">
+            <Input
+              data-testid="admin-edit-phone"
+              value={form.phone || ""}
+              onChange={(e) => set("phone", e.target.value)}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+          <FieldRow label="Date of birth">
+            <Input
+              data-testid="admin-edit-dob"
+              type="date"
+              value={form.date_of_birth || ""}
+              onChange={(e) => set("date_of_birth", e.target.value)}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+        </div>
+      </Section>
+
+      {/* Location */}
+      <Section title="Where they work">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <FieldRow label="ZIP">
+            <Input
+              data-testid="admin-edit-zip"
+              value={form.zip_code || ""}
+              onChange={(e) =>
+                set(
+                  "zip_code",
+                  e.target.value.replace(/\D/g, "").slice(0, 5)
+                )
+              }
+              inputMode="numeric"
+              maxLength={5}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+          <FieldRow label="City">
+            <Input
+              data-testid="admin-edit-city"
+              value={form.city || ""}
+              onChange={(e) => set("city", e.target.value)}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+          <FieldRow label="State">
+            <Input
+              data-testid="admin-edit-state"
+              value={form.state || ""}
+              onChange={(e) =>
+                set("state", e.target.value.toUpperCase().slice(0, 2))
+              }
+              maxLength={2}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+          <FieldRow label="T-shirt">
+            <select
+              data-testid="admin-edit-tshirt"
+              value={form.tshirt_size || ""}
+              onChange={(e) => set("tshirt_size", e.target.value)}
+              className="h-10 w-full border border-[#030712] bg-white px-2 text-sm"
+            >
+              {ADMIN_TSHIRT.map((s) => (
+                <option key={s} value={s}>
+                  {s || "—"}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+        </div>
+        <FieldRow label="Street address">
+          <Input
+            data-testid="admin-edit-address"
+            value={form.address || ""}
+            onChange={(e) => set("address", e.target.value)}
+            className="h-10 rounded-none border-[#030712]"
+          />
+        </FieldRow>
+      </Section>
+
+      {/* Skills (the one users had trouble with) */}
+      <Section title="Skills" hint="The bit some workers couldn't update — fix it here on their behalf.">
+        <div className="flex flex-wrap gap-1.5">
+          {ADMIN_SKILLS.map((s) => (
+            <Chip
+              key={s.value}
+              testId={`admin-edit-skill-${s.value}`}
+              active={(form.skills || []).includes(s.value)}
+              onClick={() => toggleArr("skills", s.value)}
+            >
+              {s.label}
+            </Chip>
+          ))}
+        </div>
+        <FieldRow label="Experience level">
+          <select
+            data-testid="admin-edit-experience"
+            value={form.experience_level || ""}
+            onChange={(e) => set("experience_level", e.target.value)}
+            className="h-10 w-full border border-[#030712] bg-white px-2 text-sm"
+          >
+            {ADMIN_EXPERIENCE.map((e) => (
+              <option key={e.value} value={e.value}>
+                {e.label}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+      </Section>
+
+      {/* Availability */}
+      <Section title="Availability">
+        <div className="flex flex-wrap gap-1.5">
+          {ADMIN_AVAILABILITY.map((a) => (
+            <Chip
+              key={a.value}
+              testId={`admin-edit-avail-${a.value}`}
+              active={(form.availability || []).includes(a.value)}
+              onClick={() => toggleArr("availability", a.value)}
+            >
+              {a.label}
+            </Chip>
+          ))}
+        </div>
+      </Section>
+
+      {/* Vehicle */}
+      <Section title="Vehicle">
+        <div className="flex flex-wrap gap-1.5">
+          <Chip
+            testId="admin-edit-has-car"
+            active={!!form.has_car}
+            onClick={() => set("has_car", !form.has_car)}
+          >
+            Car
+          </Chip>
+          <Chip
+            testId="admin-edit-has-truck"
+            active={!!form.has_truck}
+            onClick={() => set("has_truck", !form.has_truck)}
+          >
+            Truck
+          </Chip>
+          <Chip
+            testId="admin-edit-has-cdl"
+            active={!!form.has_cdl}
+            onClick={() => set("has_cdl", !form.has_cdl)}
+          >
+            CDL
+          </Chip>
+        </div>
+      </Section>
+
+      {/* Emergency contact */}
+      <Section title="Emergency contact">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <FieldRow label="Name">
+            <Input
+              data-testid="admin-edit-ec-name"
+              value={form.emergency_contact_name || ""}
+              onChange={(e) => set("emergency_contact_name", e.target.value)}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+          <FieldRow label="Phone">
+            <Input
+              data-testid="admin-edit-ec-phone"
+              value={form.emergency_contact_phone || ""}
+              onChange={(e) => set("emergency_contact_phone", e.target.value)}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+        </div>
+      </Section>
+
+      {/* Bio */}
+      <Section title="Notes">
+        <Textarea
+          data-testid="admin-edit-bio"
+          rows={3}
+          value={form.bio || ""}
+          onChange={(e) => set("bio", e.target.value)}
+          className="rounded-none border-[#030712] text-sm"
+          placeholder="Notes about this worker (only HCOB admins see this)"
+        />
+      </Section>
+
+      <div className="sticky bottom-0 -mx-6 flex items-center justify-between gap-3 border-t border-[#E5E7EB] bg-white px-6 py-3 md:-mx-10 md:px-10">
+        <div className="text-xs text-[#4B5563]">
+          {dirty ? (
+            <span className="font-bold text-[#F59E0B]">Unsaved changes</span>
+          ) : (
+            <span>All changes saved</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!dirty || saving}
+            onClick={() => {
+              setForm(fromWorker(worker));
+              setDirty(false);
+            }}
+            className="h-10 rounded-none"
+            data-testid="admin-edit-cancel"
+          >
+            Discard
+          </Button>
+          <Button
+            type="submit"
+            disabled={!dirty || saving}
+            className="h-10 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+            data-testid="admin-edit-save"
+          >
+            {saving ? "Saving…" : "Save profile"}
+          </Button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function fromWorker(w) {
+  return {
+    name: w.name || "",
+    email: w.email || "",
+    phone: w.phone || "",
+    address: w.address || "",
+    bio: w.bio || "",
+    skills: w.skills || [],
+    zip_code: w.zip_code || "",
+    city: w.city || "",
+    state: w.state || "",
+    date_of_birth: w.date_of_birth || "",
+    has_car: !!w.has_car,
+    has_truck: !!w.has_truck,
+    has_cdl: !!w.has_cdl,
+    experience_level: w.experience_level || "",
+    availability: w.availability || [],
+    emergency_contact_name: w.emergency_contact_name || "",
+    emergency_contact_phone: w.emergency_contact_phone || "",
+    tshirt_size: w.tshirt_size || "",
+    worker_status: w.worker_status || "approved",
+    id_verified: !!w.id_verified,
+  };
+}
+
+function Section({ title, hint, children }) {
+  return (
+    <section className="border border-[#E5E7EB] bg-white p-4">
+      <div className="font-mono-label">{title}</div>
+      {hint && <p className="mt-1 text-[10px] text-[#4B5563]">{hint}</p>}
+      <div className="mt-3 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function FieldRow({ label, children }) {
+  return (
+    <div>
+      <Label className="text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
+        {label}
+      </Label>
+      <div className="mt-1">{children}</div>
+    </div>
+  );
+}
+
+function Chip({ active, onClick, children, testId }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-widest ${
+        active
+          ? "border-[#0044FF] bg-[#0044FF] text-white"
+          : "border-[#E5E7EB] bg-white text-[#030712] hover:border-[#0044FF]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 
 function DefaultPayCard({ worker, onSaved }) {
   const [rate, setRate] = useState(

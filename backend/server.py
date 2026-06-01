@@ -1741,12 +1741,130 @@ async def list_pending_requests(admin: dict = Depends(require_admin)):
     return rows
 
 
+class AdminProfileUpdateIn(BaseModel):
+    """All fields are optional — admin sends only what's changing. Mirrors
+    ProfileUpdateIn + admin-only fields (worker_status, id_verified, email)."""
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    bio: Optional[str] = None
+    skills: Optional[List[str]] = None
+    zip_code: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    has_car: Optional[bool] = None
+    has_truck: Optional[bool] = None
+    has_cdl: Optional[bool] = None
+    experience_level: Optional[str] = None
+    availability: Optional[List[str]] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    tshirt_size: Optional[str] = None
+    # Admin-only overrides
+    worker_status: Optional[str] = None
+    id_verified: Optional[bool] = None
+
+
 @api.post("/admin/workers/{user_id}/verify-id")
 async def verify_worker_id(user_id: str, admin: dict = Depends(require_admin)):
     await db.users.update_one(
         {"user_id": user_id}, {"$set": {"id_verified": True}}
     )
     return {"ok": True}
+
+
+@api.put("/admin/workers/{user_id}/profile")
+async def admin_update_worker_profile(
+    user_id: str,
+    payload: AdminProfileUpdateIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin override editor — set any field on a worker's profile. Validates
+    enum-ish fields identically to the worker self-serve endpoint. Used when
+    a worker can't update their own profile (system glitch, missing info,
+    etc)."""
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(404, "Worker not found")
+    if user.get("role") == "admin":
+        raise HTTPException(400, "Use the admin self-service flow to edit an admin")
+
+    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+
+    # Validate enum-ish fields (same rules as PUT /profile)
+    if "skills" in updates:
+        bad = [s for s in updates["skills"] if s not in WORKER_SKILLS]
+        if bad:
+            raise HTTPException(400, f"Unknown skill(s): {', '.join(bad)}")
+    if "availability" in updates:
+        bad = [a for a in updates["availability"] if a not in AVAILABILITY_OPTIONS]
+        if bad:
+            raise HTTPException(400, f"Unknown availability value(s): {', '.join(bad)}")
+    if "experience_level" in updates and updates["experience_level"] and updates["experience_level"] not in EXPERIENCE_OPTIONS:
+        raise HTTPException(400, f"experience_level must be one of {EXPERIENCE_OPTIONS}")
+    if "tshirt_size" in updates and updates["tshirt_size"] and updates["tshirt_size"] not in TSHIRT_SIZES:
+        raise HTTPException(400, f"tshirt_size must be one of {TSHIRT_SIZES}")
+    if "zip_code" in updates and updates["zip_code"]:
+        z = updates["zip_code"].strip()
+        if not (z.isdigit() and len(z) == 5):
+            raise HTTPException(400, "zip_code must be a 5-digit US ZIP code")
+        updates["zip_code"] = z
+    if "worker_status" in updates and updates["worker_status"] not in (
+        "approved", "pending", "rejected", "suspended"
+    ):
+        raise HTTPException(400, "worker_status must be approved|pending|rejected|suspended")
+    if "email" in updates and updates["email"]:
+        new_email = updates["email"].strip().lower()
+        if "@" not in new_email or "." not in new_email:
+            raise HTTPException(400, "Invalid email")
+        # Make sure no other user has that email
+        existing = await db.users.find_one(
+            {"email": new_email, "user_id": {"$ne": user_id}}
+        )
+        if existing:
+            raise HTTPException(400, "That email is already in use by another account")
+        updates["email"] = new_email
+
+    if updates:
+        # If status changed, also stamp the audit-ish fields & kill sessions for
+        # rejected/suspended so the worker doesn't keep using the app.
+        if "worker_status" in updates:
+            updates["worker_status_at"] = datetime.now(timezone.utc).isoformat()
+            updates["worker_status_by"] = admin["email"]
+        await db.users.update_one({"user_id": user_id}, {"$set": updates})
+        if updates.get("worker_status") in ("rejected", "suspended"):
+            await db.sessions.delete_many({"user_id": user_id})
+
+    logger.info(
+        f"Admin {admin['email']} edited worker {user.get('email')} profile: "
+        f"{list(updates.keys())}"
+    )
+    return await _get_user_by_id(user_id)
+
+
+@api.post("/admin/workers/{user_id}/id-upload")
+async def admin_upload_worker_id(
+    user_id: str,
+    file: UploadFile = File(...),
+    admin: dict = Depends(require_admin),
+):
+    """Upload an ID image on behalf of a worker (e.g. they emailed a photo
+    instead of uploading in the app). The ID lands UNverified — admin must
+    still hit the Verify button afterwards if it's accepted."""
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(404, "Worker not found")
+    if user.get("role") != "worker":
+        raise HTTPException(400, "Only worker IDs can be uploaded this way")
+    path = await _upload_user_image(user_id, "id", file)
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"id_image_path": path, "id_verified": False}},
+    )
+    logger.info(f"Admin {admin['email']} uploaded ID for worker {user.get('email')}")
+    return {"id_image_path": path}
 
 
 async def _set_worker_status(
