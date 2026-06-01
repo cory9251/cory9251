@@ -761,15 +761,27 @@ function AdminProfileEditor({ worker, onSaved }) {
         </div>
       </Section>
 
-      {/* Bio */}
-      <Section title="Notes">
+      {/* Worker bio (sees their own bio when they fill it in profile) */}
+      <Section title="Worker bio" hint="What the worker wrote about themselves. You can edit it on their behalf.">
         <Textarea
           data-testid="admin-edit-bio"
           rows={3}
           value={form.bio || ""}
           onChange={(e) => set("bio", e.target.value)}
           className="rounded-none border-[#030712] text-sm"
-          placeholder="Notes about this worker (only HCOB admins see this)"
+          placeholder="Strengths, past work, anything HCOB should know"
+        />
+      </Section>
+
+      {/* Admin-only sticky note about this worker */}
+      <Section title="Admin sticky note" hint="Private — workers never see this. Use for ops context: client requests, behavioral notes, etc.">
+        <Textarea
+          data-testid="admin-edit-admin-note"
+          rows={3}
+          value={form.admin_note || ""}
+          onChange={(e) => set("admin_note", e.target.value)}
+          className="rounded-none border-[#F59E0B] bg-[#FFFBEB] text-sm"
+          placeholder="e.g. 'Always brings their own supplies — prefer for high-end clients'"
         />
       </Section>
 
@@ -816,6 +828,7 @@ function fromWorker(w) {
     phone: w.phone || "",
     address: w.address || "",
     bio: w.bio || "",
+    admin_note: w.admin_note || "",
     skills: w.skills || [],
     zip_code: w.zip_code || "",
     city: w.city || "",

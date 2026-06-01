@@ -1680,6 +1680,7 @@ async def match_workers_for_gig(
     - +3 skills overlap (any skill in GIG_CATEGORY_TO_SKILLS[category])
     - +3 exact zip match, +1 same zip prefix (default first 3 digits ~ SCF area)
     - +1 ID verified, +1 availability overlap, +1 has any vehicle
+    - +1 per 3 completed gigs in this category (capped at +5) — proven track record
     - profile_complete is required (returns []  when no candidate matches)
     """
     cand = await db.users.find(
@@ -1691,6 +1692,10 @@ async def match_workers_for_gig(
     )
     avail_list = [a.strip() for a in (availability or "").split(",") if a.strip()]
     zip_pref = (zip_code or "")[:zip_prefix_length] if zip_code else ""
+
+    # Pre-compute completed-by-category for every worker so we can bump
+    # experienced candidates higher. Single Mongo query, in-memory bucket.
+    completed_by_category = await _completed_gigs_by_worker_and_category()
 
     matches: List[dict] = []
     for w in cand:
@@ -1733,6 +1738,17 @@ async def match_workers_for_gig(
             score += 1
             reasons.append("has vehicle")
 
+        # Category track-record — +1 per 3 completed, capped at +5
+        cat_done = (
+            completed_by_category.get(w["user_id"], {}).get(category, 0)
+            if category else 0
+        )
+        if cat_done > 0:
+            score += min(5, cat_done // 3 + 1)
+            reasons.append(
+                f"{cat_done} {category} gig{'s' if cat_done != 1 else ''} done"
+            )
+
         if score == 0:
             continue
         matches.append({
@@ -1743,12 +1759,37 @@ async def match_workers_for_gig(
             "zip_code": wzip,
             "skills": worker_skills,
             "id_verified": bool(w.get("id_verified")),
+            "category_completed_count": cat_done,
             "score": score,
             "reasons": reasons,
         })
 
     matches.sort(key=lambda m: m["score"], reverse=True)
     return matches[:limit]
+
+
+async def _completed_gigs_by_worker_and_category() -> dict:
+    """Build a {worker_id: {category: count}} dict of completed gigs (i.e.
+    acceptances that have been clocked out). One aggregate scan — caller can
+    cache the result for the duration of a request."""
+    accs = await db.gig_acceptances.find(
+        {"clock_out_at": {"$ne": None}}, {"_id": 0, "worker_id": 1, "gig_id": 1}
+    ).to_list(50000)
+    if not accs:
+        return {}
+    gig_ids = list({a["gig_id"] for a in accs})
+    gigs = await db.gigs.find(
+        {"gig_id": {"$in": gig_ids}}, {"_id": 0, "gig_id": 1, "category": 1}
+    ).to_list(50000)
+    cat_by_gig = {g["gig_id"]: g.get("category") for g in gigs}
+    out: dict = {}
+    for a in accs:
+        cat = cat_by_gig.get(a["gig_id"])
+        if not cat:
+            continue
+        out.setdefault(a["worker_id"], {})
+        out[a["worker_id"]][cat] = out[a["worker_id"]].get(cat, 0) + 1
+    return out
 
 
 @api.get("/admin/workers/{user_id}")
@@ -1789,11 +1830,16 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
 
 
 @api.get("/admin/requests")
-async def list_pending_requests(admin: dict = Depends(require_admin)):
-    """Return ALL pending gig requests across the platform, flat, sorted oldest first.
+async def list_pending_requests(
+    search: Optional[str] = Query(None, description="Free-text — worker name/email/phone or gig title/location"),
+    admin: dict = Depends(require_admin),
+):
+    """Return ALL pending gig requests across the platform, flat, sorted oldest
+    first. Enriched with gig and worker fields so admin can decide inline.
 
-    Enriched with gig and worker fields so the admin can decide without opening each gig.
-    """
+    Optional `search` is case-insensitive and matches against the enriched
+    worker + gig fields. Filtering is done in-memory after enrichment so admin
+    can search across both sides in one go."""
     rows = await db.gig_acceptances.find(
         {"status": "requested"}, {"_id": 0}
     ).sort("requested_at", 1).to_list(1000)
@@ -1833,6 +1879,18 @@ async def list_pending_requests(admin: dict = Depends(require_admin)):
         r["worker_phone"] = w.get("phone")
         r["worker_id_verified"] = w.get("id_verified", False)
         r["worker_status"] = w.get("worker_status", "approved")
+
+    if search:
+        q = search.strip().lower()
+        if q:
+            rows = [
+                r for r in rows
+                if q in (r.get("worker_name") or "").lower()
+                or q in (r.get("worker_email") or "").lower()
+                or q in (r.get("worker_phone") or "").lower()
+                or q in ((r.get("gig") or {}).get("title") or "").lower()
+                or q in ((r.get("gig") or {}).get("location") or "").lower()
+            ]
     return rows
 
 
@@ -1860,6 +1918,23 @@ class AdminProfileUpdateIn(BaseModel):
     # Admin-only overrides
     worker_status: Optional[str] = None
     id_verified: Optional[bool] = None
+    # Admin sticky-note (internal — workers never see this)
+    admin_note: Optional[str] = None
+
+
+class AdminGigNoteIn(BaseModel):
+    """Per-gig private admin note about a worker on a specific acceptance.
+    Separate from the rating note — used for ops context like 'arrived late'
+    or 'client requested this worker again'."""
+    note: Optional[str] = None
+
+
+class WorkerMessageIn(BaseModel):
+    """One-way message from admin → worker. Surfaces in /me/notifications and
+    on the worker's gig detail page when gig_id is set."""
+    body: str
+    title: Optional[str] = None
+    gig_id: Optional[str] = None
 
 
 @api.post("/admin/workers/{user_id}/verify-id")
@@ -2573,6 +2648,88 @@ async def admin_set_rating(
         f"Admin {admin['email']} set rating {payload.stars} on {acceptance_id}"
     )
     return {"ok": True, "admin_rating": set_ops.get("admin_rating")}
+
+
+
+@api.put("/gigs/{gig_id}/acceptances/{acceptance_id}/admin-note")
+async def admin_set_gig_note(
+    gig_id: str,
+    acceptance_id: str,
+    payload: AdminGigNoteIn,
+    admin: dict = Depends(require_admin),
+):
+    """Per-gig private admin note about this worker on this gig. Separate
+    from the rating note. Pass an empty string or null to clear."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+    text = (payload.note or "").strip()
+    if not text:
+        await db.gig_acceptances.update_one(
+            {"acceptance_id": acceptance_id},
+            {
+                "$unset": {
+                    "admin_gig_note": "",
+                    "admin_gig_note_at": "",
+                    "admin_gig_note_by": "",
+                }
+            },
+        )
+    else:
+        await db.gig_acceptances.update_one(
+            {"acceptance_id": acceptance_id},
+            {
+                "$set": {
+                    "admin_gig_note": text,
+                    "admin_gig_note_at": datetime.now(timezone.utc).isoformat(),
+                    "admin_gig_note_by": admin["email"],
+                }
+            },
+        )
+    return {"ok": True}
+
+
+@api.post("/admin/workers/{user_id}/message")
+async def admin_send_worker_message(
+    user_id: str,
+    payload: WorkerMessageIn,
+    admin: dict = Depends(require_admin),
+):
+    """Drop a notification into the worker's inbox. Surfaces in /notifications
+    and (if gig_id provided) is visible on that gig's detail page."""
+    worker = await db.users.find_one({"user_id": user_id})
+    if not worker or worker.get("role") != "worker":
+        raise HTTPException(404, "Worker not found")
+    body = (payload.body or "").strip()
+    if not body:
+        raise HTTPException(400, "Message body required")
+    title = (payload.title or "Message from HCOB").strip()
+    if payload.gig_id:
+        gig = await db.gigs.find_one({"gig_id": payload.gig_id}, {"_id": 0, "title": 1})
+        if gig and not payload.title:
+            title = f"Note for: {gig.get('title')}"
+
+    notif_id = f"ntf_{uuid.uuid4().hex[:12]}"
+    await db.notifications.insert_one(
+        {
+            "notification_id": notif_id,
+            "user_id": user_id,
+            "gig_id": payload.gig_id,
+            "title": title,
+            "body": body,
+            "from_admin": admin["email"],
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    logger.info(
+        f"Admin {admin['email']} sent message to worker {worker.get('email')}: {title}"
+    )
+    return {"ok": True, "notification_id": notif_id}
+
+
 
 
 @api.post("/gigs/{gig_id}/acceptances/{acceptance_id}/rating-link")

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   ClockCounterClockwise,
   CheckCircle,
@@ -17,6 +18,8 @@ import {
   EnvelopeSimple,
   ShieldCheck,
   ArrowRight,
+  MagnifyingGlass,
+  X,
 } from "@phosphor-icons/react";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -25,7 +28,23 @@ export default function AdminRequests() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [search, setSearch] = useState("");
   const nav = useNavigate();
+
+  // Client-side filter so typing feels instant. Matches against worker name,
+  // email, phone, and the gig's title + location.
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) =>
+        (r.worker_name || "").toLowerCase().includes(q) ||
+        (r.worker_email || "").toLowerCase().includes(q) ||
+        (r.worker_phone || "").toLowerCase().includes(q) ||
+        (r.gig?.title || "").toLowerCase().includes(q) ||
+        (r.gig?.location || "").toLowerCase().includes(q)
+    );
+  }, [rows, search]);
 
   const load = async () => {
     try {
@@ -87,14 +106,49 @@ export default function AdminRequests() {
         <div className="flex items-center gap-2 border border-[#030712] bg-[#030712] px-4 py-2 text-white">
           <ClockCounterClockwise size={18} weight="fill" />
           <span className="font-display text-2xl font-black tabular-nums">
-            {rows.length}
+            {filtered.length}
+            {search && filtered.length !== rows.length && (
+              <span className="ml-1 text-sm font-normal text-white/60">
+                / {rows.length}
+              </span>
+            )}
           </span>
-          <span className="font-mono-label text-white/70">pending</span>
+          <span className="font-mono-label text-white/70">
+            {search ? "matching" : "pending"}
+          </span>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="border-b border-[#E5E7EB] px-6 py-3 md:px-10">
+        <div className="relative max-w-md">
+          <MagnifyingGlass
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4B5563]"
+          />
+          <Input
+            data-testid="requests-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by worker name, email, phone, or gig"
+            className="h-10 rounded-none border-[#030712] pl-9"
+          />
+          {search && (
+            <button
+              type="button"
+              data-testid="requests-search-clear"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[#4B5563] hover:text-[#030712]"
+              aria-label="Clear search"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 
       <div className="px-6 py-6 md:px-10">
-        {rows.length === 0 ? (
+        {filtered.length === 0 ? (
           <div
             data-testid="requests-empty"
             className="border border-dashed border-[#E5E7EB] p-12 text-center"
@@ -105,15 +159,17 @@ export default function AdminRequests() {
               className="mx-auto text-[#10B981]"
             />
             <div className="mt-3 font-display text-xl font-bold">
-              All caught up
+              {search ? "Nothing matches that search" : "All caught up"}
             </div>
             <div className="mt-1 text-sm text-[#4B5563]">
-              No pending requests right now. New requests will land here.
+              {search
+                ? "Clear the filter to see all pending requests."
+                : "No pending requests. Workers will show up here when they request gigs."}
             </div>
           </div>
         ) : (
           <ul className="space-y-3">
-            {rows.map((r) => {
+            {filtered.map((r) => {
               const g = r.gig || {};
               const Icon = CAT_ICON[g.category] || Broom;
               const pay = `$${Number(g.pay_rate || 0).toFixed(2)}${

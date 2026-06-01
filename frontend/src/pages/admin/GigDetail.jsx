@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -58,6 +59,7 @@ export default function GigDetail() {
   const [editTimesheetDialog, setEditTimesheetDialog] = useState(null);
   const [ratingDialog, setRatingDialog] = useState(null); // { acceptance }
   const [duplicating, setDuplicating] = useState(false);
+  const [rosterSearch, setRosterSearch] = useState("");
   const [channels, setChannels] = useState({ in_app: true, email: false, sms: false });
   const [blasting, setBlasting] = useState(false);
 
@@ -358,6 +360,31 @@ export default function GigDetail() {
           </Button>
         </div>
 
+        {(gig.acceptances || []).length > 0 && (
+          <div className="mb-3">
+            <div className="relative max-w-xs">
+              <Input
+                data-testid="roster-search"
+                value={rosterSearch}
+                onChange={(e) => setRosterSearch(e.target.value)}
+                placeholder="Search worker (name, email, phone)…"
+                className="h-9 rounded-none border-[#030712] pr-7"
+              />
+              {rosterSearch && (
+                <button
+                  type="button"
+                  data-testid="roster-search-clear"
+                  onClick={() => setRosterSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[#4B5563] hover:text-[#030712]"
+                  aria-label="Clear roster search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {(!gig.acceptances || gig.acceptances.length === 0) ? (
           <div className="mt-4 border border-dashed border-[#E5E7EB] p-8 text-sm text-[#4B5563]">
             No one has accepted yet. Send a blast to alert your crew.
@@ -379,7 +406,17 @@ export default function GigDetail() {
                 </tr>
               </thead>
               <tbody>
-                {gig.acceptances.map((a) => {
+                {(gig.acceptances || [])
+                  .filter((a) => {
+                    if (!rosterSearch.trim()) return true;
+                    const q = rosterSearch.trim().toLowerCase();
+                    return (
+                      (a.worker_name || "").toLowerCase().includes(q) ||
+                      (a.worker_email || "").toLowerCase().includes(q) ||
+                      (a.worker_phone || "").toLowerCase().includes(q)
+                    );
+                  })
+                  .map((a) => {
                   const onClock = a.clock_in_at && !a.clock_out_at;
                   const completed = !!a.clock_out_at;
                   const statusClass = onClock

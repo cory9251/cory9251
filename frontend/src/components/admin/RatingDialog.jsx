@@ -20,6 +20,8 @@ import {
   LinkSimple,
   ArrowsClockwise,
   PaperPlaneTilt,
+  Note,
+  ChatTeardropDots,
 } from "@phosphor-icons/react";
 
 /**
@@ -103,12 +105,20 @@ export default function RatingDialog({
   const [linkInfo, setLinkInfo] = useState(null);
   const [clientEmail, setClientEmail] = useState("");
   const [generatingLink, setGeneratingLink] = useState(false);
+  // Per-gig admin note (separate from rating note)
+  const [gigNote, setGigNote] = useState("");
+  const [savingGigNote, setSavingGigNote] = useState(false);
+  // Worker-visible message
+  const [msgBody, setMsgBody] = useState("");
+  const [sendingMsg, setSendingMsg] = useState(false);
 
   useEffect(() => {
     if (open && acceptance) {
       setStars(acceptance.admin_rating || 0);
       setNote(acceptance.admin_rating_note || "");
       setClientEmail(acceptance.client_email || "");
+      setGigNote(acceptance.admin_gig_note || "");
+      setMsgBody("");
       setLinkInfo(
         acceptance.client_rating_token
           ? { token: acceptance.client_rating_token, url: `${window.location.origin}/rate/${acceptance.client_rating_token}` }
@@ -118,6 +128,42 @@ export default function RatingDialog({
   }, [open, acceptance]);
 
   if (!acceptance) return null;
+
+  const saveGigNote = async () => {
+    setSavingGigNote(true);
+    try {
+      await api.put(
+        `/gigs/${gigId}/acceptances/${acceptance.acceptance_id}/admin-note`,
+        { note: gigNote }
+      );
+      toast.success(gigNote.trim() ? "Gig note saved" : "Gig note cleared");
+      onSaved && onSaved();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setSavingGigNote(false);
+    }
+  };
+
+  const sendWorkerMessage = async () => {
+    if (!msgBody.trim()) {
+      toast.error("Type a message first");
+      return;
+    }
+    setSendingMsg(true);
+    try {
+      await api.post(
+        `/admin/workers/${acceptance.worker_id}/message`,
+        { body: msgBody, gig_id: gigId }
+      );
+      toast.success("Message sent to worker");
+      setMsgBody("");
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setSendingMsg(false);
+    }
+  };
 
   const saveAdminRating = async () => {
     if (!stars) {
@@ -187,7 +233,7 @@ export default function RatingDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-md rounded-none border-[#030712]"
+        className="max-w-lg max-h-[90vh] overflow-y-auto rounded-none border-[#030712]"
         data-testid="rating-dialog"
       >
         <DialogHeader>
@@ -328,6 +374,67 @@ export default function RatingDialog({
               )}
             </>
           )}
+        </div>
+
+        {/* Per-gig admin note (separate from rating note) */}
+        <div className="space-y-2 border-t border-[#E5E7EB] pt-4">
+          <div className="font-mono-label flex items-center gap-1.5">
+            <Note size={11} weight="duotone" /> Per-gig admin note
+          </div>
+          <p className="text-[10px] text-[#4B5563]">
+            Private ops note about this worker on this gig (e.g. "arrived 15
+            min late", "client asked for them again"). Workers never see this.
+          </p>
+          <Textarea
+            data-testid="admin-gig-note"
+            value={gigNote}
+            onChange={(e) => setGigNote(e.target.value)}
+            placeholder="Quick note…"
+            rows={2}
+            className="rounded-none border-[#030712] text-sm"
+          />
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              data-testid="save-admin-gig-note"
+              onClick={saveGigNote}
+              disabled={savingGigNote}
+              className="rounded-none bg-[#030712] text-xs text-white"
+            >
+              {savingGigNote ? "Saving…" : (gigNote.trim() ? "Save note" : "Clear note")}
+            </Button>
+          </div>
+        </div>
+
+        {/* Send a worker-visible message */}
+        <div className="space-y-2 border-t border-[#E5E7EB] pt-4">
+          <div className="font-mono-label flex items-center gap-1.5">
+            <ChatTeardropDots size={11} weight="duotone" /> Message the worker
+          </div>
+          <p className="text-[10px] text-[#4B5563]">
+            One-way message to {acceptance.worker_name}. Lands in their app
+            notifications — they CAN see this one.
+          </p>
+          <Textarea
+            data-testid="worker-message-body"
+            value={msgBody}
+            onChange={(e) => setMsgBody(e.target.value)}
+            placeholder="e.g. Bring extra towels — client has 2 dogs."
+            rows={2}
+            className="rounded-none border-[#030712] text-sm"
+          />
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              data-testid="send-worker-message"
+              onClick={sendWorkerMessage}
+              disabled={sendingMsg || !msgBody.trim()}
+              className="rounded-none bg-[#0044FF] text-xs text-white hover:bg-[#0036cc]"
+            >
+              <PaperPlaneTilt size={12} className="mr-1.5" />
+              {sendingMsg ? "Sending…" : "Send message"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
