@@ -136,7 +136,9 @@ export default function WorkerGigDetail() {
   const isBlocked = workerStatus === "rejected" || workerStatus === "suspended";
   const hasId = !!user?.id_image_path;
   const verified = !!user?.id_verified;
-  const canRequest = !isBlocked && hasId && verified;
+  const profileMissing = user?.profile_missing_fields || [];
+  const profileComplete = profileMissing.length === 0;
+  const canRequest = !isBlocked && hasId && verified && profileComplete;
 
   return (
     <div className="px-5 py-6" data-testid="worker-gig-detail">
@@ -345,9 +347,11 @@ export default function WorkerGigDetail() {
                   ? "Account not authorized"
                   : workerStatus === "suspended"
                   ? "Account suspended"
-                  : hasId
-                  ? "Awaiting HCOB ID verification"
-                  : "Upload your ID to request gigs"}
+                  : !profileComplete
+                  ? "Complete your profile to request gigs"
+                  : !hasId
+                  ? "Upload your ID to request gigs"
+                  : "Awaiting HCOB ID verification"}
               </div>
             </div>
             <p
@@ -359,17 +363,19 @@ export default function WorkerGigDetail() {
                 ? "Your account is not authorized to request gigs. Contact HCOB if you believe this is a mistake."
                 : workerStatus === "suspended"
                 ? "Your account has been suspended. Contact HCOB to reinstate."
-                : hasId
-                ? "Your ID is in. An HCOB admin needs to verify it before you can request any gigs."
-                : "Workers must upload a photo of a government ID and be verified by HCOB before requesting gigs."}
+                : !profileComplete
+                ? `HCOB needs ${profileMissing.length} more item${profileMissing.length === 1 ? "" : "s"} on your profile before you can request gigs.`
+                : !hasId
+                ? "Workers must upload a photo of a government ID and be verified by HCOB before requesting gigs."
+                : "Your ID is in. An HCOB admin needs to verify it before you can request any gigs."}
             </p>
-            {!isBlocked && !hasId && (
+            {!isBlocked && (!profileComplete || !hasId) && (
               <Button
                 data-testid="go-to-profile-btn"
                 onClick={() => nav("/app/profile")}
                 className="mt-4 h-12 w-full rounded-2xl bg-[#030712] text-white"
               >
-                Upload my ID →
+                {!profileComplete ? "Complete my profile →" : "Upload my ID →"}
               </Button>
             )}
           </div>

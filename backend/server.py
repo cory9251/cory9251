@@ -10,6 +10,7 @@ import uuid
 import logging
 import secrets
 import asyncio
+import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
@@ -156,6 +157,67 @@ GigCategory = Literal["cleaning", "labor", "driver"]
 PayType = Literal["hourly", "flat"]
 GigRecurrence = Literal["none", "daily", "weekly", "biweekly", "monthly"]
 
+# Canonical worker skill tags. Workers select these on their profile; admins
+# filter on them. Sub-category strings on gigs use the same values.
+WORKER_SKILLS = [
+    "deep_cleaning",
+    "routine_cleaning",
+    "moveouts",
+    "hourly_labor",
+    "driving",
+]
+SKILL_LABELS = {
+    "deep_cleaning": "Deep cleaning",
+    "routine_cleaning": "Routine cleaning",
+    "moveouts": "Move-outs",
+    "hourly_labor": "Hourly labor",
+    "driving": "Driving",
+}
+# Map a gig's category → which skill tags qualify a worker for it
+GIG_CATEGORY_TO_SKILLS = {
+    "cleaning": ["deep_cleaning", "routine_cleaning", "moveouts"],
+    "labor": ["hourly_labor"],
+    "driver": ["driving"],
+}
+
+AVAILABILITY_OPTIONS = ["weekdays", "weekends", "mornings", "evenings", "overnight", "full_time"]
+EXPERIENCE_OPTIONS = ["none", "0_1_yr", "1_3_yr", "3_plus_yr"]
+TSHIRT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]
+
+
+# Fields required for a worker profile to be considered "complete" — gates the
+# ability to request gigs together with id_verified.
+REQUIRED_PROFILE_FIELDS = [
+    "phone",
+    "zip_code",
+    "date_of_birth",
+    "skills",        # at least 1
+    "availability",  # at least 1
+    "emergency_contact_name",
+    "emergency_contact_phone",
+]
+
+
+def _profile_missing_fields(user: dict) -> List[str]:
+    """Return the list of required-profile fields that are blank/empty for a
+    worker. An empty list means the profile is complete."""
+    if user.get("role") != "worker":
+        return []
+    missing: List[str] = []
+    for f in REQUIRED_PROFILE_FIELDS:
+        v = user.get(f)
+        if v is None:
+            missing.append(f)
+        elif isinstance(v, str) and not v.strip():
+            missing.append(f)
+        elif isinstance(v, list) and len(v) == 0:
+            missing.append(f)
+    return missing
+
+
+def _is_profile_complete(user: dict) -> bool:
+    return len(_profile_missing_fields(user)) == 0
+
 
 class RegisterIn(BaseModel):
     email: EmailStr
@@ -179,6 +241,19 @@ class ProfileUpdateIn(BaseModel):
     address: Optional[str] = None
     bio: Optional[str] = None
     skills: Optional[List[str]] = None
+    # Extended profile fields ----------------------------------------------
+    zip_code: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    date_of_birth: Optional[str] = None  # ISO date YYYY-MM-DD
+    has_car: Optional[bool] = None
+    has_truck: Optional[bool] = None
+    has_cdl: Optional[bool] = None
+    experience_level: Optional[str] = None
+    availability: Optional[List[str]] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    tshirt_size: Optional[str] = None
 
 
 class GigIn(BaseModel):
@@ -291,7 +366,19 @@ class WorkerStatusIn(BaseModel):
 # Auth dependency
 # ----------------------------------------------------------------------------
 async def _get_user_by_id(user_id: str) -> Optional[dict]:
-    return await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    if not user:
+        return None
+    # Enrich with computed profile-completion fields so the client knows what
+    # to prompt for. Admins are never blocked.
+    if user.get("role") == "worker":
+        missing = _profile_missing_fields(user)
+        user["profile_complete"] = len(missing) == 0
+        user["profile_missing_fields"] = missing
+    else:
+        user["profile_complete"] = True
+        user["profile_missing_fields"] = []
+    return user
 
 
 async def get_current_user(request: Request) -> dict:
@@ -379,6 +466,18 @@ async def register(payload: RegisterIn, response: Response):
         "address": "",
         "bio": "",
         "skills": [],
+        "zip_code": "",
+        "city": "",
+        "state": "",
+        "date_of_birth": "",
+        "has_car": False,
+        "has_truck": False,
+        "has_cdl": False,
+        "experience_level": "",
+        "availability": [],
+        "emergency_contact_name": "",
+        "emergency_contact_phone": "",
+        "tshirt_size": "",
         "avatar_path": None,
         "id_image_path": None,
         "id_verified": False,
@@ -467,9 +566,43 @@ async def google_session(payload: GoogleSessionIn, response: Response):
 
 
 # ---- Profile / uploads -----------------------------------------------------
+@api.get("/profile/options")
+async def profile_options(user: dict = Depends(get_current_user)):
+    """Static lookup data the profile form needs to render its dropdowns &
+    checkboxes. Lives on the backend so the frontend stays in sync with what
+    skills the platform supports."""
+    return {
+        "skills": [{"value": s, "label": SKILL_LABELS[s]} for s in WORKER_SKILLS],
+        "availability": AVAILABILITY_OPTIONS,
+        "experience_levels": EXPERIENCE_OPTIONS,
+        "tshirt_sizes": TSHIRT_SIZES,
+        "required_fields": REQUIRED_PROFILE_FIELDS,
+    }
+
+
 @api.put("/profile")
 async def update_profile(payload: ProfileUpdateIn, user: dict = Depends(get_current_user)):
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+
+    # Validate enum-ish fields
+    if "skills" in updates:
+        bad = [s for s in updates["skills"] if s not in WORKER_SKILLS]
+        if bad:
+            raise HTTPException(400, f"Unknown skill(s): {', '.join(bad)}")
+    if "availability" in updates:
+        bad = [a for a in updates["availability"] if a not in AVAILABILITY_OPTIONS]
+        if bad:
+            raise HTTPException(400, f"Unknown availability value(s): {', '.join(bad)}")
+    if "experience_level" in updates and updates["experience_level"] and updates["experience_level"] not in EXPERIENCE_OPTIONS:
+        raise HTTPException(400, f"experience_level must be one of {EXPERIENCE_OPTIONS}")
+    if "tshirt_size" in updates and updates["tshirt_size"] and updates["tshirt_size"] not in TSHIRT_SIZES:
+        raise HTTPException(400, f"tshirt_size must be one of {TSHIRT_SIZES}")
+    if "zip_code" in updates and updates["zip_code"]:
+        z = updates["zip_code"].strip()
+        if not (z.isdigit() and len(z) == 5):
+            raise HTTPException(400, "zip_code must be a 5-digit US ZIP code")
+        updates["zip_code"] = z
+
     if updates:
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     return await _get_user_by_id(user["user_id"])
@@ -910,6 +1043,16 @@ async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
     if not user.get("id_verified"):
         raise HTTPException(
             403, "Your ID is awaiting verification by HCOB before you can request gigs"
+        )
+
+    # Profile gate — make sure the worker has filled out the required profile
+    # fields so admins have enough context to approve them.
+    missing = _profile_missing_fields(user)
+    if missing:
+        raise HTTPException(
+            403,
+            "Complete your profile before requesting gigs. Missing: "
+            + ", ".join(missing),
         )
 
     gig = await db.gigs.find_one({"gig_id": gig_id})
@@ -1354,6 +1497,13 @@ async def mark_read(notification_id: str, user: dict = Depends(get_current_user)
 @api.get("/admin/workers")
 async def list_workers(
     status: Optional[str] = Query(None),
+    skills: Optional[str] = Query(None, description="Comma-separated skill values"),
+    availability: Optional[str] = Query(None, description="Comma-separated availability values"),
+    zip_code: Optional[str] = Query(None, description="Exact 5-digit ZIP"),
+    zip_prefix: Optional[str] = Query(None, description="First N digits of ZIP for 'nearby' filter"),
+    vehicle: Optional[str] = Query(None, description="one of: any, car, truck, cdl"),
+    profile_complete: Optional[bool] = Query(None),
+    search: Optional[str] = Query(None, description="Free-text search across name/email/phone"),
     admin: dict = Depends(require_admin),
 ):
     query: dict = {"role": "worker"}
@@ -1367,10 +1517,145 @@ async def list_workers(
         ]
     elif status in ("rejected", "suspended"):
         query["worker_status"] = status
+
+    if skills:
+        skill_list = [s.strip() for s in skills.split(",") if s.strip()]
+        if skill_list:
+            query["skills"] = {"$in": skill_list}
+    if availability:
+        av_list = [a.strip() for a in availability.split(",") if a.strip()]
+        if av_list:
+            query["availability"] = {"$in": av_list}
+    if zip_code:
+        query["zip_code"] = zip_code.strip()
+    elif zip_prefix:
+        # ZIP starts-with for a "nearby" filter (no geocoding required)
+        prefix = zip_prefix.strip()
+        if prefix:
+            query["zip_code"] = {"$regex": f"^{re.escape(prefix)}"}
+
+    if vehicle == "car":
+        query["has_car"] = True
+    elif vehicle == "truck":
+        query["has_truck"] = True
+    elif vehicle == "cdl":
+        query["has_cdl"] = True
+    elif vehicle == "any":
+        query["$or"] = (query.get("$or") or []) + [
+            {"has_car": True}, {"has_truck": True}, {"has_cdl": True}
+        ]
+
+    if search:
+        s = re.escape(search.strip())
+        if s:
+            query["$or"] = (query.get("$or") or []) + [
+                {"name": {"$regex": s, "$options": "i"}},
+                {"email": {"$regex": s, "$options": "i"}},
+                {"phone": {"$regex": s, "$options": "i"}},
+            ]
+
     workers = await db.users.find(
         query, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
+
+    # Enrich with computed profile_complete + missing
+    for w in workers:
+        miss = _profile_missing_fields(w)
+        w["profile_complete"] = len(miss) == 0
+        w["profile_missing_fields"] = miss
+
+    if profile_complete is True:
+        workers = [w for w in workers if w["profile_complete"]]
+    elif profile_complete is False:
+        workers = [w for w in workers if not w["profile_complete"]]
+
     return workers
+
+
+@api.get("/admin/workers/match")
+async def match_workers_for_gig(
+    category: Optional[GigCategory] = Query(None),
+    zip_code: Optional[str] = Query(None, description="Gig ZIP — matched against worker zip_code"),
+    zip_prefix_length: int = Query(3, ge=1, le=5),
+    availability: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    admin: dict = Depends(require_admin),
+):
+    """Suggest workers for a gig admin is about to create.
+
+    Scoring:
+    - +3 skills overlap (any skill in GIG_CATEGORY_TO_SKILLS[category])
+    - +3 exact zip match, +1 same zip prefix (default first 3 digits ~ SCF area)
+    - +1 ID verified, +1 availability overlap, +1 has any vehicle
+    - profile_complete is required (returns []  when no candidate matches)
+    """
+    cand = await db.users.find(
+        {"role": "worker"}, {"_id": 0, "password_hash": 0}
+    ).to_list(2000)
+
+    target_skills: List[str] = (
+        GIG_CATEGORY_TO_SKILLS.get(category, []) if category else []
+    )
+    avail_list = [a.strip() for a in (availability or "").split(",") if a.strip()]
+    zip_pref = (zip_code or "")[:zip_prefix_length] if zip_code else ""
+
+    matches: List[dict] = []
+    for w in cand:
+        if _effective_status(w) in ("rejected", "suspended"):
+            continue
+        miss = _profile_missing_fields(w)
+        if miss:
+            continue
+        score = 0
+        reasons: List[str] = []
+
+        worker_skills = w.get("skills") or []
+        skill_overlap = [s for s in worker_skills if s in target_skills]
+        if target_skills:
+            if skill_overlap:
+                score += 3
+                reasons.append(
+                    f"skills: {', '.join(SKILL_LABELS.get(s, s) for s in skill_overlap)}"
+                )
+            else:
+                continue  # require skill match if category given
+
+        wzip = (w.get("zip_code") or "").strip()
+        if zip_code and wzip == zip_code:
+            score += 3
+            reasons.append(f"same ZIP {zip_code}")
+        elif zip_pref and wzip.startswith(zip_pref):
+            score += 1
+            reasons.append(f"nearby ZIP ({wzip})")
+
+        if avail_list:
+            wav = w.get("availability") or []
+            if any(a in wav for a in avail_list):
+                score += 1
+                reasons.append("availability matches")
+
+        if w.get("id_verified"):
+            score += 1
+        if w.get("has_car") or w.get("has_truck") or w.get("has_cdl"):
+            score += 1
+            reasons.append("has vehicle")
+
+        if score == 0:
+            continue
+        matches.append({
+            "user_id": w["user_id"],
+            "name": w.get("name"),
+            "email": w.get("email"),
+            "phone": w.get("phone"),
+            "zip_code": wzip,
+            "skills": worker_skills,
+            "id_verified": bool(w.get("id_verified")),
+            "score": score,
+            "reasons": reasons,
+        })
+
+    matches.sort(key=lambda m: m["score"], reverse=True)
+    return matches[:limit]
 
 
 @api.get("/admin/workers/{user_id}")

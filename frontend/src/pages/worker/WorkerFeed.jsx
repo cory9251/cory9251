@@ -36,7 +36,10 @@ export default function WorkerFeed() {
   const needsId = status === "approved" && !user?.id_image_path;
   const awaitingVerification =
     status === "approved" && !!user?.id_image_path && !user?.id_verified;
-  const showBanner = isPending || isBlocked || needsId || awaitingVerification;
+  const incompleteProfile =
+    status === "approved" && (user?.profile_missing_fields?.length || 0) > 0;
+  const showBanner =
+    isPending || isBlocked || needsId || awaitingVerification || incompleteProfile;
 
   const bannerCopy = isBlocked
     ? {
@@ -50,6 +53,11 @@ export default function WorkerFeed() {
     ? {
         title: "Application under review",
         sub: "An HCOB admin needs to approve you before you can claim gigs.",
+      }
+    : incompleteProfile
+    ? {
+        title: "Finish your profile to claim gigs",
+        sub: `${user.profile_missing_fields.length} item${user.profile_missing_fields.length === 1 ? "" : "s"} left — tap to complete.`,
       }
     : needsId
     ? {

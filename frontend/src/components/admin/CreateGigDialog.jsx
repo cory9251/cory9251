@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
@@ -25,7 +25,16 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarBlank, Clock, EyeSlash, Repeat } from "@phosphor-icons/react";
+import {
+  CalendarBlank,
+  Clock,
+  EyeSlash,
+  Repeat,
+  Sparkle,
+  UserCircle,
+  CheckCircle,
+  MapPin,
+} from "@phosphor-icons/react";
 
 const SUBCATS = {
   cleaning: ["deep", "routine", "moveout", "specialty"],
@@ -82,6 +91,40 @@ export default function CreateGigDialog({
   React.useEffect(() => {
     if (open && initialDate) setDate(initialDate);
   }, [open, initialDate]);
+
+  // Auto-suggest matching workers as category + location change.
+  // Parses a 5-digit ZIP out of the public location string.
+  const [suggested, setSuggested] = useState([]);
+  const zipMatch = (form.location || "").match(/\b(\d{5})\b/);
+  const zipFromLoc = zipMatch ? zipMatch[1] : "";
+  useEffect(() => {
+    if (!open) return;
+    if (!form.category) {
+      setSuggested([]);
+      return;
+    }
+    const controller = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const params = { category: form.category, limit: 6 };
+        if (zipFromLoc) params.zip_code = zipFromLoc;
+        const { data } = await api.get("/admin/workers/match", {
+          params,
+          signal: controller.signal,
+        });
+        setSuggested(data || []);
+      } catch (e) {
+        if (e.name !== "CanceledError" && e.name !== "AbortError") {
+          // Non-blocking; just hide suggestions on error
+          setSuggested([]);
+        }
+      }
+    }, 300);
+    return () => {
+      controller.abort();
+      clearTimeout(t);
+    };
+  }, [open, form.category, zipFromLoc]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -464,6 +507,68 @@ export default function CreateGigDialog({
             </Button>
           </div>
         </form>
+
+        {/* Suggested workers — auto-updates from category + ZIP in location */}
+        {suggested.length > 0 && (
+          <div
+            data-testid="suggested-workers-panel"
+            className="border-t border-[#E5E7EB] bg-[#F9FAFB] px-6 py-5"
+          >
+            <div className="font-mono-label flex items-center gap-2">
+              <Sparkle size={12} weight="duotone" className="text-[#0044FF]" />
+              Best-fit workers
+              {zipFromLoc && (
+                <span className="text-[10px] text-[#4B5563]">
+                  · {form.category} · ZIP {zipFromLoc}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-[#4B5563]">
+              Based on profile skills + ZIP. Post the gig, then approve their request
+              or use "Add a worker" to assign directly.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+              {suggested.map((w) => (
+                <div
+                  key={w.user_id}
+                  data-testid={`suggested-worker-${w.user_id}`}
+                  className="flex items-start gap-3 border border-[#E5E7EB] bg-white p-3"
+                >
+                  <div className="grid h-9 w-9 shrink-0 place-items-center bg-[#F0F4FF] text-[#0044FF]">
+                    <UserCircle size={20} weight="duotone" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="truncate font-display text-sm font-bold">
+                        {w.name}
+                      </div>
+                      <span className="ml-auto inline-flex items-center gap-0.5 bg-[#0044FF] px-1.5 py-0.5 text-[9px] font-bold tracking-widest text-white">
+                        {w.score}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px] text-[#4B5563]">
+                      {w.zip_code && (
+                        <span className="inline-flex items-center gap-0.5">
+                          <MapPin size={9} weight="duotone" /> {w.zip_code}
+                        </span>
+                      )}
+                      {w.id_verified && (
+                        <span className="inline-flex items-center gap-0.5 text-[#10B981]">
+                          <CheckCircle size={9} weight="fill" /> ID OK
+                        </span>
+                      )}
+                    </div>
+                    {w.reasons.length > 0 && (
+                      <div className="mt-1 truncate text-[10px] text-[#4B5563]">
+                        {w.reasons.join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
