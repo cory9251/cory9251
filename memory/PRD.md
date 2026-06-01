@@ -120,6 +120,9 @@
 - [ ] Rich gig templates per category (cleaning checklist, labor PPE notes, ride pickup address)
 
 ### P2
+- [x] Public gig share link `/gigs/:gigId` (no-auth view + register-then-claim) — Feb 2026
+- [x] Per-gig worker roles (worker/manager/lead/trainer) + workers see crew first-names — Feb 2026
+- [x] Admin users management (add admins, read-only role, promote/demote) — Feb 2026
 - [x] Worker rating system (admin manual stars + client public link) — Feb 2026
 - [x] Admin override editor for any worker profile (skills, contact, status, ID verified, email) — Feb 2026
 - [x] Worker activity report (gigs requested/approved/completed/no-shows) — Feb 2026

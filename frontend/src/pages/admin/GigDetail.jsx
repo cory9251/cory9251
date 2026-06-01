@@ -521,7 +521,10 @@ export default function GigDetail() {
                                 `/gigs/${gigId}/acceptances/${a.acceptance_id}/role`,
                                 { role: newRole }
                               );
-                              toast.success(`Role: ${newRole}`);
+                              const label = newRole.charAt(0).toUpperCase() + newRole.slice(1);
+                              toast.success(
+                                `${a.worker_name || "Worker"} → ${label}`
+                              );
                               load();
                             } catch (err) {
                               toast.error(getErr(err));
