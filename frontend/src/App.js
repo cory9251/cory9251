@@ -18,6 +18,7 @@ import AdminCalendar from "@/pages/admin/AdminCalendar";
 import AdminRequests from "@/pages/admin/AdminRequests";
 import AdminReports from "@/pages/admin/AdminReports";
 import RatePage from "@/pages/RatePage";
+import PublicGigPage from "@/pages/PublicGigPage";
 import WorkerLayout from "@/components/worker/WorkerLayout";
 import WorkerFeed from "@/pages/worker/WorkerFeed";
 import WorkerProfile from "@/pages/worker/WorkerProfile";
@@ -59,6 +60,7 @@ function RouterShell() {
       />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/rate/:token" element={<RatePage />} />
+      <Route path="/gigs/:gigId" element={<PublicGigPage />} />
 
       {/* Admin */}
       <Route

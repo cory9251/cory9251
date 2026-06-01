@@ -544,6 +544,8 @@ export default function AdminSettings() {
         </div>
       </form>
 
+      <AdminUsersPanel />
+
       {data.updated_at && (
         <div className="border-t border-[#E5E7EB] px-6 py-4 text-xs text-[#4B5563] md:px-10">
           Last updated {new Date(data.updated_at).toLocaleString()}
@@ -583,3 +585,312 @@ function StatusCard({ ready, icon: Icon, channel, provider }) {
     </div>
   );
 }
+
+
+/**
+ * Admin users management — lists all admin accounts, allows creating new
+ * ones (full-access or read-only), and toggling/demoting/deleting existing
+ * ones. Lives inline at the bottom of Settings.
+ */
+function AdminUsersPanel() {
+  const [admins, setAdmins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // New-admin form state
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isReadOnly, setIsReadOnly] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await api.get("/admin/admins");
+      setAdmins(data);
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.post("/admin/admins", {
+        name,
+        email,
+        password,
+        is_read_only: isReadOnly,
+      });
+      toast.success(`Created ${isReadOnly ? "read-only" : "full-access"} admin`);
+      setName("");
+      setEmail("");
+      setPassword("");
+      setIsReadOnly(false);
+      setShowForm(false);
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleReadOnly = async (a) => {
+    try {
+      await api.put(`/admin/admins/${a.user_id}`, {
+        is_read_only: !a.is_read_only,
+      });
+      toast.success(
+        a.is_read_only
+          ? `${a.name} can now make changes`
+          : `${a.name} is now read-only`
+      );
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
+  const demote = async (a) => {
+    if (!window.confirm(`Demote ${a.name} to a regular worker?`)) return;
+    try {
+      await api.put(`/admin/admins/${a.user_id}`, { demote_to_worker: true });
+      toast.success(`${a.name} demoted to worker`);
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
+  const remove = async (a) => {
+    if (
+      !window.confirm(
+        `Delete ${a.name}'s admin account? This cannot be undone.`
+      )
+    )
+      return;
+    try {
+      await api.delete(`/admin/admins/${a.user_id}`);
+      toast.success(`Deleted ${a.name}`);
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
+  return (
+    <div
+      data-testid="admin-users-panel"
+      className="border-t border-[#E5E7EB] p-6 md:p-10"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-mono-label">Access control</div>
+          <h2 className="mt-2 font-display text-2xl font-black">Admin users</h2>
+          <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
+            Full-access admins can do anything. Read-only admins can view every
+            page but can't make changes — perfect for accountants, auditors, or
+            new staff who are still learning the platform.
+          </p>
+        </div>
+        {!showForm && (
+          <Button
+            data-testid="show-add-admin-btn"
+            onClick={() => setShowForm(true)}
+            className="h-10 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+          >
+            + Add admin user
+          </Button>
+        )}
+      </div>
+
+      {showForm && (
+        <form
+          data-testid="add-admin-form"
+          onSubmit={submit}
+          className="mt-5 grid grid-cols-1 gap-3 border border-[#030712] bg-[#F9FAFB] p-4 md:grid-cols-2"
+        >
+          <div>
+            <Label className="font-mono-label">Name</Label>
+            <Input
+              data-testid="new-admin-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Sam Johnson"
+              required
+              className="mt-2 h-11 rounded-none border-[#030712]"
+            />
+          </div>
+          <div>
+            <Label className="font-mono-label">Email</Label>
+            <Input
+              data-testid="new-admin-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="sam@hcobcleaners.com"
+              required
+              className="mt-2 h-11 rounded-none border-[#030712]"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <Label className="font-mono-label">Temp password (8+ chars)</Label>
+            <Input
+              data-testid="new-admin-password"
+              type="password"
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Share securely; they can change it later"
+              required
+              className="mt-2 h-11 rounded-none border-[#030712]"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="flex h-11 cursor-pointer items-center gap-2 border border-[#030712] bg-white px-3">
+              <input
+                data-testid="new-admin-readonly"
+                type="checkbox"
+                checked={isReadOnly}
+                onChange={(e) => setIsReadOnly(e.target.checked)}
+                className="accent-[#0044FF]"
+              />
+              <span className="text-sm">
+                <span className="font-bold">Read-only access</span> — can view
+                everything but can't create / edit / delete anything
+              </span>
+            </label>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 md:col-span-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowForm(false)}
+              className="rounded-none"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={busy}
+              data-testid="submit-add-admin"
+              className="rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+            >
+              {busy ? "Creating…" : "Create admin"}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      <div className="mt-6 overflow-x-auto border border-[#E5E7EB]">
+        <table className="w-full text-sm">
+          <thead className="bg-[#F9FAFB]">
+            <tr className="text-left">
+              <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">
+                Name
+              </th>
+              <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">
+                Email
+              </th>
+              <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">
+                Access
+              </th>
+              <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">
+                Created
+              </th>
+              <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={5} className="px-3 py-6 text-center text-[#4B5563]">
+                  Loading…
+                </td>
+              </tr>
+            ) : admins.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-3 py-6 text-center text-[#4B5563]">
+                  No admins yet — odd.
+                </td>
+              </tr>
+            ) : (
+              admins.map((a) => (
+                <tr
+                  key={a.user_id}
+                  data-testid={`admin-row-${a.user_id}`}
+                  className="hover:bg-[#F9FAFB]"
+                >
+                  <td className="border-b border-[#E5E7EB] px-3 py-2 font-semibold">
+                    {a.name}
+                    {a.is_self && (
+                      <span className="ml-1.5 inline-flex items-center rounded-full bg-[#0044FF] px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
+                        you
+                      </span>
+                    )}
+                  </td>
+                  <td className="border-b border-[#E5E7EB] px-3 py-2 text-xs text-[#4B5563]">
+                    {a.email}
+                  </td>
+                  <td className="border-b border-[#E5E7EB] px-3 py-2">
+                    {a.is_read_only ? (
+                      <span className="inline-flex items-center gap-1 bg-[#F59E0B] px-2 py-0.5 text-[10px] font-bold tracking-widest text-white">
+                        READ-ONLY
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 bg-[#10B981] px-2 py-0.5 text-[10px] font-bold tracking-widest text-white">
+                        FULL
+                      </span>
+                    )}
+                  </td>
+                  <td className="border-b border-[#E5E7EB] px-3 py-2 text-xs text-[#4B5563]">
+                    {a.created_at
+                      ? new Date(a.created_at).toLocaleDateString()
+                      : "—"}
+                  </td>
+                  <td className="border-b border-[#E5E7EB] px-3 py-2">
+                    {!a.is_self && (
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Button
+                          data-testid={`toggle-readonly-${a.user_id}`}
+                          onClick={() => toggleReadOnly(a)}
+                          variant="outline"
+                          className="h-7 rounded-none border-[#030712] px-2 text-[10px]"
+                        >
+                          {a.is_read_only ? "Grant full" : "Make read-only"}
+                        </Button>
+                        <Button
+                          data-testid={`demote-${a.user_id}`}
+                          onClick={() => demote(a)}
+                          variant="outline"
+                          className="h-7 rounded-none border-[#F59E0B] px-2 text-[10px] text-[#92400E]"
+                        >
+                          Demote
+                        </Button>
+                        <Button
+                          data-testid={`delete-admin-${a.user_id}`}
+                          onClick={() => remove(a)}
+                          variant="outline"
+                          className="h-7 rounded-none border-[#EF4444] px-2 text-[10px] text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+

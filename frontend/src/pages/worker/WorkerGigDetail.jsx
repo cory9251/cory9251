@@ -21,6 +21,7 @@ import {
   IdentificationCard,
   ShieldCheck,
   EyeSlash,
+  UsersThree,
 } from "@phosphor-icons/react";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -178,6 +179,17 @@ export default function WorkerGigDetail() {
           )}
         </div>
 
+        {/* Worker's own role on this gig — shows above the address card when
+            they have anything other than "worker" (e.g., manager / lead). */}
+        {isApproved && acc?.gig_role && acc.gig_role !== "worker" && (
+          <div
+            data-testid="my-gig-role"
+            className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#F59E0B] px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-white"
+          >
+            You're the {acc.gig_role}
+          </div>
+        )}
+
         {/* Full address — only shown to workers whose request is approved */}
         {isApproved && gig.address_line && (
           <div
@@ -201,6 +213,41 @@ export default function WorkerGigDetail() {
           </div>
         )}
       </div>
+
+      {/* Crew — other approved workers on the same gig. First name + role
+          only, surfaced only after this worker is approved. */}
+      {isApproved && Array.isArray(gig.crew) && gig.crew.length > 0 && (
+        <div
+          data-testid="worker-crew-card"
+          className="mt-5 rounded-2xl border border-black/5 bg-white p-5 gb-tactile"
+        >
+          <div className="font-mono-label flex items-center gap-1.5">
+            <UsersThree size={12} weight="duotone" /> Your crew on this gig
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {gig.crew.map((c, i) => (
+              <div
+                key={i}
+                data-testid={`crew-chip-${i}`}
+                className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1.5"
+              >
+                <div className="grid h-6 w-6 place-items-center rounded-full bg-[#0044FF] text-[10px] font-black text-white">
+                  {(c.first_name || "?")[0].toUpperCase()}
+                </div>
+                <span className="text-sm font-semibold">{c.first_name}</span>
+                {c.gig_role && c.gig_role !== "worker" && (
+                  <span className="ml-1 rounded bg-[#F59E0B] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
+                    {c.gig_role}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-[10px] text-[#4B5563]">
+            First names only. Contact your HCOB admin if you need to coordinate.
+          </div>
+        </div>
+      )}
 
       {/* Clock card — appears once admin has approved the request */}
       {isApproved && (

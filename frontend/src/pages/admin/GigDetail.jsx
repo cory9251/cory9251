@@ -39,6 +39,7 @@ import {
   ClipboardText,
   Clock,
   Star,
+  Share,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
@@ -219,6 +220,24 @@ export default function GigDetail() {
             className="mt-3 h-12 w-full rounded-none border-[#030712]"
           >
             <Copy size={18} className="mr-2" /> {duplicating ? "Duplicating…" : "Duplicate"}
+          </Button>
+
+          <Button
+            data-testid="share-gig-btn"
+            onClick={async () => {
+              const url = `${window.location.origin}/gigs/${gigId}`;
+              try {
+                await navigator.clipboard.writeText(url);
+                toast.success("Share link copied — paste anywhere");
+              } catch {
+                // Fallback: select-and-copy via prompt
+                window.prompt("Copy this link:", url);
+              }
+            }}
+            variant="outline"
+            className="mt-3 h-12 w-full rounded-none border-[#10B981] text-[#065F46] hover:bg-[#10B981] hover:text-white"
+          >
+            <Share size={18} className="mr-2" weight="duotone" /> Share gig link
           </Button>
 
           <AlertDialog>
@@ -492,6 +511,31 @@ export default function GigDetail() {
                     </td>
                     <td className="border-b border-[#E5E7EB] px-3 py-3">
                       <div className="flex flex-wrap justify-end gap-1.5">
+                        <select
+                          data-testid={`gig-role-${a.acceptance_id}`}
+                          value={a.gig_role || "worker"}
+                          onChange={async (e) => {
+                            const newRole = e.target.value;
+                            try {
+                              await api.put(
+                                `/gigs/${gigId}/acceptances/${a.acceptance_id}/role`,
+                                { role: newRole }
+                              );
+                              toast.success(`Role: ${newRole}`);
+                              load();
+                            } catch (err) {
+                              toast.error(getErr(err));
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-7 rounded-none border border-[#030712] bg-white px-1.5 text-[10px] font-bold uppercase tracking-widest"
+                          title="Set this worker's role on this gig"
+                        >
+                          <option value="worker">Worker</option>
+                          <option value="manager">Manager</option>
+                          <option value="lead">Lead</option>
+                          <option value="trainer">Trainer</option>
+                        </select>
                         <Button
                           data-testid={`edit-timesheet-${a.acceptance_id}`}
                           onClick={() => setEditTimesheetDialog({ acceptance: a })}

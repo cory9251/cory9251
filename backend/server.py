@@ -495,9 +495,19 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
-async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+async def require_admin(
+    request: Request, user: dict = Depends(get_current_user)
+) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(403, "Admin access required")
+    # Read-only admins can GET anything in the admin surface but cannot mutate.
+    if (
+        user.get("is_read_only")
+        and request.method in ("POST", "PUT", "PATCH", "DELETE")
+    ):
+        raise HTTPException(
+            403, "Read-only admin — ask a full-access admin to make this change"
+        )
     return user
 
 
@@ -962,6 +972,33 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
         )
         gig = _strip_sensitive_for_worker(gig, my)
         gig["my_acceptance"] = my
+        # If this worker is APPROVED (not just "requested"), let them see their
+        # crew — other approved workers, first name + role only.
+        if my and my.get("status") and my["status"] != "requested":
+            crew_accs = await db.gig_acceptances.find(
+                {
+                    "gig_id": gig_id,
+                    "status": {"$ne": "requested"},
+                    "worker_id": {"$ne": user["user_id"]},
+                },
+                {"_id": 0, "worker_id": 1, "gig_role": 1},
+            ).to_list(200)
+            crew_ids = [a["worker_id"] for a in crew_accs]
+            if crew_ids:
+                crew_users = await db.users.find(
+                    {"user_id": {"$in": crew_ids}},
+                    {"_id": 0, "user_id": 1, "name": 1},
+                ).to_list(200)
+                wmap = {w["user_id"]: w for w in crew_users}
+                gig["crew"] = [
+                    {
+                        "first_name": ((wmap.get(a["worker_id"]) or {}).get("name") or "Worker").split(" ")[0],
+                        "gig_role": a.get("gig_role") or "worker",
+                    }
+                    for a in crew_accs
+                ]
+            else:
+                gig["crew"] = []
     return gig
 
 
@@ -1937,6 +1974,36 @@ class WorkerMessageIn(BaseModel):
     gig_id: Optional[str] = None
 
 
+# Per-gig role for a worker. `manager` gets a badge + sees the crew's contact
+# info (next iteration); `worker` is the default.
+GIG_ROLES = ["worker", "manager", "lead", "trainer"]
+GIG_ROLE_LABELS = {
+    "worker": "Worker",
+    "manager": "Manager",
+    "lead": "Lead",
+    "trainer": "Trainer",
+}
+
+
+class AcceptanceRoleIn(BaseModel):
+    role: str
+
+
+class AdminCreateIn(BaseModel):
+    """Create a new admin user from Settings → Admin users."""
+    name: str
+    email: str
+    password: str
+    is_read_only: Optional[bool] = False
+
+
+class AdminRoleUpdateIn(BaseModel):
+    """Toggle read-only or promote/demote between admin↔worker."""
+    is_read_only: Optional[bool] = None
+    promote_to_admin: Optional[bool] = None
+    demote_to_worker: Optional[bool] = None
+
+
 @api.post("/admin/workers/{user_id}/verify-id")
 async def verify_worker_id(user_id: str, admin: dict = Depends(require_admin)):
     await db.users.update_one(
@@ -2728,6 +2795,198 @@ async def admin_send_worker_message(
         f"Admin {admin['email']} sent message to worker {worker.get('email')}: {title}"
     )
     return {"ok": True, "notification_id": notif_id}
+
+
+
+
+@api.put("/gigs/{gig_id}/acceptances/{acceptance_id}/role")
+async def admin_set_gig_role(
+    gig_id: str,
+    acceptance_id: str,
+    payload: AcceptanceRoleIn,
+    admin: dict = Depends(require_admin),
+):
+    """Set a worker's per-gig role (worker / manager / lead / trainer).
+    Workers see their role + their crew's roles after they're approved."""
+    if payload.role not in GIG_ROLES:
+        raise HTTPException(400, f"role must be one of {GIG_ROLES}")
+    res = await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id},
+        {"$set": {"gig_role": payload.role}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Acceptance not found")
+    return {"ok": True, "gig_role": payload.role}
+
+
+@api.get("/public/gigs/{gig_id}")
+async def public_gig_lookup(gig_id: str):
+    """Public no-auth view of a gig — used by direct share links. Strips the
+    private address line; the rest is the same info workers see when browsing.
+    Returns 404 for cancelled gigs."""
+    gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    if gig.get("status") == "cancelled":
+        raise HTTPException(404, "Gig is no longer available")
+    # Strip sensitive fields
+    safe = {
+        "gig_id": gig["gig_id"],
+        "title": gig.get("title"),
+        "description": gig.get("description"),
+        "category": gig.get("category"),
+        "subcategory": gig.get("subcategory"),
+        "location": gig.get("location"),
+        "scheduled_date": gig.get("scheduled_date"),
+        "scheduled_at": gig.get("scheduled_at"),
+        "start_time": gig.get("start_time"),
+        "duration_hours": gig.get("duration_hours"),
+        "pay_rate": gig.get("pay_rate"),
+        "pay_type": gig.get("pay_type"),
+        "slots": gig.get("slots"),
+        "slots_filled": gig.get("slots_filled"),
+        "status": gig.get("status"),
+    }
+    return safe
+
+
+# ----------------------------------------------------------------------------
+# Admin user management (super admins only — read-only admins blocked by
+# require_admin's method check)
+# ----------------------------------------------------------------------------
+@api.get("/admin/admins")
+async def list_admin_users(admin: dict = Depends(require_admin)):
+    """List all admin users so the Settings page can show who has access."""
+    rows = await db.users.find(
+        {"role": "admin"}, {"_id": 0, "password_hash": 0}
+    ).sort("created_at", 1).to_list(200)
+    # Public-shape each row
+    return [
+        {
+            "user_id": r["user_id"],
+            "name": r.get("name"),
+            "email": r.get("email"),
+            "is_read_only": bool(r.get("is_read_only")),
+            "created_at": r.get("created_at"),
+            "is_self": r["user_id"] == admin["user_id"],
+        }
+        for r in rows
+    ]
+
+
+@api.post("/admin/admins")
+async def create_admin_user(
+    payload: AdminCreateIn,
+    admin: dict = Depends(require_admin),
+):
+    """Create a new admin user. Read-only admins are blocked by the method
+    check in require_admin."""
+    name = (payload.name or "").strip()
+    email = (payload.email or "").strip().lower()
+    if not name:
+        raise HTTPException(400, "Name required")
+    if "@" not in email or "." not in email:
+        raise HTTPException(400, "Valid email required")
+    if len(payload.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(400, "An account with that email already exists")
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "user_id": user_id,
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "name": name,
+        "role": "admin",
+        "is_read_only": bool(payload.is_read_only),
+        "phone": "",
+        "address": "",
+        "bio": "",
+        "skills": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "auth_provider": "local",
+        "id_verified": True,  # admins don't need ID verification
+    }
+    await db.users.insert_one(doc)
+    logger.info(
+        f"Admin {admin['email']} created new admin {email} (read_only={doc['is_read_only']})"
+    )
+    return {
+        "user_id": user_id,
+        "name": name,
+        "email": email,
+        "is_read_only": doc["is_read_only"],
+        "created_at": doc["created_at"],
+    }
+
+
+@api.put("/admin/admins/{user_id}")
+async def update_admin_user(
+    user_id: str,
+    payload: AdminRoleUpdateIn,
+    admin: dict = Depends(require_admin),
+):
+    """Toggle read-only flag on an admin OR promote a worker → admin / demote
+    an admin → worker."""
+    target = await db.users.find_one({"user_id": user_id})
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    updates: dict = {}
+    if payload.promote_to_admin:
+        if target.get("role") == "admin":
+            raise HTTPException(400, "Already an admin")
+        updates["role"] = "admin"
+        updates["is_read_only"] = bool(payload.is_read_only)
+    elif payload.demote_to_worker:
+        if target.get("user_id") == admin["user_id"]:
+            raise HTTPException(400, "You can't demote yourself")
+        if target.get("role") != "admin":
+            raise HTTPException(400, "Not an admin")
+        updates["role"] = "worker"
+        updates["is_read_only"] = False
+        updates["worker_status"] = "approved"
+    elif payload.is_read_only is not None:
+        if target.get("role") != "admin":
+            raise HTTPException(400, "Read-only flag only applies to admins")
+        if target.get("user_id") == admin["user_id"] and payload.is_read_only:
+            raise HTTPException(400, "You can't make yourself read-only")
+        updates["is_read_only"] = bool(payload.is_read_only)
+    else:
+        raise HTTPException(400, "Nothing to update")
+
+    await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    if updates.get("role") == "worker":
+        # When demoting, drop their sessions so they re-login as worker
+        await db.sessions.delete_many({"user_id": user_id})
+    logger.info(f"Admin {admin['email']} updated admin {target.get('email')}: {updates}")
+    return await _get_user_by_id(user_id)
+
+
+@api.delete("/admin/admins/{user_id}")
+async def delete_admin_user(user_id: str, admin: dict = Depends(require_admin)):
+    """Demote+delete an admin account. Cannot delete yourself or the last
+    full-access admin."""
+    if user_id == admin["user_id"]:
+        raise HTTPException(400, "You can't delete yourself")
+    target = await db.users.find_one({"user_id": user_id})
+    if not target or target.get("role") != "admin":
+        raise HTTPException(404, "Admin not found")
+    # Guardrail: never let admin count drop to 0 full-access admins
+    full_count = await db.users.count_documents(
+        {"role": "admin", "is_read_only": {"$ne": True}, "user_id": {"$ne": user_id}}
+    )
+    if full_count == 0:
+        raise HTTPException(
+            400, "Can't delete the last full-access admin — promote someone first"
+        )
+    await db.users.delete_one({"user_id": user_id})
+    await db.sessions.delete_many({"user_id": user_id})
+    logger.info(f"Admin {admin['email']} deleted admin {target.get('email')}")
+    return {"ok": True}
+
+
 
 
 

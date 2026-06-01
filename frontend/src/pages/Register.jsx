@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,10 @@ import { GoogleLogo, ArrowLeft, CheckCircle } from "@phosphor-icons/react";
 export default function Register() {
   const { register } = useAuth();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  // `next` is set when someone hits a public gig share link and is bounced
+  // here to sign up. It carries them straight to the gig after registration.
+  const next = searchParams.get("next");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,7 +28,11 @@ export default function Register() {
     try {
       const u = await register({ email, password, name, role: "worker" });
       toast.success("Welcome to the HCOB crew");
-      nav(u.role === "admin" ? "/admin" : "/app", { replace: true });
+      if (u.role === "worker" && next && next.startsWith("/")) {
+        nav(next, { replace: true });
+      } else {
+        nav(u.role === "admin" ? "/admin" : "/app", { replace: true });
+      }
     } catch (e) {
       setErr(getErr(e));
     } finally {
