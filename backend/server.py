@@ -1751,6 +1751,8 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
                     pay["pay_rate"], pay["pay_type"], a.get("hours_worked")
                 )
     w["accepted_gigs"] = accepted
+    # Attach rating aggregates so the WorkerDetail header can render stars.
+    w.update(await _worker_rating_stats(user_id))
     return w
 
 

@@ -120,6 +120,7 @@
 - [ ] Rich gig templates per category (cleaning checklist, labor PPE notes, ride pickup address)
 
 ### P2
+- [x] Worker rating system (admin manual stars + client public link) — Feb 2026
 - [x] Admin override editor for any worker profile (skills, contact, status, ID verified, email) — Feb 2026
 - [x] Worker activity report (gigs requested/approved/completed/no-shows) — Feb 2026
 - [x] Workers / Roster export (CSV + Google Sheets, with optional PII toggle) — Feb 2026
