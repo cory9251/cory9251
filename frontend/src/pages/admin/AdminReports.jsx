@@ -189,11 +189,25 @@ export default function AdminReports() {
     }
   };
 
-  // Re-fetch when type or core filters change
+  // Re-fetch when type or any filter changes (debounced so multi-clicks don't
+  // hammer the API). Clearing `data` on type change avoids rendering a stale
+  // dataset with the wrong column shape — which previously crashed the page.
   useEffect(() => {
-    run();
-    // eslint-disable-next-line
+    setData(null);
+    setLastExportUrl(null);
   }, [type]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      run();
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [
+    type, start, end, onlyApproved, workerFilter, skills, zipCode,
+    zipPrefix, statusFilter, gigStatusFilter, categoryFilter,
+    profileStatus, includePii,
+  ]);
 
   const downloadCsv = () => {
     const p = buildParams();
@@ -546,22 +560,66 @@ export default function AdminReports() {
 
       {/* Data table */}
       <div className="px-6 py-6 md:px-10">
-        {!data ? (
-          <div className="border border-dashed border-[#E5E7EB] p-12 text-center text-sm text-[#4B5563]">
-            Click "Run report" to load.
-          </div>
-        ) : data.rows.length === 0 ? (
-          <div className="border border-dashed border-[#E5E7EB] p-12 text-center text-sm text-[#4B5563]">
-            No data matches these filters.
-          </div>
-        ) : type === "timesheets" ? (
-          <TimesheetTable rows={data.rows} />
-        ) : (
-          <DataTable rows={data.rows} columns={data.columns} />
-        )}
+        <ReportTableErrorBoundary>
+          {!data ? (
+            <div className="border border-dashed border-[#E5E7EB] p-12 text-center text-sm text-[#4B5563]">
+              {loading ? "Loading…" : "Run a report to see data."}
+            </div>
+          ) : !Array.isArray(data.rows) || data.rows.length === 0 ? (
+            <div className="border border-dashed border-[#E5E7EB] p-12 text-center text-sm text-[#4B5563]">
+              No data matches these filters.
+            </div>
+          ) : type === "timesheets" ? (
+            <TimesheetTable rows={data.rows} />
+          ) : (
+            <DataTable rows={data.rows} columns={data.columns} />
+          )}
+        </ReportTableErrorBoundary>
       </div>
     </div>
   );
+}
+
+/**
+ * Local error boundary so a render error in the data table never blanks the
+ * whole reports page. Shows a friendly recovery message + reload hint.
+ */
+class ReportTableErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.error("AdminReports table crashed:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div
+          data-testid="report-table-error"
+          className="border border-[#EF4444]/30 bg-[#FEF2F2] p-6 text-sm"
+        >
+          <div className="font-display text-base font-bold text-[#991B1B]">
+            Couldn't render this report.
+          </div>
+          <div className="mt-1 text-xs text-[#991B1B]/80">
+            Try switching to another tab and back, or hit Run report again.
+          </div>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="mt-3 border border-[#EF4444] px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-[#EF4444]"
+          >
+            Dismiss
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function FilterCell({ label, children }) {
@@ -598,12 +656,26 @@ function Kpi({ label, value, testId }) {
  * already done server-side where applicable.
  */
 function DataTable({ rows, columns }) {
+  // Defensive: if backend ever returns a report without columns metadata,
+  // fall back to keys of the first row so we never crash the page.
+  const cols = Array.isArray(columns) && columns.length
+    ? columns
+    : (rows && rows[0]
+        ? Object.keys(rows[0]).map((k) => ({ key: k, label: k }))
+        : []);
+  if (!cols.length) {
+    return (
+      <div className="border border-dashed border-[#E5E7EB] p-12 text-center text-sm text-[#4B5563]">
+        No columns to display.
+      </div>
+    );
+  }
   return (
     <div className="overflow-x-auto border border-[#E5E7EB]">
       <table className="w-full text-sm">
         <thead className="bg-[#F9FAFB]">
           <tr className="text-left">
-            {columns.map((c) => (
+            {cols.map((c) => (
               <th
                 key={c.key}
                 className="whitespace-nowrap border-b border-[#E5E7EB] px-3 py-2 font-mono-label"
@@ -620,7 +692,7 @@ function DataTable({ rows, columns }) {
               data-testid={`report-row-${r.user_id || r.gig_id || i}`}
               className="hover:bg-[#F9FAFB]"
             >
-              {columns.map((c) => (
+              {cols.map((c) => (
                 <td
                   key={c.key}
                   className="whitespace-nowrap border-b border-[#E5E7EB] px-3 py-2"
