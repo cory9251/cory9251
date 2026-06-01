@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 13 — re-verified iter12 experience_level='' bug fix AND tested new multi-report admin Reports (workers/gigs/activity/earnings) + CSV + Google Sheets export. Backend: 28/28 pytest passed AFTER applying a 1-line routing-order fix (see action items). Frontend: 5 tabs render, filters work, PII toggle works, ZIP/zip_prefix mutex works, Google Sheets button correctly disabled.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/admin/reports (Gigs, Activity, Earnings, Timesheets tabs)",
+        "issues": [
+          "Default date range is firstOfMonth(today)→today which on a fresh load shows 0 rows for date-filtered reports (gigs/activity/earnings/timesheets). Workers report (no date filter) correctly shows 580 rows. Consider defaulting to a wider range like last 30/90 days so admins see data immediately."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter13.py",
+    "/app/test_reports/pytest/iter13_results.xml"
+  ],
+  "action_items": [
+    "RESOLVED-by-testing-agent: CSV downloads for new report types (/api/admin/reports/{workers|gigs|activity|earnings}.csv) were returning 404 because the JSON generic route `/admin/reports/{report_type}` was declared BEFORE the CSV route `/admin/reports/{report_type}.csv` in server.py. FastAPI evaluates routes in declaration order and the {report_type} param greedily matched 'workers.csv'. Fixed by reordering — CSV route now declared first. Please review the swap in /app/backend/server.py around lines 2929-3008 to confirm acceptable.",
+    "Consider widening the default date range on the AdminReports page so Gigs/Activity/Earnings/Timesheets tabs show data on first load (currently shows 0 rows because default range = today only)."
+  ],
+  "critical_code_review_comments": [
+    "Route declaration order matters in FastAPI: more-specific routes (with a literal suffix like `.csv`) must be declared BEFORE the catch-all `{report_type}` route. This was the original source of the CSV bug.",
+    "AdminReports.jsx is 771 lines — getting close to the recommended 700-line threshold. Consider extracting the per-report-type filter cells into a separate FilterPanel component for maintainability.",
+    "experience_level='' truthy guard fix at server.py line ~593 is correct and verified by 3 new pytest cases (empty accepted, valid value accepted, invalid 'guru' still rejected)."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (reordered routes: CSV before JSON for /admin/reports/{report_type})",
+    "/app/backend/tests/test_iter13.py (new — 28 tests, all passing)"
+  ],
+  "success_rate": {
+    "backend": "100% (28/28 after CSV route-order fix)",
+    "frontend": "95% (all tabs/filters/toggles work; only minor default-date-range UX issue)"
+  },
+  "test_credentials": "Admin: admin@hcobcleaners.com / HcobAdmin2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test workers TEST_iter13_* created for experience_level tests — harmless, no cleanup needed for this iteration.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter13 confirmed the experience_level='' bug is fixed and all 4 new report types (workers, gigs, activity, earnings) plus CSV downloads work. A FastAPI route-order bug was discovered & fixed during testing (CSV route now declared before JSON route in server.py ~line 2929). The reusable pytest file at /app/backend/tests/test_iter13.py is suitable for regression. Public URL is https://work-connect-147.preview.emergentagent.com (from frontend/.env), NOT gigflow-hcob. Backend tests use the URL from REACT_APP_BACKEND_URL automatically.",
+  "rca of the issue": "CSV-download 404 RCA: FastAPI evaluates path-operations in declaration order. The route `/admin/reports/{report_type}` (JSON) was declared on line ~2931 and the more-specific `/admin/reports/{report_type}.csv` on line ~2969. Because `{report_type}` uses the default `[^/]+` regex which matches dots, requests to `/admin/reports/workers.csv` were captured by the JSON route with report_type='workers.csv' → not in REPORT_TYPES → HTTP 404 'Unknown report_type: workers.csv'. Mitigation: declare the CSV route BEFORE the JSON route so FastAPI picks the more specific template first. Verified: all 4 CSV endpoints (workers/gigs/activity/earnings) now return 200 text/csv with proper Content-Disposition. Regression: /admin/reports/timesheets and /admin/reports/timesheets.csv still served by their explicit dedicated endpoints — unchanged."
+}
