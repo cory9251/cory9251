@@ -28,6 +28,12 @@ function firstOfMonth() {
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
+// 90 days ago — wider default so date-filtered reports show data on first load
+function ninetyDaysAgo() {
+  const d = new Date();
+  d.setDate(d.getDate() - 90);
+  return d.toISOString().slice(0, 10);
+}
 
 // Each report type defines: its label, icon, which filters apply, the URL
 // segment, and how to render its KPI strip from `totals`.
@@ -107,7 +113,7 @@ const SKILL_OPTIONS = [
 
 export default function AdminReports() {
   const [type, setType] = useState("timesheets");
-  const [start, setStart] = useState(firstOfMonth());
+  const [start, setStart] = useState(ninetyDaysAgo());
   const [end, setEnd] = useState(todayISO());
   const [onlyApproved, setOnlyApproved] = useState(false);
   const [workerFilter, setWorkerFilter] = useState("");

@@ -120,7 +120,13 @@
 - [ ] Rich gig templates per category (cleaning checklist, labor PPE notes, ride pickup address)
 
 ### P2
-- [ ] Worker ratings + reliability score after gig completion
+- [x] Worker activity report (gigs requested/approved/completed/no-shows) — Feb 2026
+- [x] Workers / Roster export (CSV + Google Sheets, with optional PII toggle) — Feb 2026
+- [x] Gigs report (assignments + payout per gig) — Feb 2026
+- [x] Earnings payroll summary (one row per worker) — Feb 2026
+- [x] Edit clock-in / clock-out times — Feb 2026
+- [x] Worker reliability hooks (no_shows tracked in activity report) — Feb 2026
+- [ ] Worker ratings (manual admin rating after gig completion)
 - [ ] Recurring gigs (auto-blast weekly)
 - [ ] Stripe payouts for completed gigs
 - [ ] Worker chat / direct message admin
@@ -130,6 +136,10 @@
 - [x] Timesheet approval flow (worker sees earnings only after approve) — Feb 2026
 - [x] Admin Reports page (date filter, worker filter, totals, day grouping) — Feb 2026
 - [x] Google Sheets export via service-account (one central HCOB account) — Feb 2026
+- [x] Extended worker profile (zip, skills, availability, vehicle, emergency contact, bio) — Feb 2026
+- [x] Profile completion gate (must complete profile + ID verify before requesting gigs) — Feb 2026
+- [x] Admin Workers filters (skills/availability/zip/vehicle/profile/search) — Feb 2026
+- [x] Auto-suggest matching workers on create-gig dialog — Feb 2026
 
 ## Next steps
 1. Wire real Resend + Twilio keys (admin to provide), then enable per-blast email/SMS
