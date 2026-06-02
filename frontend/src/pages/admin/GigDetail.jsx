@@ -40,6 +40,7 @@ import {
   Clock,
   Star,
   Share,
+  Fire,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
@@ -136,6 +137,17 @@ export default function GigDetail() {
     }
   };
 
+  const toggleRush = async () => {
+    const next = !gig.is_rush;
+    try {
+      await api.put(`/gigs/${gigId}/rush`, { is_rush: next });
+      toast.success(next ? "RUSH on — gig pinned to top of feed" : "RUSH off — back to normal");
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
   if (!gig) {
     return (
       <div className="p-10 font-mono-label" data-testid="gig-loading">Loading gig…</div>
@@ -161,6 +173,15 @@ export default function GigDetail() {
           <h1 className="mt-2 font-display text-4xl font-black tracking-tight">
             {gig.title}
           </h1>
+          {gig.is_rush && (
+            <div
+              data-testid="rush-active-banner"
+              className="mt-3 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-3 py-1.5 text-[10px] font-black tracking-[0.2em] text-white"
+            >
+              <Fire size={14} weight="fill" className="animate-pulse" />
+              RUSH · PINNED TO TOP OF FEED
+            </div>
+          )}
           <p className="mt-4 text-[#4B5563] leading-relaxed">{gig.description}</p>
 
           <dl className="mt-8 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
@@ -201,6 +222,23 @@ export default function GigDetail() {
             className="mt-6 h-12 w-full rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
           >
             <Megaphone size={18} className="mr-2" weight="fill" /> Blast to workers
+          </Button>
+
+          <Button
+            data-testid="toggle-rush-btn"
+            onClick={toggleRush}
+            className={`mt-3 h-12 w-full rounded-none ${
+              gig.is_rush
+                ? "bg-[#EF4444] text-white hover:bg-[#DC2626]"
+                : "border border-[#EF4444] bg-white text-[#EF4444] hover:bg-[#FEF2F2]"
+            }`}
+          >
+            <Fire
+              size={18}
+              className={`mr-2 ${gig.is_rush ? "animate-pulse" : ""}`}
+              weight="fill"
+            />
+            {gig.is_rush ? "RUSH is ON · turn off" : "Mark as RUSH"}
           </Button>
 
           <Button

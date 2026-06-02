@@ -111,6 +111,12 @@
 - Admin gig detail gets an **Add a worker** button above the roster and a **Remove** column on every approved row.
 - 20/20 new tests + 25/25 iter-8/9 regression green.
 
+## Implemented — 2026-06 (Iteration 19: RUSH Visual Treatment + Toggle)
+- **Worker feed**: RUSH (blasted) gigs render with a red 2px border, gradient "🔥 RUSH · BLASTED" banner at the top of the card, a red "🔥 HOT" pill replacing the blue OPEN pill, and stay pinned to the top of the feed (backend sort already in place).
+- **Admin gig detail**: a one-click "Mark as RUSH" / "RUSH is ON · turn off" toggle button calls `PUT /api/gigs/{id}/rush`. A pulsing red "🔥 RUSH · PINNED TO TOP OF FEED" banner appears under the title when active.
+- **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
+- Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)

@@ -21,6 +21,7 @@ import {
   IdentificationCard,
   ShieldCheck,
   CaretRight,
+  Fire,
 } from "@phosphor-icons/react";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -169,13 +170,27 @@ export default function WorkerFeed() {
               acc?.status === "accepted" ||
               acc?.status === "on_the_clock" ||
               acc?.status === "completed";
+            const isRush = !!g.is_rush;
             return (
               <button
                 key={g.gig_id}
                 data-testid={`feed-gig-${g.gig_id}`}
                 onClick={() => nav(`/app/gigs/${g.gig_id}`)}
-                className="gb-tactile w-full rounded-2xl border border-black/5 bg-white p-5 text-left transition-all"
+                className={`gb-tactile relative w-full rounded-2xl border bg-white p-5 text-left transition-all ${
+                  isRush
+                    ? "border-2 border-[#EF4444] shadow-[0_0_0_4px_rgba(239,68,68,0.12)]"
+                    : "border-black/5"
+                }`}
               >
+                {isRush && (
+                  <div
+                    data-testid={`rush-banner-${g.gig_id}`}
+                    className="-mt-1 mb-3 flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-3 py-1.5 text-[10px] font-black tracking-[0.2em] text-white"
+                  >
+                    <Fire size={14} weight="fill" className="animate-pulse" />
+                    RUSH · BLASTED
+                  </div>
+                )}
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2 font-mono-label">
@@ -194,6 +209,10 @@ export default function WorkerFeed() {
                     <span className="inline-flex items-center gap-1 rounded-full bg-[#F59E0B] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
                       REQUESTED
+                    </span>
+                  ) : isRush ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EF4444] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
+                      <Fire size={10} weight="fill" /> HOT
                     </span>
                   ) : (
                     <span className="rounded-full bg-[#0044FF] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
