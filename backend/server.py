@@ -308,6 +308,10 @@ class GigIn(BaseModel):
     # `repeat_count` gig instances spaced by the chosen period.
     recurrence: Optional[GigRecurrence] = "none"
     repeat_count: Optional[int] = 1  # ignored when recurrence == 'none'
+    # New: optional "Coming soon" → "Open" toggle. publish_at is a hint; the
+    # background loop auto-flips, but the admin can publish manually anytime.
+    status: Optional[Literal["open", "coming_soon"]] = "open"
+    publish_at: Optional[str] = None  # ISO 8601 — when to auto-flip to open
 
 
 class GigPatch(BaseModel):
@@ -325,10 +329,18 @@ class GigPatch(BaseModel):
     slots: Optional[int] = None
     duration_hours: Optional[float] = None
     contact_phone: Optional[str] = None
+    status: Optional[str] = None  # admin can flip status from the Edit dialog
+    publish_at: Optional[str] = None
 
 
 class BlastIn(BaseModel):
     channels: List[Literal["in_app", "email", "sms"]]
+
+
+class RushToggleIn(BaseModel):
+    """Manual RUSH on/off without blasting. Blast endpoint flips this on as a
+    side effect; admin can also toggle it independently here."""
+    is_rush: bool
 
 
 class SettingsIn(BaseModel):
@@ -807,7 +819,10 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "slots_filled": 0,
         "duration_hours": payload.duration_hours,
         "contact_phone": payload.contact_phone,
-        "status": "open",
+        "status": payload.status or "open",
+        "publish_at": payload.publish_at,
+        "is_rush": False,
+        "rush_at": None,
         "created_by": created_by,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "blast_count": 0,
@@ -906,11 +921,19 @@ async def list_gigs(
         query["status"] = status
     if category:
         query["category"] = category
-    # Workers see only open gigs by default unless they explicitly ask for "all"
+    # Workers see open + coming_soon gigs by default (coming_soon is browseable
+    # but not yet claimable; the request endpoint enforces the gate).
     if user.get("role") != "admin" and status is None:
-        query["status"] = "open"
+        query["status"] = {"$in": ["open", "coming_soon"]}
 
-    gigs = await db.gigs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Sort: RUSH first (newest rush_at first), then created_at desc.
+    # MongoDB's sort treats missing fields as null which sorts BEFORE values
+    # asc / AFTER values desc, so this puts rush_at-present gigs at the top.
+    gigs = (
+        await db.gigs.find(query, {"_id": 0})
+        .sort([("is_rush", -1), ("rush_at", -1), ("created_at", -1)])
+        .to_list(500)
+    )
 
     # For workers, attach acceptance state + hide sensitive address until accepted
     if user.get("role") == "worker":
@@ -1070,6 +1093,9 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "duration_hours": src.get("duration_hours"),
         "contact_phone": src.get("contact_phone"),
         "status": "open",
+        "publish_at": None,
+        "is_rush": False,
+        "rush_at": None,
         "created_by": admin["user_id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "blast_count": 0,
@@ -1179,6 +1205,12 @@ async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
     gig = await db.gigs.find_one({"gig_id": gig_id})
     if not gig:
         raise HTTPException(404, "Gig not found")
+    if gig.get("status") == "coming_soon":
+        publish_at = gig.get("publish_at")
+        when = f" — opens {publish_at[:16].replace('T', ' ')}" if publish_at else ""
+        raise HTTPException(
+            400, f"This gig isn't claimable yet{when}. Check back soon."
+        )
     if gig.get("status") != "open":
         raise HTTPException(400, "Gig is not open")
 
@@ -1586,12 +1618,137 @@ async def blast_gig(
             "$set": {
                 "last_blast_at": datetime.now(timezone.utc).isoformat(),
                 "blast_channels": payload.channels,
+                # Blasting a gig auto-marks it as RUSH so it floats to the top
+                # of the worker feed. Admin can toggle this off via the rush
+                # endpoint without re-blasting.
+                "is_rush": True,
+                "rush_at": datetime.now(timezone.utc).isoformat(),
             },
             "$inc": {"blast_count": 1},
         },
     )
 
-    return {"ok": True, "counts": counts, "workers_targeted": len(workers)}
+    return {"ok": True, "counts": counts, "workers_targeted": len(workers), "is_rush": True}
+
+
+@api.put("/gigs/{gig_id}/rush")
+async def toggle_rush(
+    gig_id: str, payload: RushToggleIn, admin: dict = Depends(require_admin)
+):
+    """Flip the RUSH flag on a gig without sending a blast. Marked RUSH gigs
+    float to the top of every worker feed with a red border + flame badge."""
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    set_ops: dict = {"is_rush": bool(payload.is_rush)}
+    set_ops["rush_at"] = (
+        datetime.now(timezone.utc).isoformat() if payload.is_rush else None
+    )
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": set_ops})
+    return {"ok": True, "is_rush": bool(payload.is_rush)}
+
+
+@api.post("/gigs/{gig_id}/publish")
+async def publish_gig(gig_id: str, admin: dict = Depends(require_admin)):
+    """Flip a `coming_soon` gig to `open` immediately AND notify matching
+    workers (skills overlap + same/nearby ZIP)."""
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    if gig.get("status") == "open":
+        return {"ok": True, "already_open": True, "notified": 0}
+    if gig.get("status") not in ("coming_soon", None):
+        raise HTTPException(400, f"Can't publish a {gig.get('status')} gig")
+
+    await db.gigs.update_one(
+        {"gig_id": gig_id},
+        {
+            "$set": {
+                "status": "open",
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+    notified = await _notify_matching_workers_of_new_gig(gig)
+    return {"ok": True, "notified": notified, "status": "open"}
+
+
+async def _notify_matching_workers_of_new_gig(gig: dict) -> int:
+    """Push an in-app notification to every approved worker whose skills
+    overlap with the gig's category AND whose ZIP starts with the gig's ZIP
+    prefix (or has no ZIP — they get notified too rather than miss out)."""
+    target_skills = GIG_CATEGORY_TO_SKILLS.get(gig.get("category"), [])
+    if not target_skills:
+        return 0
+
+    # Extract ZIP from gig.location for proximity match (same regex used by
+    # the create-gig dialog auto-suggest panel).
+    m = re.search(r"\b(\d{5})\b", (gig.get("location") or ""))
+    gig_zip = m.group(1) if m else ""
+    zip_prefix = gig_zip[:3] if gig_zip else ""
+
+    workers = await db.users.find(
+        {"role": "worker"}, {"_id": 0, "user_id": 1, "skills": 1, "zip_code": 1, "worker_status": 1}
+    ).to_list(5000)
+    notified_ids: List[str] = []
+    for w in workers:
+        if _effective_status(w) in ("rejected", "suspended"):
+            continue
+        if not any(s in (w.get("skills") or []) for s in target_skills):
+            continue
+        wzip = (w.get("zip_code") or "").strip()
+        if zip_prefix and wzip and not wzip.startswith(zip_prefix):
+            continue
+        notified_ids.append(w["user_id"])
+
+    if not notified_ids:
+        return 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    docs = [
+        {
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": uid,
+            "gig_id": gig["gig_id"],
+            "title": f"New gig: {gig.get('title')}",
+            "body": (gig.get("description") or "")[:140],
+            "read": False,
+            "created_at": now_iso,
+        }
+        for uid in notified_ids
+    ]
+    await db.notifications.insert_many(docs)
+    logger.info(f"Notified {len(notified_ids)} matching workers about gig {gig['gig_id']}")
+    return len(notified_ids)
+
+
+async def _publish_due_gigs_loop():
+    """Background task — every 60s, flip any `coming_soon` gig whose
+    publish_at has passed into `open` and notify matching workers."""
+    while True:
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            due = await db.gigs.find(
+                {
+                    "status": "coming_soon",
+                    "publish_at": {"$ne": None, "$lte": now_iso},
+                },
+                {"_id": 0},
+            ).to_list(100)
+            for g in due:
+                await db.gigs.update_one(
+                    {"gig_id": g["gig_id"]},
+                    {"$set": {"status": "open", "published_at": now_iso}},
+                )
+                try:
+                    await _notify_matching_workers_of_new_gig(g)
+                except Exception as e:
+                    logger.error(f"Auto-publish notify failed for {g['gig_id']}: {e}")
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"_publish_due_gigs_loop error: {e}")
+            await asyncio.sleep(60)
 
 
 # ---- Notifications ---------------------------------------------------------
