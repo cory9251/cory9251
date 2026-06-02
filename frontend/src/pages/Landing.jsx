@@ -63,7 +63,7 @@ export default function Landing() {
   useEffect(() => {
     const apiBase = process.env.REACT_APP_BACKEND_URL;
     axios
-      .get(`${apiBase}/api/public/gigs?limit=6`)
+      .get(`${apiBase}/api/public/gigs?limit=3`)
       .then((r) => setLiveGigs(r.data || []))
       .catch(() => setLiveGigs([]))
       .finally(() => setGigsLoading(false));
@@ -212,14 +212,14 @@ export default function Landing() {
                   <span className="absolute h-2 w-2 animate-ping rounded-full bg-[#10B981]" />
                   <span className="h-2 w-2 rounded-full bg-[#10B981]" />
                 </span>
-                Live now · updated every minute
+                Live now · top-paying gigs this week
               </div>
               <h2 className="font-display text-3xl sm:text-4xl font-black tracking-tight">
                 Open gigs right now.
               </h2>
               <p className="mt-2 max-w-xl text-sm text-[#4B5563]">
-                A peek at what HCOB is dispatching today. Join the crew to claim a
-                slot — full details unlock once you sign in.
+                Our 3 highest-paying gigs being dispatched today. Join the crew
+                to claim a slot — full details unlock once you sign in.
               </p>
             </div>
             <Button
@@ -237,7 +237,7 @@ export default function Landing() {
                 {[0, 1, 2].map((i) => (
                   <div
                     key={i}
-                    className="h-40 animate-pulse border border-[#E5E7EB] bg-[#F9FAFB]"
+                    className="h-44 animate-pulse border border-[#E5E7EB] bg-[#F9FAFB]"
                   />
                 ))}
               </div>
@@ -266,6 +266,7 @@ export default function Landing() {
                     0,
                     Number(g.slots || 0) - Number(g.slots_filled || 0)
                   );
+                  const isComingSoon = g.status === "coming_soon";
                   return (
                     <button
                       key={g.gig_id}
@@ -277,12 +278,19 @@ export default function Landing() {
                           : "border-[#E5E7EB]"
                       }`}
                     >
-                      {g.is_rush && (
-                        <div className="inline-flex items-center gap-1.5 self-start rounded-full bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-2.5 py-1 text-[9px] font-black tracking-[0.2em] text-white">
-                          <Fire size={11} weight="fill" className="animate-pulse" />
-                          RUSH
-                        </div>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {g.is_rush && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-2.5 py-1 text-[9px] font-black tracking-[0.2em] text-white">
+                            <Fire size={11} weight="fill" className="animate-pulse" />
+                            RUSH
+                          </span>
+                        )}
+                        {isComingSoon && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#030712] px-2.5 py-1 text-[9px] font-black tracking-[0.2em] text-white">
+                            UPCOMING
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-start justify-between gap-2">
                         <div className="font-mono-label flex items-center gap-1.5 text-[10px]">
                           <Icon size={12} weight="duotone" />

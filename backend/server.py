@@ -3008,16 +3008,16 @@ async def public_gig_lookup(gig_id: str):
 
 
 @api.get("/public/gigs")
-async def public_gig_feed(limit: int = Query(6, ge=1, le=24)):
-    """Public no-auth feed of currently-open gigs for the marketing landing
-    page. RUSH gigs surface first, then newest. Address and contact phone are
-    never exposed; only marketing-safe fields."""
+async def public_gig_feed(limit: int = Query(3, ge=1, le=24)):
+    """Public no-auth feed of currently-open + upcoming gigs for the marketing
+    landing page. RUSH first, then highest-paying, then newest. Address and
+    contact phone are never exposed; only marketing-safe fields."""
     gigs = (
         await db.gigs.find(
-            {"status": "open"},
+            {"status": {"$in": ["open", "coming_soon"]}},
             {"_id": 0},
         )
-        .sort([("is_rush", -1), ("rush_at", -1), ("created_at", -1)])
+        .sort([("is_rush", -1), ("pay_rate", -1), ("created_at", -1)])
         .to_list(limit)
     )
     return [
@@ -3033,6 +3033,7 @@ async def public_gig_feed(limit: int = Query(6, ge=1, le=24)):
             "pay_type": g.get("pay_type"),
             "slots": g.get("slots"),
             "slots_filled": g.get("slots_filled"),
+            "status": g.get("status"),
             "is_rush": bool(g.get("is_rush")),
         }
         for g in gigs
@@ -4344,6 +4345,13 @@ async def on_startup():
     await db.gigs.create_index("gig_id", unique=True)
     await db.gig_acceptances.create_index([("gig_id", 1), ("worker_id", 1)], unique=True)
     await db.notifications.create_index("user_id")
+
+    # Legacy backfill: ensure every gig has is_rush as a bool (not null) so
+    # the public landing feed sorts correctly. Idempotent.
+    await db.gigs.update_many(
+        {"is_rush": {"$exists": False}},
+        {"$set": {"is_rush": False, "rush_at": None}},
+    )
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gigblast.com")

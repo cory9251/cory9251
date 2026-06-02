@@ -118,11 +118,12 @@
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
 ## Implemented — 2026-06 (Iteration 20: Landing-page Live Gigs Snippet)
-- New public endpoint `GET /api/public/gigs?limit=N` returns up to 24 open gigs (RUSH-first sort) with PII stripped — no `address_line`, no `contact_phone`.
-- Landing page now shows a "**Open gigs right now**" section below the marquee with a 3-col responsive grid of up to 6 live gigs (category icon, title, slots left, public location, date, pay). Pulsing green LIVE dot in the section header.
-- RUSH gigs render with the red border + flame badge — consistent with the worker feed treatment.
+- New public endpoint `GET /api/public/gigs?limit=N` returns up to 24 open + coming_soon gigs (RUSH-first, then **highest pay**, then newest) with PII stripped — no `address_line`, no `contact_phone`.
+- Landing page now shows a "**Open gigs right now · top-paying gigs this week**" section below the marquee with **the 3 highest-paying gigs** (category icon, title, slots left, public location, date, pay). Pulsing green LIVE dot in the section header.
+- RUSH gigs render with the red border + flame badge (consistent with the worker feed); `coming_soon` gigs get a black "UPCOMING" pill.
 - Clicking a card sends the visitor to `/register?next=/app/gigs/{id}` so they sign up before claiming.
-- Graceful empty state when no gigs are open: "No open gigs at this exact moment — sign up to be in the feed when the next one hits."
+- Graceful empty state when no open/upcoming gigs exist.
+- **Legacy backfill** — `on_startup` now coerces `is_rush=null` → `is_rush=False` on every existing gig (otherwise Mongo's null-vs-false ordering broke the RUSH-first sort for older docs).
 
 ## Backlog
 ### P1
