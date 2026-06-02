@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
@@ -11,7 +12,11 @@ import {
   CurrencyDollar,
   Clock,
   CheckCircle,
+  MapPin,
+  Fire,
 } from "@phosphor-icons/react";
+
+const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
 const work = [
   {
@@ -52,6 +57,17 @@ const marquee = [
 
 export default function Landing() {
   const nav = useNavigate();
+  const [liveGigs, setLiveGigs] = useState([]);
+  const [gigsLoading, setGigsLoading] = useState(true);
+
+  useEffect(() => {
+    const apiBase = process.env.REACT_APP_BACKEND_URL;
+    axios
+      .get(`${apiBase}/api/public/gigs?limit=6`)
+      .then((r) => setLiveGigs(r.data || []))
+      .catch(() => setLiveGigs([]))
+      .finally(() => setGigsLoading(false));
+  }, []);
   return (
     <div className="min-h-screen bg-white text-[#030712]" data-testid="landing-page">
       {/* Top bar */}
@@ -180,6 +196,137 @@ export default function Landing() {
               <span className="text-[#0044FF]">●</span>
             </span>
           ))}
+        </div>
+      </section>
+
+      {/* Live gigs — public snippet from the open feed */}
+      <section
+        data-testid="landing-live-gigs"
+        className="border-b border-[#E5E7EB]"
+      >
+        <div className="mx-auto max-w-7xl px-6 py-16 lg:py-20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="font-mono-label mb-2 flex items-center gap-2">
+                <span className="relative grid h-2 w-2 place-items-center">
+                  <span className="absolute h-2 w-2 animate-ping rounded-full bg-[#10B981]" />
+                  <span className="h-2 w-2 rounded-full bg-[#10B981]" />
+                </span>
+                Live now · updated every minute
+              </div>
+              <h2 className="font-display text-3xl sm:text-4xl font-black tracking-tight">
+                Open gigs right now.
+              </h2>
+              <p className="mt-2 max-w-xl text-sm text-[#4B5563]">
+                A peek at what HCOB is dispatching today. Join the crew to claim a
+                slot — full details unlock once you sign in.
+              </p>
+            </div>
+            <Button
+              data-testid="live-gigs-cta-register"
+              onClick={() => nav("/register")}
+              className="h-11 rounded-none bg-[#030712] px-5 text-white hover:bg-[#1f2937]"
+            >
+              See all gigs <ArrowRight className="ml-2" size={16} />
+            </Button>
+          </div>
+
+          <div className="mt-8">
+            {gigsLoading ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="h-40 animate-pulse border border-[#E5E7EB] bg-[#F9FAFB]"
+                  />
+                ))}
+              </div>
+            ) : liveGigs.length === 0 ? (
+              <div
+                data-testid="live-gigs-empty"
+                className="flex flex-col items-start gap-3 border border-dashed border-[#E5E7EB] bg-[#F9FAFB] p-10 text-sm text-[#4B5563]"
+              >
+                <div className="font-display text-lg font-bold text-[#030712]">
+                  No open gigs at this exact moment.
+                </div>
+                <div>HCOB drops new gigs all week. Sign up to be in the feed when the next one hits.</div>
+                <Button
+                  data-testid="live-gigs-empty-cta"
+                  onClick={() => nav("/register")}
+                  className="mt-2 h-10 rounded-none bg-[#0044FF] px-5 text-white hover:bg-[#0036cc]"
+                >
+                  Join the crew <ArrowRight className="ml-2" size={16} />
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {liveGigs.map((g) => {
+                  const Icon = CAT_ICON[g.category] || Lightning;
+                  const slotsLeft = Math.max(
+                    0,
+                    Number(g.slots || 0) - Number(g.slots_filled || 0)
+                  );
+                  return (
+                    <button
+                      key={g.gig_id}
+                      data-testid={`landing-gig-${g.gig_id}`}
+                      onClick={() => nav(`/register?next=/app/gigs/${g.gig_id}`)}
+                      className={`group relative flex flex-col gap-3 border bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] ${
+                        g.is_rush
+                          ? "border-2 border-[#EF4444] shadow-[0_0_0_4px_rgba(239,68,68,0.10)]"
+                          : "border-[#E5E7EB]"
+                      }`}
+                    >
+                      {g.is_rush && (
+                        <div className="inline-flex items-center gap-1.5 self-start rounded-full bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-2.5 py-1 text-[9px] font-black tracking-[0.2em] text-white">
+                          <Fire size={11} weight="fill" className="animate-pulse" />
+                          RUSH
+                        </div>
+                      )}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-mono-label flex items-center gap-1.5 text-[10px]">
+                          <Icon size={12} weight="duotone" />
+                          {g.category} · {g.subcategory || "general"}
+                        </div>
+                        {slotsLeft > 0 && (
+                          <span className="font-mono-label text-[9px] text-[#10B981]">
+                            {slotsLeft} slot{slotsLeft === 1 ? "" : "s"} left
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-display text-lg font-bold leading-snug">
+                        {g.title}
+                      </div>
+                      <div className="mt-auto flex items-end justify-between gap-2 border-t border-[#E5E7EB] pt-3">
+                        <div className="space-y-1 text-xs text-[#4B5563]">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin size={12} weight="duotone" />
+                            <span className="font-semibold text-[#030712]">
+                              {g.location || "Houston area"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Clock size={12} weight="duotone" />
+                            <span>{g.scheduled_date || "Flexible"}</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono-label text-[9px]">Pay</div>
+                          <div className="font-display text-base font-black text-[#0044FF]">
+                            ${Number(g.pay_rate).toFixed(0)}
+                            {g.pay_type === "hourly" ? "/hr" : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="font-mono-label mt-1 text-[10px] text-[#0044FF] opacity-0 transition-opacity group-hover:opacity-100">
+                        Sign up to claim →
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 

@@ -117,6 +117,13 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
+## Implemented — 2026-06 (Iteration 20: Landing-page Live Gigs Snippet)
+- New public endpoint `GET /api/public/gigs?limit=N` returns up to 24 open gigs (RUSH-first sort) with PII stripped — no `address_line`, no `contact_phone`.
+- Landing page now shows a "**Open gigs right now**" section below the marquee with a 3-col responsive grid of up to 6 live gigs (category icon, title, slots left, public location, date, pay). Pulsing green LIVE dot in the section header.
+- RUSH gigs render with the red border + flame badge — consistent with the worker feed treatment.
+- Clicking a card sends the visitor to `/register?next=/app/gigs/{id}` so they sign up before claiming.
+- Graceful empty state when no gigs are open: "No open gigs at this exact moment — sign up to be in the feed when the next one hits."
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)

@@ -3007,6 +3007,38 @@ async def public_gig_lookup(gig_id: str):
     return safe
 
 
+@api.get("/public/gigs")
+async def public_gig_feed(limit: int = Query(6, ge=1, le=24)):
+    """Public no-auth feed of currently-open gigs for the marketing landing
+    page. RUSH gigs surface first, then newest. Address and contact phone are
+    never exposed; only marketing-safe fields."""
+    gigs = (
+        await db.gigs.find(
+            {"status": "open"},
+            {"_id": 0},
+        )
+        .sort([("is_rush", -1), ("rush_at", -1), ("created_at", -1)])
+        .to_list(limit)
+    )
+    return [
+        {
+            "gig_id": g["gig_id"],
+            "title": g.get("title"),
+            "category": g.get("category"),
+            "subcategory": g.get("subcategory"),
+            "location": g.get("location"),
+            "scheduled_date": g.get("scheduled_date"),
+            "scheduled_at": g.get("scheduled_at"),
+            "pay_rate": g.get("pay_rate"),
+            "pay_type": g.get("pay_type"),
+            "slots": g.get("slots"),
+            "slots_filled": g.get("slots_filled"),
+            "is_rush": bool(g.get("is_rush")),
+        }
+        for g in gigs
+    ]
+
+
 # ----------------------------------------------------------------------------
 # Admin user management (super admins only — read-only admins blocked by
 # require_admin's method check)
