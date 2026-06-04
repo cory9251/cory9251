@@ -28,7 +28,7 @@ export default function AuthCallback() {
         // Clear hash
         window.history.replaceState(null, "", window.location.pathname);
         await checkAuth();
-        navigate(data.role === "admin" ? "/admin" : "/app", { replace: true });
+        navigate(data.role === "admin" ? "/ops" : "/crew", { replace: true });
       } catch (e) {
         setError(e?.response?.data?.detail || "Login failed");
       }

@@ -93,7 +93,7 @@ export default function AdminDashboard() {
         <div className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-3 md:px-10">
           <button
             data-testid="dashboard-pending-apps-link"
-            onClick={() => nav("/admin/requests")}
+            onClick={() => nav("/ops/requests")}
             className="flex w-full items-center justify-between text-left"
           >
             <div className="flex items-center gap-2 text-[#92400E]">
@@ -117,7 +117,7 @@ export default function AdminDashboard() {
             </div>
             <button
               data-testid="view-all-gigs"
-              onClick={() => nav("/admin/gigs")}
+              onClick={() => nav("/ops/gigs")}
               className="text-xs font-semibold text-[#0044FF] hover:underline"
             >
               View all →
@@ -134,7 +134,7 @@ export default function AdminDashboard() {
                 <button
                   key={g.gig_id}
                   data-testid={`recent-gig-${g.gig_id}`}
-                  onClick={() => nav(`/admin/gigs/${g.gig_id}`)}
+                  onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
                   className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-[#F9FAFB]"
                 >
                   <div>
@@ -176,7 +176,7 @@ export default function AdminDashboard() {
             . Choose channels — in-app, email, SMS — and send to your entire roster.
           </p>
           <Button
-            onClick={() => nav("/admin/gigs")}
+            onClick={() => nav("/ops/gigs")}
             className="mt-6 h-10 w-full rounded-none border border-[#030712] bg-white text-[#030712] hover:bg-[#030712] hover:text-white"
           >
             Open gig list

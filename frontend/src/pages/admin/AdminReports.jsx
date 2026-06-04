@@ -566,7 +566,7 @@ export default function AdminReports() {
           <span className="inline-flex items-center gap-1 text-xs text-[#92400E]">
             <WarningCircle size={12} weight="fill" /> Google Sheets not
             configured.{" "}
-            <a className="ml-1 underline" href="/admin/settings">
+            <a className="ml-1 underline" href="/ops/settings">
               Set it up →
             </a>
           </span>

@@ -343,6 +343,18 @@ class RushToggleIn(BaseModel):
     is_rush: bool
 
 
+# Allowed pin-tag values. Any active tag pins the gig to the top of the
+# worker feed and the public landing snippet. Multiple can be active at once.
+GIG_TAG_VALUES = ("rush", "priority_need", "same_day", "top_pay")
+GigTag = Literal["rush", "priority_need", "same_day", "top_pay"]
+
+
+class GigTagsIn(BaseModel):
+    """Replace the gig's `tags` array entirely. Any tag pins the gig to the
+    top of the feed. Pass an empty list to clear all tags."""
+    tags: List[GigTag]
+
+
 class SettingsIn(BaseModel):
     resend_api_key: Optional[str] = None
     sender_email: Optional[str] = None
@@ -823,6 +835,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "publish_at": payload.publish_at,
         "is_rush": False,
         "rush_at": None,
+        "tags": [],
         "created_by": created_by,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "blast_count": 0,
@@ -1096,6 +1109,7 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "publish_at": None,
         "is_rush": False,
         "rush_at": None,
+        "tags": [],
         "created_by": admin["user_id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "blast_count": 0,
@@ -1612,40 +1626,82 @@ async def blast_gig(
     if notif_docs:
         await db.notifications.insert_many(notif_docs)
 
+    # Ensure 'rush' is included in tags after blast (idempotent merge)
+    existing_tags = [t for t in (gig.get("tags") or []) if t in GIG_TAG_VALUES]
+    if "rush" not in existing_tags:
+        existing_tags.insert(0, "rush")
+
     await db.gigs.update_one(
         {"gig_id": gig_id},
         {
             "$set": {
                 "last_blast_at": datetime.now(timezone.utc).isoformat(),
                 "blast_channels": payload.channels,
-                # Blasting a gig auto-marks it as RUSH so it floats to the top
-                # of the worker feed. Admin can toggle this off via the rush
-                # endpoint without re-blasting.
+                # Blasting a gig auto-pins it to the top of the worker feed by
+                # adding the 'rush' tag and flipping `is_rush=true`. Admin can
+                # untag via the rush/tags endpoints without re-blasting.
                 "is_rush": True,
                 "rush_at": datetime.now(timezone.utc).isoformat(),
+                "tags": existing_tags,
             },
             "$inc": {"blast_count": 1},
         },
     )
 
-    return {"ok": True, "counts": counts, "workers_targeted": len(workers), "is_rush": True}
+    return {"ok": True, "counts": counts, "workers_targeted": len(workers), "is_rush": True, "tags": existing_tags}
 
 
 @api.put("/gigs/{gig_id}/rush")
 async def toggle_rush(
     gig_id: str, payload: RushToggleIn, admin: dict = Depends(require_admin)
 ):
-    """Flip the RUSH flag on a gig without sending a blast. Marked RUSH gigs
-    float to the top of every worker feed with a red border + flame badge."""
+    """Flip the RUSH flag on a gig without sending a blast. RUSH-flagged gigs
+    float to the top of every worker feed with a red border + flame badge.
+    Also syncs the 'rush' entry in the gig's tags array."""
     gig = await db.gigs.find_one({"gig_id": gig_id})
     if not gig:
         raise HTTPException(404, "Gig not found")
-    set_ops: dict = {"is_rush": bool(payload.is_rush)}
-    set_ops["rush_at"] = (
-        datetime.now(timezone.utc).isoformat() if payload.is_rush else None
-    )
+    existing_tags = [t for t in (gig.get("tags") or []) if t in GIG_TAG_VALUES]
+    if payload.is_rush:
+        if "rush" not in existing_tags:
+            existing_tags.insert(0, "rush")
+    else:
+        existing_tags = [t for t in existing_tags if t != "rush"]
+    new_is_pinned = len(existing_tags) > 0
+    set_ops: dict = {
+        "is_rush": new_is_pinned,
+        "tags": existing_tags,
+        "rush_at": datetime.now(timezone.utc).isoformat() if new_is_pinned else None,
+    }
     await db.gigs.update_one({"gig_id": gig_id}, {"$set": set_ops})
-    return {"ok": True, "is_rush": bool(payload.is_rush)}
+    return {"ok": True, "is_rush": new_is_pinned, "tags": existing_tags}
+
+
+@api.put("/gigs/{gig_id}/tags")
+async def set_gig_tags(
+    gig_id: str, payload: GigTagsIn, admin: dict = Depends(require_admin)
+):
+    """Replace the gig's `tags` array. Any tag pins the gig to the top of the
+    feed (sets `is_rush=True` so the existing sort path keeps working).
+    Pass `tags=[]` to clear all tags and un-pin the gig."""
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    # Deduplicate while preserving order
+    seen = set()
+    clean_tags = []
+    for t in payload.tags:
+        if t in GIG_TAG_VALUES and t not in seen:
+            clean_tags.append(t)
+            seen.add(t)
+    is_pinned = len(clean_tags) > 0
+    set_ops = {
+        "tags": clean_tags,
+        "is_rush": is_pinned,
+        "rush_at": datetime.now(timezone.utc).isoformat() if is_pinned else None,
+    }
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": set_ops})
+    return {"ok": True, "tags": clean_tags, "is_rush": is_pinned}
 
 
 @api.post("/gigs/{gig_id}/publish")
@@ -3035,6 +3091,7 @@ async def public_gig_feed(limit: int = Query(3, ge=1, le=24)):
             "slots_filled": g.get("slots_filled"),
             "status": g.get("status"),
             "is_rush": bool(g.get("is_rush")),
+            "tags": [t for t in (g.get("tags") or []) if t in GIG_TAG_VALUES],
         }
         for g in gigs
     ]
@@ -4351,6 +4408,17 @@ async def on_startup():
     await db.gigs.update_many(
         {"is_rush": {"$exists": False}},
         {"$set": {"is_rush": False, "rush_at": None}},
+    )
+    # Backfill tags array on legacy docs (any pre-tag-feature gig). If the
+    # gig was previously flagged as rush, carry that into tags so the visual
+    # treatment stays consistent.
+    await db.gigs.update_many(
+        {"tags": {"$exists": False}, "is_rush": True},
+        {"$set": {"tags": ["rush"]}},
+    )
+    await db.gigs.update_many(
+        {"tags": {"$exists": False}},
+        {"$set": {"tags": []}},
     )
 
     # Seed admin

@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, Navigate, useParams } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute, PublicOnly } from "@/components/ProtectedRoute";
@@ -62,9 +62,9 @@ function RouterShell() {
       <Route path="/rate/:token" element={<RatePage />} />
       <Route path="/gigs/:gigId" element={<PublicGigPage />} />
 
-      {/* Admin */}
+      {/* Admin / Ops */}
       <Route
-        path="/admin"
+        path="/ops"
         element={
           <ProtectedRoute role="admin">
             <AdminLayout />
@@ -82,9 +82,20 @@ function RouterShell() {
         <Route path="settings" element={<AdminSettings />} />
       </Route>
 
-      {/* Worker */}
+      {/* Legacy /admin/* — redirect to /ops/* so old bookmarks/emails still work */}
+      <Route path="/admin" element={<Navigate to="/ops" replace />} />
+      <Route path="/admin/calendar" element={<Navigate to="/ops/calendar" replace />} />
+      <Route path="/admin/requests" element={<Navigate to="/ops/requests" replace />} />
+      <Route path="/admin/gigs" element={<Navigate to="/ops/gigs" replace />} />
+      <Route path="/admin/gigs/:gigId" element={<RedirectWithParam to="/ops/gigs" param="gigId" />} />
+      <Route path="/admin/workers" element={<Navigate to="/ops/workers" replace />} />
+      <Route path="/admin/workers/:userId" element={<RedirectWithParam to="/ops/workers" param="userId" />} />
+      <Route path="/admin/reports" element={<Navigate to="/ops/reports" replace />} />
+      <Route path="/admin/settings" element={<Navigate to="/ops/settings" replace />} />
+
+      {/* Worker / Crew */}
       <Route
-        path="/app"
+        path="/crew"
         element={
           <ProtectedRoute role="worker">
             <WorkerLayout />
@@ -93,11 +104,23 @@ function RouterShell() {
       >
         <Route index element={<WorkerFeed />} />
         <Route path="gigs/:gigId" element={<WorkerGigDetail />} />
-        <Route path="accepted" element={<WorkerAccepted />} />
-        <Route path="profile" element={<WorkerProfile />} />
+        <Route path="my-gigs" element={<WorkerAccepted />} />
+        <Route path="me" element={<WorkerProfile />} />
       </Route>
+
+      {/* Legacy /app/* — redirect to /crew/* */}
+      <Route path="/app" element={<Navigate to="/crew" replace />} />
+      <Route path="/app/gigs/:gigId" element={<RedirectWithParam to="/crew/gigs" param="gigId" />} />
+      <Route path="/app/accepted" element={<Navigate to="/crew/my-gigs" replace />} />
+      <Route path="/app/profile" element={<Navigate to="/crew/me" replace />} />
     </Routes>
   );
+}
+
+// Helper to redirect routes with a URL param to the new path
+function RedirectWithParam({ to, param }) {
+  const params = useParams();
+  return <Navigate to={`${to}/${params[param]}`} replace />;
 }
 
 function App() {

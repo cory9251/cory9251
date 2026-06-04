@@ -49,7 +49,7 @@ export default function PublicGigPage() {
     // Already-logged-in workers go straight to the gig detail; new visitors
     // are redirected to register with a `next` query so they land on the gig
     // after signup.
-    nav(`/app/gigs/${gigId}`);
+    nav(`/crew/gigs/${gigId}`);
   };
 
   if (loading) {

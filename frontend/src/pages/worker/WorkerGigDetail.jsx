@@ -144,7 +144,7 @@ export default function WorkerGigDetail() {
   return (
     <div className="px-5 py-6" data-testid="worker-gig-detail">
       <button
-        onClick={() => nav("/app")}
+        onClick={() => nav("/crew")}
         className="font-mono-label mb-4 flex items-center gap-2 text-[#4B5563]"
       >
         <ArrowLeft size={14} /> Feed
@@ -419,7 +419,7 @@ export default function WorkerGigDetail() {
             {!isBlocked && (!profileComplete || !hasId) && (
               <Button
                 data-testid="go-to-profile-btn"
-                onClick={() => nav("/app/profile")}
+                onClick={() => nav("/crew/me")}
                 className="mt-4 h-12 w-full rounded-2xl bg-[#030712] text-white"
               >
                 {!profileComplete ? "Complete my profile →" : "Upload my ID →"}

@@ -364,7 +364,7 @@ export default function AdminWorkers() {
               <button
                 key={w.user_id}
                 data-testid={`worker-card-${w.user_id}`}
-                onClick={() => nav(`/admin/workers/${w.user_id}`)}
+                onClick={() => nav(`/ops/workers/${w.user_id}`)}
                 className="border border-[#E5E7EB] bg-white p-5 text-left hover:border-[#030712]"
               >
                 <div className="flex items-center gap-3">

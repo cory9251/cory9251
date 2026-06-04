@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarBlank, Clock, EyeSlash } from "@phosphor-icons/react";
+import { TAG_PRIORITY, TAG_CONFIG } from "@/lib/gigTags";
 
 const SUBCATS = {
   cleaning: ["deep", "routine", "moveout", "specialty"],
@@ -80,6 +81,7 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
   const [hour, setHour] = useState(init.hour);
   const [minute, setMinute] = useState(init.minute);
   const [ampm, setAmpm] = useState(init.ampm);
+  const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -102,10 +104,13 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
       setHour(d.hour);
       setMinute(d.minute);
       setAmpm(d.ampm);
+      setTags(Array.isArray(gig.tags) ? gig.tags.filter((t) => TAG_PRIORITY.includes(t)) : []);
     }
   }, [open, gig]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const toggleTag = (t) =>
+    setTags((curr) => (curr.includes(t) ? curr.filter((x) => x !== t) : [...curr, t]));
 
   const submit = async (e) => {
     e.preventDefault();
@@ -124,6 +129,12 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
         // empty string clears address_line (treated as null on backend)
         address_line: form.address_line.trim() || null,
       });
+      // Sync tags separately (independent endpoint) — only call if changed
+      const before = (gig.tags || []).slice().sort().join(",");
+      const after = tags.slice().sort().join(",");
+      if (before !== after) {
+        await api.put(`/gigs/${gig.gig_id}/tags`, { tags });
+      }
       toast.success("Gig updated");
       onOpenChange(false);
       onSaved && onSaved();
@@ -366,6 +377,41 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
               onChange={(e) => set("contact_phone", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
             />
+          </div>
+
+          <div className="md:col-span-2 mt-2 border-t border-[#E5E7EB] pt-4">
+            <Label className="font-mono-label">Pin tags</Label>
+            <div className="mt-1 text-[11px] text-[#4B5563]">
+              Any active tag pins the gig to the top of the worker feed and the
+              public landing snippet. Multiple are allowed.
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {TAG_PRIORITY.map((t) => {
+                const cfg = TAG_CONFIG[t];
+                const I = cfg.icon;
+                const on = tags.includes(t);
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    data-testid={`edit-tag-toggle-${t}`}
+                    onClick={() => toggleTag(t)}
+                    className={`flex items-center justify-center gap-1.5 px-2 py-2 text-[10px] font-black tracking-[0.16em] transition-colors ${
+                      on
+                        ? cfg.pillClass
+                        : "border border-[#E5E7EB] bg-white text-[#4B5563] hover:border-[#030712] hover:text-[#030712]"
+                    }`}
+                  >
+                    <I
+                      size={12}
+                      weight="fill"
+                      className={on && cfg.pulse ? "animate-pulse" : ""}
+                    />
+                    {cfg.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="md:col-span-2 mt-2 flex justify-end gap-3 border-t border-[#E5E7EB] pt-4">

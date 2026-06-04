@@ -23,7 +23,7 @@ export default function Login() {
     try {
       const u = await login(email, password);
       toast.success("Welcome back");
-      nav(u.role === "admin" ? "/admin" : "/app", { replace: true });
+      nav(u.role === "admin" ? "/ops" : "/crew", { replace: true });
     } catch (e) {
       setErr(getErr(e));
     } finally {

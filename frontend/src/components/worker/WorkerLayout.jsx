@@ -10,9 +10,9 @@ import {
 import { useAuth } from "@/context/AuthContext";
 
 const tabs = [
-  { to: "/app", label: "Feed", icon: House, end: true },
-  { to: "/app/accepted", label: "Accepted", icon: CheckSquare, end: false },
-  { to: "/app/profile", label: "Profile", icon: User, end: false },
+  { to: "/crew", label: "Feed", icon: House, end: true },
+  { to: "/crew/my-gigs", label: "My gigs", icon: CheckSquare, end: false },
+  { to: "/crew/me", label: "Profile", icon: User, end: false },
 ];
 
 export default function WorkerLayout() {

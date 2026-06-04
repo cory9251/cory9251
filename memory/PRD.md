@@ -117,7 +117,32 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
+## Implemented — 2026-06 (Iteration 22: URL Rebrand)
+- Worker app paths: `/app/*` → **`/crew/*`** (`/crew`, `/crew/gigs/:id`, `/crew/my-gigs`, `/crew/me`).
+- Admin app paths: `/admin/*` → **`/ops/*`** (`/ops`, `/ops/gigs`, `/ops/gigs/:id`, `/ops/workers`, `/ops/workers/:id`, `/ops/requests`, `/ops/reports`, `/ops/calendar`, `/ops/settings`).
+- All in-app `nav()`, `<NavLink to=...>`, `<Navigate to=...>`, `href=` callsites updated to new paths.
+- **Backwards compatibility**: explicit `<Navigate>` redirects from every old path so saved bookmarks, blast emails, and shared links keep working (`/app` → `/crew`, `/admin/gigs/:id` → `/ops/gigs/:id`, etc.).
+- Public-facing URLs unchanged (`/`, `/login`, `/register`, `/gigs/:id` for share links, `/rate/:token`).
+- Backend API routes (`/api/admin/*`, `/api/gigs/*`) unchanged — these are server endpoints, not frontend pages.
+
+## Implemented — 2026-06 (Iteration 21: Multi-Tag Pin System)
+- Generalised single `is_rush` boolean into a `tags` array supporting 4 values: `rush`, `priority_need`, `same_day`, `top_pay`. Multiple tags per gig allowed.
+- Backend: new `PUT /api/gigs/{id}/tags` endpoint (replaces tags array, admin-only). `/rush` and `/blast` endpoints kept in sync (rush sets/clears the `rush` tag; blast always adds `rush` to existing tags). Public feed + worker feed + admin gig endpoints all return the `tags` array.
+- Frontend shared config at `/app/frontend/src/lib/gigTags.js` — single source of truth for tag labels, icons, colors, priority ordering, border classes.
+- Any tag pins the gig to the top of the worker feed and the public landing snippet. Highest-priority active tag determines the card border color.
+- Admin GigDetail: inline 2x2 toggle grid (data-testid `tag-toggle-{tag}`); active-tags banner under the title.
+- Admin GigsList: inline tag pills next to each gig title.
+- Admin EditGigDialog: "Pin tags" section with full toggle row; saves via `/tags` endpoint.
+- Worker feed + Landing snippet: tag-pill stack on each card with the colored border.
+- 24/24 backend pytest pass, all UI flows green (iteration_18 testing report).
+
 ## Implemented — 2026-06 (Iteration 20: Landing-page Live Gigs Snippet)
+- New public endpoint `GET /api/public/gigs?limit=N` returns up to 24 open + coming_soon gigs (RUSH-first, then **highest pay**, then newest) with PII stripped — no `address_line`, no `contact_phone`.
+- Landing page now shows a "**Open gigs right now · top-paying gigs this week**" section below the marquee with **the 3 highest-paying gigs** (category icon, title, slots left, public location, date, pay).
+- RUSH gigs render with the red border + flame badge; `coming_soon` gigs get a black "UPCOMING" pill.
+- Clicking a card sends the visitor to `/register?next=/crew/gigs/{id}` so they sign up before claiming.
+- Graceful empty state when no open/upcoming gigs exist.
+- **Legacy backfill** — `on_startup` now coerces `is_rush=null` → `is_rush=False` on every existing gig.
 - New public endpoint `GET /api/public/gigs?limit=N` returns up to 24 open + coming_soon gigs (RUSH-first, then **highest pay**, then newest) with PII stripped — no `address_line`, no `contact_phone`.
 - Landing page now shows a "**Open gigs right now · top-paying gigs this week**" section below the marquee with **the 3 highest-paying gigs** (category icon, title, slots left, public location, date, pay). Pulsing green LIVE dot in the section header.
 - RUSH gigs render with the red border + flame badge (consistent with the worker feed); `coming_soon` gigs get a black "UPCOMING" pill.

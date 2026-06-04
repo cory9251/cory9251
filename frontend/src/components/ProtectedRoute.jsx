@@ -17,7 +17,7 @@ export function ProtectedRoute({ children, role }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   if (role && user.role !== role) {
-    return <Navigate to={user.role === "admin" ? "/admin" : "/app"} replace />;
+    return <Navigate to={user.role === "admin" ? "/ops" : "/crew"} replace />;
   }
   return children;
 }
@@ -32,7 +32,7 @@ export function PublicOnly({ children }) {
     );
   }
   if (user && user !== false) {
-    return <Navigate to={user.role === "admin" ? "/admin" : "/app"} replace />;
+    return <Navigate to={user.role === "admin" ? "/ops" : "/crew"} replace />;
   }
   return children;
 }

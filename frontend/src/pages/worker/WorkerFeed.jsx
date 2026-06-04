@@ -21,8 +21,8 @@ import {
   IdentificationCard,
   ShieldCheck,
   CaretRight,
-  Fire,
 } from "@phosphor-icons/react";
+import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -96,7 +96,7 @@ export default function WorkerFeed() {
       {showBanner && (
         <button
           data-testid="verification-banner"
-          onClick={() => !isBlocked && nav("/app/profile")}
+          onClick={() => !isBlocked && nav("/crew/me")}
           disabled={isBlocked}
           className={`mt-4 flex w-full items-start gap-3 rounded-2xl border p-4 text-left ${
             isBlocked
@@ -170,25 +170,41 @@ export default function WorkerFeed() {
               acc?.status === "accepted" ||
               acc?.status === "on_the_clock" ||
               acc?.status === "completed";
-            const isRush = !!g.is_rush;
+            const activeTags = getOrderedTags(g.tags);
+            const tagBorder = getTagBorderClass(g.tags);
+            const isPinned = activeTags.length > 0 || g.is_rush;
             return (
               <button
                 key={g.gig_id}
                 data-testid={`feed-gig-${g.gig_id}`}
-                onClick={() => nav(`/app/gigs/${g.gig_id}`)}
-                className={`gb-tactile relative w-full rounded-2xl border bg-white p-5 text-left transition-all ${
-                  isRush
-                    ? "border-2 border-[#EF4444] shadow-[0_0_0_4px_rgba(239,68,68,0.12)]"
-                    : "border-black/5"
+                onClick={() => nav(`/crew/gigs/${g.gig_id}`)}
+                className={`gb-tactile relative w-full rounded-2xl bg-white p-5 text-left transition-all ${
+                  tagBorder || "border border-black/5"
                 }`}
               >
-                {isRush && (
+                {activeTags.length > 0 && (
                   <div
-                    data-testid={`rush-banner-${g.gig_id}`}
-                    className="-mt-1 mb-3 flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-3 py-1.5 text-[10px] font-black tracking-[0.2em] text-white"
+                    data-testid={`tag-stack-${g.gig_id}`}
+                    className="-mt-1 mb-3 flex flex-wrap gap-1.5"
                   >
-                    <Fire size={14} weight="fill" className="animate-pulse" />
-                    RUSH · BLASTED
+                    {activeTags.map((t) => {
+                      const cfg = TAG_CONFIG[t];
+                      const I = cfg.icon;
+                      return (
+                        <span
+                          key={t}
+                          data-testid={`tag-${t}-${g.gig_id}`}
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.18em] ${cfg.pillClass}`}
+                        >
+                          <I
+                            size={11}
+                            weight="fill"
+                            className={cfg.pulse ? "animate-pulse" : ""}
+                          />
+                          {cfg.label}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
                 <div className="flex items-start justify-between gap-3">
@@ -202,23 +218,19 @@ export default function WorkerFeed() {
                     </h3>
                   </div>
                   {isApproved ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#10B981] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#10B981] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
                       <CheckCircle size={10} weight="fill" /> APPROVED
                     </span>
                   ) : isRequested ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#F59E0B] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#F59E0B] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
                       REQUESTED
                     </span>
-                  ) : isRush ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EF4444] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
-                      <Fire size={10} weight="fill" /> HOT
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-[#0044FF] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
+                  ) : !isPinned ? (
+                    <span className="shrink-0 rounded-full bg-[#0044FF] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
                       OPEN
                     </span>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="mt-4 grid grid-cols-3 gap-3 border-t border-[#E5E7EB] pt-3 text-xs">

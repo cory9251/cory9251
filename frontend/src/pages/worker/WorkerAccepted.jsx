@@ -78,7 +78,7 @@ export default function WorkerAccepted() {
             <button
               key={g.gig_id}
               data-testid={`accepted-gig-${g.gig_id}`}
-              onClick={() => nav(`/app/gigs/${g.gig_id}`)}
+              onClick={() => nav(`/crew/gigs/${g.gig_id}`)}
               className="gb-tactile w-full rounded-2xl border border-black/5 bg-white p-5 text-left"
             >
               <div className="flex items-start justify-between gap-3">

@@ -31,7 +31,7 @@ export default function Register() {
       if (u.role === "worker" && next && next.startsWith("/")) {
         nav(next, { replace: true });
       } else {
-        nav(u.role === "admin" ? "/admin" : "/app", { replace: true });
+        nav(u.role === "admin" ? "/ops" : "/crew", { replace: true });
       }
     } catch (e) {
       setErr(getErr(e));

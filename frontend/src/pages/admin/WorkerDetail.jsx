@@ -111,7 +111,7 @@ export default function WorkerDetail() {
     try {
       await api.delete(`/admin/workers/${userId}`);
       toast.success("Worker deleted");
-      nav("/admin/workers");
+      nav("/ops/workers");
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -140,7 +140,7 @@ export default function WorkerDetail() {
     <div data-testid="worker-detail">
       <div className="border-b border-[#E5E7EB] px-6 py-6 md:px-10">
         <button
-          onClick={() => nav("/admin/workers")}
+          onClick={() => nav("/ops/workers")}
           className="font-mono-label flex items-center gap-2 text-[#4B5563] hover:text-[#030712]"
         >
           <ArrowLeft size={14} /> All workers

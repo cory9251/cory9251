@@ -11,7 +11,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import CreateGigDialog from "@/components/admin/CreateGigDialog";
-import { Plus, Megaphone, Broom, Wrench, Car, Fire } from "@phosphor-icons/react";
+import { Plus, Megaphone, Broom, Wrench, Car } from "@phosphor-icons/react";
+import { TAG_CONFIG, getOrderedTags } from "@/lib/gigTags";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -112,22 +113,27 @@ export default function AdminGigs() {
                       className="hover:bg-[#F9FAFB]"
                     >
                       <td className="border-b border-[#E5E7EB] px-4 py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <button
-                            onClick={() => nav(`/admin/gigs/${g.gig_id}`)}
+                            onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
                             className="font-display text-base font-bold hover:text-[#0044FF]"
                           >
                             {g.title}
                           </button>
-                          {g.is_rush && (
-                            <span
-                              data-testid={`rush-pill-${g.gig_id}`}
-                              title="RUSH — pinned to top of worker feed"
-                              className="inline-flex items-center gap-1 rounded-full bg-[#EF4444] px-2 py-0.5 text-[9px] font-black tracking-widest text-white"
-                            >
-                              <Fire size={10} weight="fill" /> RUSH
-                            </span>
-                          )}
+                          {getOrderedTags(g.tags).map((t) => {
+                            const cfg = TAG_CONFIG[t];
+                            const I = cfg.icon;
+                            return (
+                              <span
+                                key={t}
+                                data-testid={`tag-pill-${t}-${g.gig_id}`}
+                                title={`${cfg.label} — pinned to top of feed`}
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black tracking-widest ${cfg.pillClass}`}
+                              >
+                                <I size={9} weight="fill" /> {cfg.label}
+                              </span>
+                            );
+                          })}
                         </div>
                         <div className="text-xs text-[#4B5563]">{g.location}</div>
                       </td>
@@ -163,7 +169,7 @@ export default function AdminGigs() {
                       <td className="border-b border-[#E5E7EB] px-4 py-3 text-right">
                         <button
                           data-testid={`open-gig-${g.gig_id}`}
-                          onClick={() => nav(`/admin/gigs/${g.gig_id}`)}
+                          onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
                           className="text-xs font-semibold text-[#0044FF] hover:underline"
                         >
                           Manage →

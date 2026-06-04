@@ -40,7 +40,6 @@ import {
   Clock,
   Star,
   Share,
-  Fire,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
@@ -48,6 +47,7 @@ import PayOverrideDialog from "@/components/admin/PayOverrideDialog";
 import ApproveTimesheetDialog from "@/components/admin/ApproveTimesheetDialog";
 import EditTimesheetDialog from "@/components/admin/EditTimesheetDialog";
 import RatingDialog, { StarsDisplay } from "@/components/admin/RatingDialog";
+import { TAG_CONFIG, TAG_PRIORITY, getOrderedTags } from "@/lib/gigTags";
 
 export default function GigDetail() {
   const { gigId } = useParams();
@@ -83,7 +83,7 @@ export default function GigDetail() {
     try {
       await api.delete(`/gigs/${gigId}`);
       toast.success("Gig deleted");
-      nav("/admin/gigs");
+      nav("/ops/gigs");
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -94,7 +94,7 @@ export default function GigDetail() {
     try {
       const { data } = await api.post(`/gigs/${gigId}/duplicate`);
       toast.success("Gig duplicated");
-      nav(`/admin/gigs/${data.gig_id}`);
+      nav(`/ops/gigs/${data.gig_id}`);
     } catch (e) {
       toast.error(getErr(e));
     } finally {
@@ -148,6 +148,25 @@ export default function GigDetail() {
     }
   };
 
+  const toggleTag = async (tag) => {
+    const current = Array.isArray(gig.tags) ? gig.tags : [];
+    const next = current.includes(tag)
+      ? current.filter((t) => t !== tag)
+      : [...current, tag];
+    try {
+      const { data } = await api.put(`/gigs/${gigId}/tags`, { tags: next });
+      const cfg = TAG_CONFIG[tag];
+      toast.success(
+        next.includes(tag)
+          ? `${cfg.label} on — pinned to top of feed`
+          : `${cfg.label} off${data.is_rush ? " — still pinned by other tags" : " — back to normal"}`
+      );
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
   if (!gig) {
     return (
       <div className="p-10 font-mono-label" data-testid="gig-loading">Loading gig…</div>
@@ -158,7 +177,7 @@ export default function GigDetail() {
     <div data-testid="admin-gig-detail">
       <div className="border-b border-[#E5E7EB] px-6 py-6 md:px-10">
         <button
-          onClick={() => nav("/admin/gigs")}
+          onClick={() => nav("/ops/gigs")}
           className="font-mono-label flex items-center gap-2 text-[#4B5563] hover:text-[#030712]"
         >
           <ArrowLeft size={14} /> All gigs
@@ -173,15 +192,37 @@ export default function GigDetail() {
           <h1 className="mt-2 font-display text-4xl font-black tracking-tight">
             {gig.title}
           </h1>
-          {gig.is_rush && (
-            <div
-              data-testid="rush-active-banner"
-              className="mt-3 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-3 py-1.5 text-[10px] font-black tracking-[0.2em] text-white"
-            >
-              <Fire size={14} weight="fill" className="animate-pulse" />
-              RUSH · PINNED TO TOP OF FEED
-            </div>
-          )}
+          {(() => {
+            const activeTags = getOrderedTags(gig.tags);
+            if (activeTags.length === 0) return null;
+            return (
+              <div
+                data-testid="active-tags-banner"
+                className="mt-3 flex flex-wrap items-center gap-2"
+              >
+                <span className="font-mono-label text-[10px] text-[#4B5563]">
+                  Pinned to top of feed
+                </span>
+                {activeTags.map((t) => {
+                  const cfg = TAG_CONFIG[t];
+                  const I = cfg.icon;
+                  return (
+                    <span
+                      key={t}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.18em] ${cfg.pillClass}`}
+                    >
+                      <I
+                        size={11}
+                        weight="fill"
+                        className={cfg.pulse ? "animate-pulse" : ""}
+                      />
+                      {cfg.label}
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          })()}
           <p className="mt-4 text-[#4B5563] leading-relaxed">{gig.description}</p>
 
           <dl className="mt-8 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
@@ -224,22 +265,40 @@ export default function GigDetail() {
             <Megaphone size={18} className="mr-2" weight="fill" /> Blast to workers
           </Button>
 
-          <Button
-            data-testid="toggle-rush-btn"
-            onClick={toggleRush}
-            className={`mt-3 h-12 w-full rounded-none ${
-              gig.is_rush
-                ? "bg-[#EF4444] text-white hover:bg-[#DC2626]"
-                : "border border-[#EF4444] bg-white text-[#EF4444] hover:bg-[#FEF2F2]"
-            }`}
+          <div
+            data-testid="tag-toggles"
+            className="mt-6 rounded-none border border-[#E5E7EB] bg-white p-4"
           >
-            <Fire
-              size={18}
-              className={`mr-2 ${gig.is_rush ? "animate-pulse" : ""}`}
-              weight="fill"
-            />
-            {gig.is_rush ? "RUSH is ON · turn off" : "Mark as RUSH"}
-          </Button>
+            <div className="font-mono-label mb-3 text-[10px] text-[#4B5563]">
+              Pin tags · any tag pins the gig to the top of the feed
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {TAG_PRIORITY.map((t) => {
+                const cfg = TAG_CONFIG[t];
+                const I = cfg.icon;
+                const on = Array.isArray(gig.tags) && gig.tags.includes(t);
+                return (
+                  <button
+                    key={t}
+                    data-testid={`tag-toggle-${t}`}
+                    onClick={() => toggleTag(t)}
+                    className={`flex items-center justify-center gap-1.5 px-2 py-2 text-[10px] font-black tracking-[0.16em] transition-colors ${
+                      on
+                        ? cfg.pillClass
+                        : "border border-[#E5E7EB] bg-white text-[#4B5563] hover:border-[#030712] hover:text-[#030712]"
+                    }`}
+                  >
+                    <I
+                      size={12}
+                      weight="fill"
+                      className={on && cfg.pulse ? "animate-pulse" : ""}
+                    />
+                    {cfg.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <Button
             data-testid="edit-gig-btn"

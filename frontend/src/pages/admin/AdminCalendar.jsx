@@ -233,7 +233,7 @@ export default function AdminCalendar() {
                           data-testid={`cal-chip-${g.gig_id}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            nav(`/admin/gigs/${g.gig_id}`);
+                            nav(`/ops/gigs/${g.gig_id}`);
                           }}
                           className={`block cursor-pointer truncate px-2 py-1 text-[11px] font-semibold ${c.bg} ${c.text}`}
                           title={`${format(g._date, "h:mm a")} — ${g.title}`}
@@ -271,7 +271,7 @@ export default function AdminCalendar() {
                   <li
                     key={g.gig_id}
                     data-testid={`upcoming-${g.gig_id}`}
-                    onClick={() => nav(`/admin/gigs/${g.gig_id}`)}
+                    onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
                     className="cursor-pointer border border-[#E5E7EB] bg-white p-3 hover:border-[#030712]"
                   >
                     <div className="flex items-center gap-2">

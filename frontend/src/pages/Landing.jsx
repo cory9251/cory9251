@@ -13,8 +13,8 @@ import {
   Clock,
   CheckCircle,
   MapPin,
-  Fire,
 } from "@phosphor-icons/react";
+import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -267,30 +267,43 @@ export default function Landing() {
                     Number(g.slots || 0) - Number(g.slots_filled || 0)
                   );
                   const isComingSoon = g.status === "coming_soon";
+                  const activeTags = getOrderedTags(g.tags);
+                  const tagBorder = getTagBorderClass(g.tags);
                   return (
                     <button
                       key={g.gig_id}
                       data-testid={`landing-gig-${g.gig_id}`}
-                      onClick={() => nav(`/register?next=/app/gigs/${g.gig_id}`)}
-                      className={`group relative flex flex-col gap-3 border bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] ${
-                        g.is_rush
-                          ? "border-2 border-[#EF4444] shadow-[0_0_0_4px_rgba(239,68,68,0.10)]"
-                          : "border-[#E5E7EB]"
+                      onClick={() => nav(`/register?next=/crew/gigs/${g.gig_id}`)}
+                      className={`group relative flex flex-col gap-3 bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] ${
+                        tagBorder || "border border-[#E5E7EB]"
                       }`}
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        {g.is_rush && (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#EF4444] to-[#DC2626] px-2.5 py-1 text-[9px] font-black tracking-[0.2em] text-white">
-                            <Fire size={11} weight="fill" className="animate-pulse" />
-                            RUSH
-                          </span>
-                        )}
-                        {isComingSoon && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-[#030712] px-2.5 py-1 text-[9px] font-black tracking-[0.2em] text-white">
-                            UPCOMING
-                          </span>
-                        )}
-                      </div>
+                      {(activeTags.length > 0 || isComingSoon) && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {activeTags.map((t) => {
+                            const cfg = TAG_CONFIG[t];
+                            const I = cfg.icon;
+                            return (
+                              <span
+                                key={t}
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-black tracking-[0.2em] ${cfg.pillClass}`}
+                              >
+                                <I
+                                  size={11}
+                                  weight="fill"
+                                  className={cfg.pulse ? "animate-pulse" : ""}
+                                />
+                                {cfg.label}
+                              </span>
+                            );
+                          })}
+                          {isComingSoon && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-[#030712] px-2.5 py-1 text-[9px] font-black tracking-[0.2em] text-white">
+                              UPCOMING
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-start justify-between gap-2">
                         <div className="font-mono-label flex items-center gap-1.5 text-[10px]">
                           <Icon size={12} weight="duotone" />
