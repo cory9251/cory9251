@@ -117,7 +117,21 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
+## Implemented — 2026-06 (Iteration 24: Calendar v2 — Multi-View + Heatmap)
+- Three view modes (toggle pills top-right): **Month / Week / Day**.
+- **Month**: 6-row grid with workload heatmap tinting (blue→red gradient based on total slot demand vs busiest day); per-day pay/hours/filled-vs-total slot mini-stats; pin-tag icons embedded in each gig chip.
+- **Week**: 7-column workspace, each column shows per-day pay/slot totals in the header and stackable gig cards with category color + tag icons.
+- **Day**: hour-by-hour timeline (6 AM → midnight) with full gig detail cards in each bucket; 4 summary KPIs (Gigs/Pay/Hours/Workforce); right-side "At a glance" panel with big-stat cards + a clickable roster list.
+- Heatmap legend strip in the header explains the color scale.
+- All views share the prev/next/today nav, "+ New gig", and category/legend strip.
+- All previous testIDs preserved (`cal-day-{key}`, `cal-chip-{gigId}`, `cal-prev`, `cal-next`, `cal-today`, `cal-new-gig`) plus new ones for the view toggle and per-view chips (`cal-view-month/week/day`, `cal-week-day-{key}`, `cal-week-chip-{id}`, `day-hour-{h}`, `day-card-{id}`).
+
 ## Implemented — 2026-06 (Iteration 23: SEO + Open Graph)
+- Site-wide meta tags in `index.html` (OG, Twitter Card, theme-color, branded favicon set).
+- Branded 1200×630 `/og-default.png` (HCOB lightning logo + tagline + pin-tag pills).
+- Per-gig social unfurling: `GET /api/share/gigs/{id}` returns HTML with gig-specific meta tags + meta-refresh to React; `GET /api/share/gigs/{id}/og-image` renders a dynamic 1200×630 PNG (title/pay/category/location/tags). 5-min cache; PIL fallback to default image.
+- Admin "Share gig link" now copies `/api/share/gigs/{id}` so iMessage/Slack/WhatsApp/Facebook unfurl correctly (these crawlers don't run JS).
+- Uses `X-Forwarded-Host`/`X-Forwarded-Proto` so canonical URLs match the public hostname (works on preview, prod, and the new `hcobnetwork.com` custom domain without any env change).
 - **Site-wide meta tags** in `/app/frontend/public/index.html`: title, description, theme-color, canonical favicon, Open Graph (og:type, og:site_name, og:title, og:description, og:image, og:image:width/height/alt, og:locale), and Twitter Card (twitter:card=summary_large_image, twitter:title, twitter:description, twitter:image). Replaces the old "Emergent | Fullstack App" placeholder.
 - **Branded assets** generated via `/tmp/gen_og.py` (one-time): `/og-default.png` (1200×630 social card with HCOB logo + tagline + RUSH/SAME DAY/TOP PAY pills), `/favicon.ico`, `/favicon.png`, `/favicon-192.png`, `/apple-touch-icon.png`.
 - **Per-gig social unfurling**: new server-rendered endpoint `GET /api/share/gigs/{id}` returns HTML with gig-specific OG tags (title, pay, category, location, date) + meta-refresh to the React page. Crawlers that don't run JS (iMessage, WhatsApp, Slack, Facebook) read the meta tags. Real users get instant redirect.
