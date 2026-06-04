@@ -322,7 +322,10 @@ export default function GigDetail() {
           <Button
             data-testid="share-gig-btn"
             onClick={async () => {
-              const url = `${window.location.origin}/gigs/${gigId}`;
+              // Use the server-rendered share endpoint so iMessage / Slack /
+              // WhatsApp / Facebook unfurl with the gig's title, pay, location
+              // and a branded preview image (their crawlers don't run JS).
+              const url = `${window.location.origin}/api/share/gigs/${gigId}`;
               try {
                 await navigator.clipboard.writeText(url);
                 toast.success("Share link copied — paste anywhere");

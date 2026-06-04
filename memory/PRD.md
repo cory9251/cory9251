@@ -117,7 +117,21 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
+## Implemented — 2026-06 (Iteration 23: SEO + Open Graph)
+- **Site-wide meta tags** in `/app/frontend/public/index.html`: title, description, theme-color, canonical favicon, Open Graph (og:type, og:site_name, og:title, og:description, og:image, og:image:width/height/alt, og:locale), and Twitter Card (twitter:card=summary_large_image, twitter:title, twitter:description, twitter:image). Replaces the old "Emergent | Fullstack App" placeholder.
+- **Branded assets** generated via `/tmp/gen_og.py` (one-time): `/og-default.png` (1200×630 social card with HCOB logo + tagline + RUSH/SAME DAY/TOP PAY pills), `/favicon.ico`, `/favicon.png`, `/favicon-192.png`, `/apple-touch-icon.png`.
+- **Per-gig social unfurling**: new server-rendered endpoint `GET /api/share/gigs/{id}` returns HTML with gig-specific OG tags (title, pay, category, location, date) + meta-refresh to the React page. Crawlers that don't run JS (iMessage, WhatsApp, Slack, Facebook) read the meta tags. Real users get instant redirect.
+- **Dynamic per-gig OG image**: `GET /api/share/gigs/{id}/og-image` renders a fresh 1200×630 PNG showing the gig's title, category, pay, scheduled date, location, and active pin tags (RUSH/SAME DAY/etc). 5-minute browser cache. PIL fallback to the default site image if rendering fails.
+- **Admin Share button** in `GigDetail.jsx` now copies `https://yourdomain.com/api/share/gigs/{id}` instead of the bare React route — so every shared link unfurls beautifully across all messaging apps.
+- Forwarded-host detection: the share endpoint uses `X-Forwarded-Host`/`X-Forwarded-Proto` headers so canonical URLs match the public hostname (works on preview, production, and any future custom domain without env config).
+
 ## Implemented — 2026-06 (Iteration 22: URL Rebrand)
+- Worker app paths: `/app/*` → **`/crew/*`** (`/crew`, `/crew/gigs/:id`, `/crew/my-gigs`, `/crew/me`).
+- Admin app paths: `/admin/*` → **`/ops/*`** (`/ops`, `/ops/gigs`, `/ops/gigs/:id`, `/ops/workers`, `/ops/workers/:id`, `/ops/requests`, `/ops/reports`, `/ops/calendar`, `/ops/settings`).
+- All in-app `nav()`, `<NavLink to=...>`, `<Navigate to=...>`, `href=` callsites updated to new paths.
+- **Backwards compatibility**: explicit `<Navigate>` redirects from every old path so saved bookmarks, blast emails, and shared links keep working.
+- Public-facing URLs unchanged (`/`, `/login`, `/register`, `/gigs/:id`, `/rate/:token`).
+- Backend API routes (`/api/admin/*`, `/api/gigs/*`) unchanged.
 - Worker app paths: `/app/*` → **`/crew/*`** (`/crew`, `/crew/gigs/:id`, `/crew/my-gigs`, `/crew/me`).
 - Admin app paths: `/admin/*` → **`/ops/*`** (`/ops`, `/ops/gigs`, `/ops/gigs/:id`, `/ops/workers`, `/ops/workers/:id`, `/ops/requests`, `/ops/reports`, `/ops/calendar`, `/ops/settings`).
 - All in-app `nav()`, `<NavLink to=...>`, `<Navigate to=...>`, `href=` callsites updated to new paths.

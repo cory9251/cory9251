@@ -31,7 +31,7 @@ from fastapi import (
     Query,
     Header,
 )
-from fastapi.responses import Response as FastAPIResponse
+from fastapi.responses import Response as FastAPIResponse, HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
@@ -3061,6 +3061,262 @@ async def public_gig_lookup(gig_id: str):
         "status": gig.get("status"),
     }
     return safe
+
+
+# --- HTML escape helper for the OG share endpoint ---
+def _html_escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+@api.get("/share/gigs/{gig_id}", response_class=HTMLResponse)
+async def share_gig_og(gig_id: str, request: Request):
+    """Server-rendered HTML page with Open Graph + Twitter Card meta tags so
+    that social previews (iMessage, Slack, WhatsApp, Facebook, Twitter, LinkedIn)
+    unfurl with the gig's title, category, pay, and a branded image.
+
+    Real browsers see a meta-refresh to `/gigs/{gig_id}` so they land on the
+    React app immediately. Bots that just scrape the head will read the tags."""
+    gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
+    # Use proxy-forwarded headers if present so the canonical host matches the
+    # public URL (not the internal cluster hostname FastAPI sees). Falls back
+    # to env vars, then request.base_url.
+    fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    fwd_proto = request.headers.get("x-forwarded-proto") or "https"
+    if fwd_host:
+        base = f"{fwd_proto}://{fwd_host}"
+    else:
+        base = (
+            os.environ.get("PUBLIC_BASE_URL")
+            or str(request.base_url).rstrip("/")
+        )
+    base = base.rstrip("/")
+    canonical = f"{base}/api/share/gigs/{gig_id}"
+    react_url = f"{base}/gigs/{gig_id}"
+    og_image = f"{base}/og-default.png"
+
+    if not gig or gig.get("status") == "cancelled":
+        title = "Gig no longer available — HCOB Network"
+        desc = "This gig has been filled or removed. See open gigs at HCOB Network."
+        html = f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{_html_escape(title)}</title>
+<meta name="description" content="{_html_escape(desc)}" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="HCOB Network" />
+<meta property="og:title" content="{_html_escape(title)}" />
+<meta property="og:description" content="{_html_escape(desc)}" />
+<meta property="og:image" content="{og_image}" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:url" content="{canonical}" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="{_html_escape(title)}" />
+<meta name="twitter:description" content="{_html_escape(desc)}" />
+<meta name="twitter:image" content="{og_image}" />
+<meta http-equiv="refresh" content="0;url={react_url}" />
+<link rel="canonical" href="{canonical}" />
+</head><body><p>Redirecting… <a href="{react_url}">View on HCOB Network</a>.</p></body></html>"""
+        return HTMLResponse(content=html, status_code=200)
+
+    title_raw = gig.get("title") or "HCOB Network Gig"
+    category = (gig.get("category") or "").title()
+    sub = (gig.get("subcategory") or "").replace("_", " ")
+    pay = gig.get("pay_rate")
+    pay_type = gig.get("pay_type") or "hourly"
+    location = gig.get("location") or "Houston"
+    scheduled = gig.get("scheduled_date") or "TBD"
+    pay_str = f"${pay:.0f}{'/hr' if pay_type == 'hourly' else ' flat'}" if pay else ""
+
+    title_full = f"{title_raw} — {pay_str} · {location} · HCOB Network"
+    parts = [category]
+    if sub and sub != "general":
+        parts.append(sub)
+    if pay_str:
+        parts.append(pay_str)
+    parts.append(location)
+    parts.append(f"Scheduled {scheduled}")
+    desc = " · ".join(parts) + ". Apply on HCOB Network."
+
+    # Use the dynamic OG image if available; otherwise fall back to default
+    dynamic_og_image = f"{base}/api/share/gigs/{gig_id}/og-image"
+
+    html = f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{_html_escape(title_full)}</title>
+<meta name="description" content="{_html_escape(desc)}" />
+<meta name="theme-color" content="#0044FF" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="HCOB Network" />
+<meta property="og:title" content="{_html_escape(title_raw)} — {_html_escape(pay_str)}" />
+<meta property="og:description" content="{_html_escape(desc)}" />
+<meta property="og:image" content="{dynamic_og_image}" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="{_html_escape(title_raw)} on HCOB Network" />
+<meta property="og:url" content="{canonical}" />
+<meta property="og:locale" content="en_US" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="{_html_escape(title_raw)} — {_html_escape(pay_str)}" />
+<meta name="twitter:description" content="{_html_escape(desc)}" />
+<meta name="twitter:image" content="{dynamic_og_image}" />
+
+<link rel="canonical" href="{canonical}" />
+<link rel="icon" href="/favicon.ico" />
+<meta http-equiv="refresh" content="0;url={react_url}" />
+<style>body{{margin:0;padding:64px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#030712;color:#fff;text-align:center;}}a{{color:#0044FF;}}</style>
+</head>
+<body>
+<h1>Redirecting to HCOB Network…</h1>
+<p>If you are not redirected automatically, <a href="{react_url}">click here to view this gig</a>.</p>
+<script>window.location.replace("{react_url}");</script>
+</body></html>"""
+    return HTMLResponse(content=html, status_code=200)
+
+
+@api.get("/share/gigs/{gig_id}/og-image", response_class=Response)
+async def share_gig_og_image(gig_id: str):
+    """Dynamically rendered 1200x630 PNG for the gig's social preview. Falls
+    back to the default site OG image if the gig is missing/cancelled or PIL
+    fails for any reason."""
+    gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
+    fallback_path = "/app/frontend/public/og-default.png"
+    if not gig or gig.get("status") == "cancelled":
+        try:
+            with open(fallback_path, "rb") as f:
+                return Response(content=f.read(), media_type="image/png")
+        except FileNotFoundError:
+            raise HTTPException(404, "Image unavailable")
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import os
+
+        def find_font(size, bold=False):
+            cands = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ]
+            for c in cands:
+                if os.path.exists(c):
+                    return ImageFont.truetype(c, size)
+            return ImageFont.load_default()
+
+        W, H = 1200, 630
+        INK = (3, 7, 18)
+        BLUE = (0, 68, 255)
+        WHITE = (255, 255, 255)
+        RED = (239, 68, 68)
+        YELLOW = (234, 179, 8)
+        ORANGE = (249, 115, 22)
+
+        TAG_STYLE = {
+            "rush": ("RUSH", RED, WHITE),
+            "priority_need": ("PRIORITY", ORANGE, WHITE),
+            "same_day": ("SAME DAY", YELLOW, INK),
+            "top_pay": ("TOP PAY", BLUE, WHITE),
+        }
+
+        img = Image.new("RGB", (W, H), INK)
+        d = ImageDraw.Draw(img)
+        # Subtle grid
+        for x in range(0, W, 60):
+            d.line([(x, 0), (x, H)], fill=(20, 25, 40), width=1)
+        for y in range(0, H, 60):
+            d.line([(0, y), (W, y)], fill=(20, 25, 40), width=1)
+        d.rectangle([(0, 0), (W, 8)], fill=BLUE)
+
+        # Logo
+        d.rounded_rectangle([(80, 80), (160, 160)], radius=12, fill=BLUE)
+        bolt = [(130, 98), (108, 130), (122, 130), (116, 152), (140, 118), (126, 118), (132, 98)]
+        d.polygon(bolt, fill=WHITE)
+
+        # Branding text
+        d.text((180, 92), "HCOB NETWORK", font=find_font(38, bold=True), fill=WHITE)
+        d.text((180, 134), "DISPATCH · HOUSTON", font=find_font(18), fill=BLUE)
+
+        # Category label
+        cat = (gig.get("category") or "").upper()
+        sub = (gig.get("subcategory") or "").replace("_", " ").upper()
+        cat_label = f"{cat} · {sub}" if sub and sub != "GENERAL" else cat
+        d.text((80, 220), cat_label, font=find_font(22, bold=True), fill=(180, 195, 215))
+
+        # Gig title (wrapped to 2 lines)
+        title = gig.get("title") or "HCOB Gig"
+        font_title = find_font(76, bold=True)
+        # Naive wrap by char width
+        words = title.split()
+        lines = []
+        cur = ""
+        for w in words:
+            test = (cur + " " + w).strip()
+            if d.textlength(test, font=font_title) > 1040 and cur:
+                lines.append(cur)
+                cur = w
+            else:
+                cur = test
+        if cur:
+            lines.append(cur)
+        lines = lines[:2]
+        if len(lines) == 2 and d.textlength(title, font=font_title) > 2080:
+            lines[1] = lines[1][:40] + "…"
+        ty = 270
+        for ln in lines:
+            d.text((80, ty), ln, font=font_title, fill=WHITE)
+            ty += 86
+
+        # Meta line: location · scheduled · pay
+        loc = gig.get("location") or "Houston"
+        sched = gig.get("scheduled_date") or "TBD"
+        pay = gig.get("pay_rate")
+        pay_type = gig.get("pay_type") or "hourly"
+        pay_str = f"${int(pay)}{'/hr' if pay_type == 'hourly' else ' flat'}" if pay else ""
+        meta_parts = [loc, sched]
+        if pay_str:
+            meta_parts.append(pay_str)
+        d.text((80, 470), " · ".join(meta_parts), font=find_font(28), fill=(180, 195, 215))
+
+        # Pay block (right side, big)
+        if pay_str:
+            font_pay = find_font(82, bold=True)
+            pw = d.textlength(pay_str, font=font_pay)
+            d.text((W - 80 - pw, 250), pay_str, font=font_pay, fill=BLUE)
+            d.text((W - 80 - pw + (pw - d.textlength("PAY", font=find_font(20, bold=True))) / 2, 226), "PAY", font=find_font(20, bold=True), fill=(180, 195, 215))
+
+        # Tag pills bottom-right
+        active_tags = [t for t in (gig.get("tags") or []) if t in TAG_STYLE]
+        if active_tags:
+            px = W - 60
+            py = H - 80
+            font_pill = find_font(22, bold=True)
+            for t in reversed(active_tags):
+                label, bg, fg = TAG_STYLE[t]
+                tw = d.textlength(label, font=font_pill)
+                pw_ = int(tw + 36)
+                d.rounded_rectangle([(px - pw_, py), (px, py + 48)], radius=24, fill=bg)
+                d.text((px - pw_ + 18, py + 12), label, font=font_pill, fill=fg)
+                px -= pw_ + 12
+
+        from io import BytesIO
+        buf = BytesIO()
+        img.save(buf, "PNG", optimize=True)
+        return Response(content=buf.getvalue(), media_type="image/png", headers={"Cache-Control": "public, max-age=300"})
+    except Exception as e:
+        logger.exception("OG image generation failed for gig %s: %s", gig_id, e)
+        try:
+            with open(fallback_path, "rb") as f:
+                return Response(content=f.read(), media_type="image/png")
+        except FileNotFoundError:
+            raise HTTPException(500, "Image generation failed")
 
 
 @api.get("/public/gigs")
