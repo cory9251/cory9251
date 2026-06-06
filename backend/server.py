@@ -3624,7 +3624,7 @@ async def share_gig_og(gig_id: str, request: Request):
     sub = (gig.get("subcategory") or "").replace("_", " ")
     pay = gig.get("pay_rate")
     pay_type = gig.get("pay_type") or "hourly"
-    location = gig.get("location") or "Houston"
+    location = gig.get("location") or "Baltimore, MD"
     scheduled = gig.get("scheduled_date") or "TBD"
     pay_str = f"${pay:.0f}{'/hr' if pay_type == 'hourly' else ' flat'}" if pay else ""
 
@@ -3735,7 +3735,7 @@ async def share_gig_og_image(gig_id: str):
 
         # Branding text
         d.text((180, 92), "HCOB NETWORK", font=find_font(38, bold=True), fill=WHITE)
-        d.text((180, 134), "DISPATCH · HOUSTON", font=find_font(18), fill=BLUE)
+        d.text((180, 134), "DISPATCH · BALTIMORE, MD", font=find_font(18), fill=BLUE)
 
         # Category label
         cat = (gig.get("category") or "").upper()
@@ -3768,7 +3768,7 @@ async def share_gig_og_image(gig_id: str):
             ty += 86
 
         # Meta line: location · scheduled · pay
-        loc = gig.get("location") or "Houston"
+        loc = gig.get("location") or "Baltimore, MD"
         sched = gig.get("scheduled_date") or "TBD"
         pay = gig.get("pay_rate")
         pay_type = gig.get("pay_type") or "hourly"

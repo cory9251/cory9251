@@ -139,7 +139,7 @@ export default function CreateProjectDialog({ open, onOpenChange, onCreated }) {
               data-testid="project-default-location"
               value={form.defaults.location}
               onChange={(e) => setDefault("location", e.target.value)}
-              placeholder="Houston · 77001"
+              placeholder="Baltimore · 21201"
               className="mt-2 h-11 rounded-none border-[#030712]"
             />
           </div>

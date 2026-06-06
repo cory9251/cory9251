@@ -323,7 +323,7 @@ export default function CreateGigDialog({
               value={form.address_line}
               onChange={(e) => set("address_line", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
-              placeholder="123 Oak Ave, San Francisco, CA 94110"
+              placeholder="123 Oak Ave, Baltimore, MD 21201"
             />
             <div className="mt-1 text-[11px] text-[#4B5563]">
               Hidden from unverified workers and anyone who hasn't accepted.

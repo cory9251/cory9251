@@ -111,7 +111,7 @@ export default function Landing() {
         <div className="mx-auto grid max-w-7xl grid-cols-1 lg:grid-cols-12">
           <div className="lg:col-span-7 border-r-0 lg:border-r border-[#E5E7EB] px-6 py-16 lg:py-24">
             <div className="font-mono-label mb-6">
-              For HCOB workers · Apply once, get gigs forever
+              For HCOB workers in Baltimore, MD · Apply once, get gigs forever
             </div>
             <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl font-black leading-[0.95] tracking-tighter">
               Find gigs from
@@ -119,9 +119,11 @@ export default function Landing() {
               HCOB Cleaners.
             </h1>
             <p className="mt-6 max-w-xl text-base text-[#4B5563] leading-relaxed">
-              HCOB Network is where the HCOB Cleaners crew picks up work. Cleaning,
-              labor, and driver gigs — posted by HCOB, claimed by you. Build a
-              profile once, then accept jobs in the app whenever they hit your feed.
+              HCOB Network is where the HCOB Cleaners crew picks up work
+              across <strong className="text-[#030712]">Baltimore, Maryland</strong>.
+              Cleaning, labor, and driver gigs — posted by HCOB, claimed by you.
+              Build a profile once, then accept jobs in the app whenever they
+              hit your feed.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-3">
               <Button
@@ -323,7 +325,7 @@ export default function Landing() {
                           <div className="flex items-center gap-1.5">
                             <MapPin size={12} weight="duotone" />
                             <span className="font-semibold text-[#030712]">
-                              {g.location || "Houston area"}
+                              {g.location || "Baltimore area"}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5">
