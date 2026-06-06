@@ -193,13 +193,13 @@ export default function AdminCalendar() {
 
   return (
     <div data-testid="admin-calendar">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#E5E7EB] px-6 py-8 md:px-10">
+      <div className="flex flex-col gap-3 border-b border-[#E5E7EB] px-4 py-5 md:flex-row md:flex-wrap md:items-end md:justify-between md:gap-4 md:px-10 md:py-8">
         <div>
           <div className="font-mono-label">Schedule</div>
-          <h1 className="mt-1 font-display text-4xl font-black tracking-tight">
+          <h1 className="mt-1 font-display text-2xl font-black tracking-tight md:text-4xl">
             {headerLabel}
           </h1>
-          <p className="mt-1 text-sm text-[#4B5563]">{headerSub}</p>
+          <p className="mt-1 text-xs text-[#4B5563] md:text-sm">{headerSub}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* View mode toggle */}
@@ -212,7 +212,7 @@ export default function AdminCalendar() {
                 key={m}
                 data-testid={`cal-view-${m}`}
                 onClick={() => setView(m)}
-                className={`h-10 px-3 font-mono-label text-[10px] tracking-[0.18em] transition-colors ${
+                className={`h-9 px-2.5 font-mono-label text-[10px] tracking-[0.16em] transition-colors md:h-10 md:px-3 md:tracking-[0.18em] ${
                   view === m
                     ? "bg-[#030712] text-white"
                     : "bg-white text-[#4B5563] hover:bg-[#F9FAFB]"
@@ -226,7 +226,8 @@ export default function AdminCalendar() {
             data-testid="cal-prev"
             variant="outline"
             onClick={goPrev}
-            className="h-10 w-10 rounded-none p-0"
+            className="h-9 w-9 rounded-none p-0 md:h-10 md:w-10"
+            aria-label="Previous"
           >
             <CaretLeft size={16} weight="bold" />
           </Button>
@@ -234,7 +235,7 @@ export default function AdminCalendar() {
             data-testid="cal-today"
             variant="outline"
             onClick={() => setCursor(new Date())}
-            className="h-10 rounded-none px-4 font-mono-label text-[#030712]"
+            className="h-9 rounded-none px-3 font-mono-label text-[#030712] md:h-10 md:px-4"
           >
             Today
           </Button>
@@ -242,7 +243,8 @@ export default function AdminCalendar() {
             data-testid="cal-next"
             variant="outline"
             onClick={goNext}
-            className="h-10 w-10 rounded-none p-0"
+            className="h-9 w-9 rounded-none p-0 md:h-10 md:w-10"
+            aria-label="Next"
           >
             <CaretRight size={16} weight="bold" />
           </Button>
@@ -252,16 +254,16 @@ export default function AdminCalendar() {
               setPresetDate(new Date());
               setCreateOpen(true);
             }}
-            className="ml-2 h-10 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+            className="ml-auto h-9 rounded-none bg-[#0044FF] px-3 text-white hover:bg-[#0036cc] md:ml-2 md:h-10 md:px-4"
           >
-            <Plus size={16} className="mr-1" /> New gig
+            <Plus size={16} className="md:mr-1" /> <span className="hidden sm:inline">New gig</span>
           </Button>
         </div>
       </div>
 
-      {/* Legend + heatmap key */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-[#E5E7EB] px-6 py-3 md:px-10">
-        <span className="font-mono-label">Legend</span>
+      {/* Legend + heatmap key (horizontally scrollable on mobile) */}
+      <div className="flex flex-nowrap items-center gap-x-5 gap-y-3 overflow-x-auto border-b border-[#E5E7EB] px-4 py-3 md:flex-wrap md:gap-x-6 md:overflow-visible md:px-10">
+        <span className="font-mono-label shrink-0">Legend</span>
         {[
           { k: "cleaning", label: "Cleaning" },
           { k: "labor", label: "Labor" },
@@ -269,7 +271,7 @@ export default function AdminCalendar() {
         ].map((c) => {
           const Icon = CAT_ICON[c.k];
           return (
-            <span key={c.k} className="inline-flex items-center gap-2 text-xs">
+            <span key={c.k} className="inline-flex shrink-0 items-center gap-2 text-xs">
               <span
                 className={`grid h-5 w-5 place-items-center ${CAT_COLOR[c.k].bg} ${CAT_COLOR[c.k].text}`}
               >
@@ -279,13 +281,13 @@ export default function AdminCalendar() {
             </span>
           );
         })}
-        <span className="ml-2 font-mono-label">Workload</span>
-        <span className="inline-flex items-center gap-1 text-xs">
+        <span className="font-mono-label ml-2 shrink-0">Workload</span>
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs">
           <span className="h-4 w-6" style={{ background: "rgba(0,68,255,0.08)" }} />
           <span className="h-4 w-6" style={{ background: "rgba(0,68,255,0.18)" }} />
           <span className="h-4 w-6" style={{ background: "rgba(0,68,255,0.28)" }} />
           <span className="h-4 w-6" style={{ background: "rgba(239,68,68,0.22)" }} />
-          <span className="text-[#4B5563]">light → heavy → overbooked</span>
+          <span className="whitespace-nowrap text-[#4B5563]">light → heavy → overbooked</span>
         </span>
       </div>
 
@@ -329,15 +331,19 @@ export default function AdminCalendar() {
 
 // --- MONTH VIEW ----------------------------------------------------------
 function MonthGrid({ days, cursor, gigsByDate, maxScore, nav, openCreateFor }) {
+  // Tapped day for the mobile bottom-sheet
+  const [sheetDay, setSheetDay] = useState(null);
+
   return (
     <div className="border-b border-[#E5E7EB]">
       <div className="grid grid-cols-7 border-b border-[#E5E7EB] bg-[#F9FAFB]">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
           <div
             key={d}
-            className="font-mono-label border-r border-[#E5E7EB] px-3 py-2 text-center last:border-r-0"
+            className="font-mono-label border-r border-[#E5E7EB] px-1 py-1.5 text-center last:border-r-0 md:px-3 md:py-2"
           >
-            {d}
+            <span className="md:hidden">{d[0]}</span>
+            <span className="hidden md:inline">{d}</span>
           </div>
         ))}
       </div>
@@ -355,28 +361,56 @@ function MonthGrid({ days, cursor, gigsByDate, maxScore, nav, openCreateFor }) {
             <button
               key={i}
               data-testid={`cal-day-${key}`}
-              onClick={() => openCreateFor(day)}
-              className={`relative flex min-h-[140px] flex-col items-stretch gap-1 border-b border-r border-[#E5E7EB] p-2 text-left transition-colors ${
+              onClick={() => {
+                // On mobile, tap-to-open the day sheet (only if there are gigs).
+                // Empty-day tap → still opens create dialog directly.
+                if (window.matchMedia("(max-width: 767px)").matches && dayGigs.length > 0) {
+                  setSheetDay({ day, gigs: dayGigs, totals });
+                } else {
+                  openCreateFor(day);
+                }
+              }}
+              className={`relative flex min-h-[64px] flex-col items-stretch gap-1 border-b border-r border-[#E5E7EB] p-1 text-left transition-colors md:min-h-[140px] md:p-2 ${
                 outside ? "bg-[#FAFAFB] text-[#9CA3AF]" : "bg-white"
               }`}
               style={tint ? { background: tint } : undefined}
             >
               <div className="flex items-center justify-between">
                 <span
-                  className={`font-display text-sm font-bold ${
-                    today ? "grid h-6 w-6 place-items-center bg-[#0044FF] text-white" : ""
+                  className={`font-display text-xs font-bold md:text-sm ${
+                    today
+                      ? "grid h-5 w-5 place-items-center bg-[#0044FF] text-white md:h-6 md:w-6"
+                      : ""
                   }`}
                 >
                   {format(day, "d")}
                 </span>
                 {dayGigs.length > 0 && (
-                  <span className="font-mono-label text-[9px]">
+                  <span className="font-mono-label hidden text-[9px] md:inline">
                     {dayGigs.length} · {totals.totalSlots} slot
                     {totals.totalSlots === 1 ? "" : "s"}
                   </span>
                 )}
               </div>
-              <div className="space-y-1">
+              {/* MOBILE: dot strip (max 4 dots, +N indicator) */}
+              <div className="flex flex-wrap items-center gap-0.5 md:hidden">
+                {dayGigs.slice(0, 4).map((g) => {
+                  const c = CAT_COLOR[g.category] || CAT_COLOR.labor;
+                  return (
+                    <span
+                      key={g.gig_id}
+                      className={`h-1.5 w-1.5 rounded-full ${c.bg}`}
+                    />
+                  );
+                })}
+                {dayGigs.length > 4 && (
+                  <span className="ml-0.5 text-[8px] font-bold text-[#4B5563]">
+                    +{dayGigs.length - 4}
+                  </span>
+                )}
+              </div>
+              {/* DESKTOP: full chip stack */}
+              <div className="hidden space-y-1 md:block">
                 {dayGigs.slice(0, 3).map((g) => (
                   <MonthChip key={g.gig_id} gig={g} nav={nav} />
                 ))}
@@ -386,8 +420,9 @@ function MonthGrid({ days, cursor, gigsByDate, maxScore, nav, openCreateFor }) {
                   </span>
                 )}
               </div>
+              {/* DESKTOP only: daily totals strip */}
               {dayGigs.length > 0 && (
-                <div className="mt-auto flex items-center gap-2 border-t border-black/5 pt-1 text-[9px] text-[#4B5563]">
+                <div className="mt-auto hidden items-center gap-2 border-t border-black/5 pt-1 text-[9px] text-[#4B5563] md:flex">
                   <CurrencyDollar size={10} weight="bold" />
                   <span className="font-bold text-[#030712]">
                     ${Math.round(totals.totalPay).toLocaleString()}
@@ -403,6 +438,121 @@ function MonthGrid({ days, cursor, gigsByDate, maxScore, nav, openCreateFor }) {
             </button>
           );
         })}
+      </div>
+
+      {/* Mobile day-detail bottom sheet */}
+      {sheetDay && (
+        <DaySheet
+          day={sheetDay.day}
+          gigs={sheetDay.gigs}
+          totals={sheetDay.totals}
+          onClose={() => setSheetDay(null)}
+          nav={nav}
+          openCreateFor={openCreateFor}
+        />
+      )}
+    </div>
+  );
+}
+
+// Mobile-only bottom sheet listing a day's gigs in full detail
+function DaySheet({ day, gigs, totals, onClose, nav, openCreateFor }) {
+  return (
+    <div
+      data-testid="cal-day-sheet"
+      className="fixed inset-0 z-50 flex flex-col md:hidden"
+      onClick={onClose}
+    >
+      <div className="flex-1 bg-black/40 backdrop-blur-sm" />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[80vh] overflow-y-auto rounded-t-2xl bg-white"
+      >
+        <div className="sticky top-0 flex items-center justify-between border-b border-[#E5E7EB] bg-white px-5 py-4">
+          <div>
+            <div className="font-mono-label text-[10px]">{format(day, "EEEE")}</div>
+            <div className="font-display text-xl font-black">{format(day, "MMM d")}</div>
+          </div>
+          <button
+            data-testid="cal-day-sheet-close"
+            onClick={onClose}
+            className="text-sm font-semibold text-[#4B5563]"
+            aria-label="Close"
+          >
+            Close
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 border-b border-[#E5E7EB] bg-[#F9FAFB] px-5 py-3 text-center">
+          <Stat label="Gigs" value={gigs.length} />
+          <Stat label="Pay" value={`$${Math.round(totals.totalPay).toLocaleString()}`} />
+          <Stat label="Slots" value={`${totals.totalFilled}/${totals.totalSlots}`} />
+        </div>
+        <ul className="divide-y divide-[#E5E7EB]">
+          {gigs.map((g) => {
+            const c = CAT_COLOR[g.category] || CAT_COLOR.labor;
+            const Icon = CAT_ICON[g.category];
+            const tags = getOrderedTags(g.tags);
+            return (
+              <li
+                key={g.gig_id}
+                data-testid={`cal-day-sheet-gig-${g.gig_id}`}
+                onClick={() => {
+                  onClose();
+                  nav(`/ops/gigs/${g.gig_id}`);
+                }}
+                className="flex items-start gap-3 px-5 py-3 active:bg-[#F0F4FF]"
+              >
+                <span
+                  className={`grid h-9 w-9 shrink-0 place-items-center ${c.bg} ${c.text}`}
+                >
+                  <Icon size={16} weight="duotone" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono-label text-[10px]">
+                      {format(g._date, "h:mm a")}
+                    </span>
+                    {tags.slice(0, 3).map((t) => {
+                      const I = TAG_CONFIG[t]?.icon;
+                      const cfg = TAG_CONFIG[t];
+                      return I ? (
+                        <span
+                          key={t}
+                          className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-black tracking-widest ${cfg.pillClass}`}
+                        >
+                          <I size={8} weight="fill" />
+                          {cfg.label}
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                  <div className="mt-1 font-display text-sm font-bold leading-tight">
+                    {g.title}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-[#4B5563]">
+                    <span className="truncate">{g.location}</span>
+                    <span className="font-bold text-[#030712]">
+                      {g.slots_filled}/{g.slots} · ${Number(g.pay_rate).toFixed(0)}
+                      {g.pay_type === "hourly" ? "/hr" : ""}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="sticky bottom-0 border-t border-[#E5E7EB] bg-white p-3">
+          <Button
+            data-testid="cal-day-sheet-add"
+            onClick={() => {
+              onClose();
+              openCreateFor(day);
+            }}
+            className="h-11 w-full rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+          >
+            <Plus size={16} className="mr-1" /> Add gig on this day
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -446,7 +596,8 @@ function MonthChip({ gig, nav }) {
 function WeekGrid({ days, gigsByDate, maxScore, nav, openCreateFor }) {
   return (
     <div className="border-b border-[#E5E7EB]">
-      <div className="grid grid-cols-7">
+      {/* Mobile: stacked agenda (one row per day) */}
+      <div className="md:hidden">
         {days.map((day) => {
           const key = format(day, "yyyy-MM-dd");
           const dayGigs = gigsByDate.get(key) || [];
@@ -458,6 +609,65 @@ function WeekGrid({ days, gigsByDate, maxScore, nav, openCreateFor }) {
             <div
               key={key}
               data-testid={`cal-week-day-${key}`}
+              className="border-b border-[#E5E7EB]"
+              style={tint ? { background: tint } : undefined}
+            >
+              <button
+                onClick={() => openCreateFor(day)}
+                className="flex w-full items-center justify-between border-b border-[#E5E7EB] bg-white/70 px-4 py-2.5 text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="text-center">
+                    <div className="font-mono-label text-[9px]">{format(day, "EEE")}</div>
+                    <div
+                      className={`font-display text-xl font-black leading-none ${
+                        today ? "text-[#0044FF]" : ""
+                      }`}
+                    >
+                      {format(day, "d")}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold text-[#030712]">
+                      {dayGigs.length === 0
+                        ? "No gigs"
+                        : `${dayGigs.length} gig${dayGigs.length === 1 ? "" : "s"}`}
+                    </div>
+                    {dayGigs.length > 0 && (
+                      <div className="font-mono-label text-[9px] text-[#4B5563]">
+                        {totals.totalFilled}/{totals.totalSlots} slots · $
+                        {Math.round(totals.totalPay).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <Plus size={14} className="text-[#4B5563]" />
+              </button>
+              {dayGigs.length > 0 && (
+                <div className="space-y-1.5 p-2">
+                  {dayGigs.map((g) => (
+                    <WeekCard key={g.gig_id} gig={g} nav={nav} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: 7-column grid */}
+      <div className="hidden grid-cols-7 md:grid">
+        {days.map((day) => {
+          const key = format(day, "yyyy-MM-dd");
+          const dayGigs = gigsByDate.get(key) || [];
+          const score = computeWorkloadScore(dayGigs);
+          const tint = score > 0 ? heatmapTint(score, maxScore) : "";
+          const today = isToday(day);
+          const totals = computeDailyTotals(dayGigs);
+          return (
+            <div
+              key={key}
+              data-testid={`cal-week-day-desktop-${key}`}
               className="flex min-h-[520px] flex-col border-r border-[#E5E7EB] last:border-r-0"
               style={tint ? { background: tint } : undefined}
             >
@@ -562,7 +772,7 @@ function DayView({ day, gigs, nav, openCreateFor }) {
     <div className="grid grid-cols-1 lg:grid-cols-4">
       <div className="lg:col-span-3 border-r-0 lg:border-r border-[#E5E7EB]">
         {/* Day summary banner */}
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-[#E5E7EB] bg-[#F9FAFB] px-6 py-3 md:px-10">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 md:gap-x-6 md:px-10">
           <Stat label="Gigs" value={gigs.length} />
           <Stat
             label="Pay"
@@ -576,9 +786,10 @@ function DayView({ day, gigs, nav, openCreateFor }) {
           <Button
             data-testid="day-add-gig"
             onClick={() => openCreateFor(day)}
-            className="ml-auto h-9 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+            className="ml-auto h-9 rounded-none bg-[#0044FF] px-3 text-white hover:bg-[#0036cc]"
           >
-            <Plus size={14} className="mr-1" /> Add gig on this day
+            <Plus size={14} className="md:mr-1" />
+            <span className="hidden sm:inline">Add gig on this day</span>
           </Button>
         </div>
 
@@ -588,11 +799,11 @@ function DayView({ day, gigs, nav, openCreateFor }) {
             <div
               key={h}
               data-testid={`day-hour-${h}`}
-              className={`flex gap-4 px-6 py-3 md:px-10 ${
+              className={`flex gap-3 px-4 py-3 md:gap-4 md:px-10 ${
                 bucketGigs.length === 0 ? "" : "bg-[#FBFCFF]"
               }`}
             >
-              <div className="font-mono-label w-14 shrink-0 pt-1 text-[10px]">
+              <div className="font-mono-label w-12 shrink-0 pt-1 text-[10px] md:w-14">
                 {format(new Date(day).setHours(h, 0, 0, 0), "h a")}
               </div>
               <div className="flex-1">
@@ -609,11 +820,11 @@ function DayView({ day, gigs, nav, openCreateFor }) {
             </div>
           ))}
           {gigs.length === 0 && (
-            <div className="px-6 py-16 text-center text-sm text-[#4B5563] md:px-10">
-              No gigs scheduled for this day yet.
+            <div className="px-4 py-12 text-center text-sm text-[#4B5563] md:px-10 md:py-16">
+              <div>No gigs scheduled for this day yet.</div>
               <Button
                 onClick={() => openCreateFor(day)}
-                className="ml-3 h-9 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+                className="mt-4 h-10 rounded-none bg-[#0044FF] px-4 text-white hover:bg-[#0036cc]"
               >
                 <Plus size={14} className="mr-1" /> Add the first one
               </Button>
