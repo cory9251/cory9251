@@ -1,0 +1,45 @@
+{
+  "summary": "Projects feature — full backend (16/16 pytest pass) + frontend (Playwright) end-to-end testing. All admin flows (sidebar nav, create dialog, link existing, project banner on gig detail, unlink/relink via PickProjectForGigDialog, archive lifecycle) and worker flows (worker-project-card with siblings + crew on a project-linked gig, absent on unlinked gig) work correctly. One minor UI display issue spotted on the archived projects list (newly-archived empty project's title row renders blank). Note delete button selector not confirmed during playwright run.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminProjects (Archived tab)",
+        "issue": "After archiving a freshly-created project with no linked gigs, the resulting card in the Archived tab renders with the section label 'PROJECT' but the project title row is blank. The two previously-archived projects on the same page (TEST_iterproj_worker_13c8c and TEST_iterproj_caaa9e_upd) render their titles correctly, so the bug is conditional. Possible causes: a) ProjectCard uses a fallback that hides title when client_name is also empty, b) the just-saved project's title isn't picked up until full reload. Reproduce: click 'New project' → fill only title+client → submit → archive → switch to Archived tab. data-testid proj-card-{project_id} also was not found for the new card while it is found for the older ones.",
+        "selector": "[data-testid^='proj-card-'] in /ops/projects?archived=true",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter_projects.py",
+    "/app/test_reports/pytest/iter_projects_results.xml"
+  ],
+  "action_items": [
+    "Investigate the archived-projects card render: confirm `proj-card-{project_id}` testid is rendered for archived projects on the same list page (was missing for a fresh archive in this run). Likely candidate: AdminProjects page filters or maps archived projects through a different code path than active ones, or the just-archived project isn't being refetched after redirect. Repro: create project via UI → immediately click Archive → switch to Archived tab.",
+    "(Optional) Document where the note-row delete button lives on AdminProjectDetail — the note was created (data-testid proj-note-note_xxx rendered) but no element with delete-button data-testid was found inside the note container. If delete is implemented add a data-testid like `proj-note-delete-{note_id}` to make automated cleanup testable. Backend DELETE /api/projects/{id}/notes/{note_id} works (verified)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 5253 lines — exceeds 700-line guideline. Projects code (3170-3375) is well-contained but the file as a whole is overdue for splitting into routers/ subpackages (gigs, projects, admin, public, workers, ratings).",
+    "DELETE /api/projects/{project_id} (server.py:3300) is named 'archive' but uses HTTP DELETE semantics — fine for REST conventions, but the route bypasses any not-found check on the unlinking step (`update_many` with `project_id` is idempotent). 404 is correctly raised if project doesn't exist.",
+    "POST /api/gigs/{gig_id}/link-to-project: sync_defaults overwrites gig fields when keys are present in project.defaults. There's no `unset/clear` flag — once defaults are applied they aren't reversible without an explicit edit. Document this in the dialog ('Will overwrite location/scheduled_at/etc.').",
+    "GET /api/gigs (admin) now does an extra db.projects.find for every list call. With 151 unlinked gigs in DB and few project pids, the pid set query (line 1056) is fine; if pids grows to 1000+, consider caching the project map for a few seconds.",
+    "GET /api/gigs/{gig_id} (worker enrichment, lines 1136-1200) correctly strips PII from sibling crew (only first_name + gig_role surface). Verified in tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter_projects.py (new — 16 pytest cases)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "~90% — all 9 admin + 2 worker flows verified; only minor UI display bug noted on archived card"},
+  "test_credentials": "Admin: admin@hcobcleaners.com / HcobAdmin2026!  |  Worker fixtures auto-created (TEST_iterproj_worker_*, TEST_pw_worker_*) via /api/auth/register + admin approve + verify-id endpoints.",
+  "seed_data_creation": "test_iter_projects.py creates: 1 reused project (TEST_iterproj_*), 2 linked gigs, 1 archive-test project + 1 gig, 1 worker-test project + 2 assigned gigs + 1 unlinked gig, 1 verified worker (TEST_iterproj_worker_*). Playwright also created: 1 additional TEST_pw_* project (archived during ADMIN-9 test), 1 worker (TEST_pw_worker_*) and 3 gigs. All prefixed with TEST_ for easy cleanup.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests: `REACT_APP_BACKEND_URL=https://work-connect-147.preview.emergentagent.com python -m pytest /app/backend/tests/test_iter_projects.py -v`. Admin routes live under /ops (not /admin). Worker routes are under /crew. The Add-gig (CreateGigDialog in 'in-project' mode) flow was NOT clicked through end-to-end via Playwright because of the form complexity; backend POST /api/gigs with project_id was exercised instead and the linked gig correctly shows up in the project detail card grid (verified backend test test_gigs_show_up_in_project_detail). ADMIN-7/8 banner + unlink + PickProjectForGigDialog + relink flow all verified live. Worker view crew chips correctly exclude last_name (PII).",
+  "rca_of_the_issue": "Archived-card-missing-title: not deeply investigated. Most likely the AdminProjects archived-tab render filters/maps projects differently and the just-archived freshly-created project (which has gig_count=0, worker_count=0, no first_scheduled_at) is hitting a render path that skips the title row. Main agent should grep AdminProjects.jsx for conditional rendering around `p.title` / `gig_count` and confirm there is a fallback for empty projects."
+}

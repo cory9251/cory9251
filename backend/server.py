@@ -1047,6 +1047,25 @@ async def list_gigs(
             g["my_acceptance"] = a
             out.append(g)
         return out
+
+    # For admins, enrich gigs that belong to a project with the project's title
+    # so list views (Calendar, AdminGigs, Dashboard) can show a project pill
+    # without N+1 fetches.
+    pids = list({g.get("project_id") for g in gigs if g.get("project_id")})
+    if pids:
+        projs = await db.projects.find(
+            {"project_id": {"$in": pids}},
+            {"_id": 0, "project_id": 1, "title": 1, "client_name": 1},
+        ).to_list(500)
+        pmap = {p["project_id"]: p for p in projs}
+        for g in gigs:
+            pid = g.get("project_id")
+            if pid and pid in pmap:
+                g["project"] = {
+                    "project_id": pid,
+                    "title": pmap[pid].get("title"),
+                    "client_name": pmap[pid].get("client_name"),
+                }
     return gigs
 
 
@@ -1096,6 +1115,27 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
                     a["paid_hours"] = _compute_paid_hours(a.get("hours_worked"), br)
         gig["pending_requests"] = [a for a in all_rows if a.get("status") == "requested"]
         gig["acceptances"] = [a for a in all_rows if a.get("status") != "requested"]
+
+        # Project context for admins — surface the project title so the gig
+        # detail page can show a "Part of project: …" banner with a deep link.
+        if gig.get("project_id"):
+            proj = await db.projects.find_one(
+                {"project_id": gig["project_id"]},
+                {"_id": 0, "project_id": 1, "title": 1, "client_name": 1, "archived": 1},
+            )
+            if proj:
+                # Sibling gigs (any other gig linked to the same project)
+                sib = await db.gigs.find(
+                    {"project_id": gig["project_id"], "gig_id": {"$ne": gig_id}},
+                    {"_id": 0, "gig_id": 1, "title": 1, "category": 1, "subcategory": 1, "scheduled_date": 1, "scheduled_at": 1, "slots": 1, "slots_filled": 1, "status": 1},
+                ).sort("scheduled_at", 1).to_list(50)
+                gig["project"] = {
+                    "project_id": proj["project_id"],
+                    "title": proj.get("title"),
+                    "client_name": proj.get("client_name"),
+                    "archived": bool(proj.get("archived")),
+                    "sibling_gigs": sib,
+                }
     else:
         my = await db.gig_acceptances.find_one(
             {"gig_id": gig_id, "worker_id": user["user_id"]}, {"_id": 0}

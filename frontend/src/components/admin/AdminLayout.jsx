@@ -10,6 +10,7 @@ import {
   Lightning,
   ClockCounterClockwise,
   ChartBar,
+  FolderSimplePlus,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -19,6 +20,7 @@ const nav = [
   { to: "/ops/calendar", label: "Calendar", icon: CalendarBlank, end: false },
   { to: "/ops/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: true },
   { to: "/ops/gigs", label: "Gigs", icon: Briefcase, end: false },
+  { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
   { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
   { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },
   { to: "/ops/settings", label: "Settings", icon: Gear, end: false },

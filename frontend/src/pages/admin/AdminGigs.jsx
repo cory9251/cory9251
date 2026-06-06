@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import CreateGigDialog from "@/components/admin/CreateGigDialog";
-import { Plus, Megaphone, Broom, Wrench, Car } from "@phosphor-icons/react";
+import { Plus, Megaphone, Broom, Wrench, Car, FolderSimple } from "@phosphor-icons/react";
 import { TAG_CONFIG, getOrderedTags } from "@/lib/gigTags";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -134,6 +134,20 @@ export default function AdminGigs() {
                               </span>
                             );
                           })}
+                          {g.project && (
+                            <button
+                              data-testid={`project-pill-${g.gig_id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                nav(`/ops/projects/${g.project.project_id}`);
+                              }}
+                              title={`Part of project: ${g.project.title}`}
+                              className="inline-flex max-w-[160px] items-center gap-1 truncate rounded-full bg-[#F3F4F6] px-2 py-0.5 text-[9px] font-black tracking-widest text-[#030712] hover:bg-[#E5E7EB]"
+                            >
+                              <FolderSimple size={9} weight="fill" />
+                              <span className="truncate">{g.project.title}</span>
+                            </button>
+                          )}
                         </div>
                         <div className="text-xs text-[#4B5563]">{g.location}</div>
                       </td>

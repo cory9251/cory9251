@@ -40,9 +40,13 @@ import {
   Clock,
   Star,
   Share,
+  FolderSimple,
+  LinkBreak,
+  Link as LinkIcon,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
+import PickProjectForGigDialog from "@/components/admin/PickProjectForGigDialog";
 import PayOverrideDialog from "@/components/admin/PayOverrideDialog";
 import ApproveTimesheetDialog from "@/components/admin/ApproveTimesheetDialog";
 import EditTimesheetDialog from "@/components/admin/EditTimesheetDialog";
@@ -58,6 +62,7 @@ export default function GigDetail() {
   const [blastOpen, setBlastOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [linkProjectOpen, setLinkProjectOpen] = useState(false);
   const [payDialog, setPayDialog] = useState(null); // { acceptance }
   const [approveDialog, setApproveDialog] = useState(null); // { acceptance }
   const [editTimesheetDialog, setEditTimesheetDialog] = useState(null);
@@ -109,6 +114,17 @@ export default function GigDetail() {
     try {
       await api.delete(`/gigs/${gigId}/acceptances/${a.acceptance_id}`);
       toast.success(`${a.worker_name || "Worker"} removed`);
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
+  const unlinkFromProject = async () => {
+    if (!confirm("Unlink this gig from the project? The gig itself stays put.")) return;
+    try {
+      await api.delete(`/gigs/${gigId}/project`);
+      toast.success("Gig unlinked from project");
       load();
     } catch (e) {
       toast.error(getErr(e));
@@ -252,6 +268,65 @@ export default function GigDetail() {
               <strong>Payment note:</strong> {gig.payment_timeline_note}
             </p>
           )}
+
+          {/* Project link banner — surfaces when this gig is part of a project,
+              or offers a one-click "Link to project" when it isn't. */}
+          {gig.project ? (
+            <div
+              data-testid="project-banner"
+              className="mt-4 flex flex-wrap items-center gap-2 border border-[#030712] bg-[#F9FAFB] px-3 py-2.5"
+            >
+              <FolderSimple size={14} weight="duotone" />
+              <span className="font-mono-label text-[10px] text-[#4B5563]">
+                Part of project
+              </span>
+              <button
+                data-testid="project-banner-open"
+                onClick={() => nav(`/ops/projects/${gig.project.project_id}`)}
+                className="font-display text-sm font-black tracking-tight text-[#030712] underline-offset-2 hover:underline"
+              >
+                {gig.project.title}
+              </button>
+              {gig.project.client_name && (
+                <span className="text-xs text-[#4B5563]">
+                  · {gig.project.client_name}
+                </span>
+              )}
+              {(gig.project.sibling_gigs || []).length > 0 && (
+                <span className="font-mono-label text-[10px] text-[#4B5563]">
+                  · {(gig.project.sibling_gigs || []).length} sibling gig
+                  {(gig.project.sibling_gigs || []).length === 1 ? "" : "s"}
+                </span>
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  data-testid="project-banner-open-btn"
+                  onClick={() => nav(`/ops/projects/${gig.project.project_id}`)}
+                  variant="outline"
+                  className="h-8 rounded-none border-[#030712] px-2 text-[10px]"
+                >
+                  Open project →
+                </Button>
+                <Button
+                  data-testid="project-banner-unlink"
+                  onClick={unlinkFromProject}
+                  variant="outline"
+                  className="h-8 rounded-none border-[#EF4444] px-2 text-[10px] text-[#EF4444] hover:bg-[#FEF2F2]"
+                >
+                  <LinkBreak size={11} className="mr-1" /> Unlink
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              data-testid="project-link-btn"
+              onClick={() => setLinkProjectOpen(true)}
+              className="font-mono-label mt-4 inline-flex items-center gap-1 border border-dashed border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] text-[#4B5563] hover:border-[#030712] hover:text-[#030712]"
+            >
+              <LinkIcon size={11} weight="bold" /> Link to a project
+            </button>
+          )}
+
           <div className="mt-4 text-[#4B5563]">
             <MarkdownView text={gig.description} />
           </div>
@@ -815,6 +890,13 @@ export default function GigDetail() {
         onOpenChange={setAssignOpen}
         gig={gig}
         onAssigned={load}
+      />
+
+      <PickProjectForGigDialog
+        open={linkProjectOpen}
+        onOpenChange={setLinkProjectOpen}
+        gigId={gigId}
+        onLinked={load}
       />
 
       <PayOverrideDialog

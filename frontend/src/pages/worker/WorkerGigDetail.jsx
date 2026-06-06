@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   EyeSlash,
   UsersThree,
+  FolderSimple,
 } from "@phosphor-icons/react";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -276,6 +277,84 @@ export default function WorkerGigDetail() {
           <div className="mt-2 text-[10px] text-[#4B5563]">
             First names only. Contact your HCOB admin if you need to coordinate.
           </div>
+        </div>
+      )}
+
+      {/* Project context — sibling gigs + their crew. Workers only see this
+          after their request is approved. */}
+      {isApproved && gig.project && (
+        <div
+          data-testid="worker-project-card"
+          className="mt-5 rounded-2xl border border-[#030712]/10 bg-[#F9FAFB] p-5 gb-tactile"
+        >
+          <div className="font-mono-label flex items-center gap-1.5">
+            <FolderSimple size={12} weight="duotone" /> You're part of a project
+          </div>
+          <div className="mt-1 font-display text-lg font-black tracking-tight">
+            {gig.project.title}
+          </div>
+          {gig.project.client_name && (
+            <div className="text-[11px] text-[#4B5563]">
+              Client · {gig.project.client_name}
+            </div>
+          )}
+
+          {(gig.project.sibling_gigs || []).length > 0 && (
+            <div className="mt-3">
+              <div className="font-mono-label mb-2 text-[10px] text-[#4B5563]">
+                Other gigs in this project
+              </div>
+              <ul className="space-y-1.5">
+                {gig.project.sibling_gigs.map((s) => (
+                  <li
+                    key={s.gig_id}
+                    data-testid={`project-sibling-${s.gig_id}`}
+                    className="flex items-center justify-between border border-[#E5E7EB] bg-white px-3 py-2 text-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-display text-sm font-bold">
+                        {s.title}
+                      </div>
+                      <div className="text-[10px] text-[#4B5563]">
+                        {s.category} · {s.scheduled_date || "Flexible"}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(gig.project.crew || []).length > 0 && (
+            <div className="mt-4">
+              <div className="font-mono-label mb-2 text-[10px] text-[#4B5563]">
+                Crew you're working alongside
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {gig.project.crew.map((c, i) => (
+                  <div
+                    key={`${c.gig_id}-${i}`}
+                    data-testid={`project-crew-chip-${i}`}
+                    title={c.gig_title || ""}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3 py-1.5"
+                  >
+                    <div className="grid h-6 w-6 place-items-center rounded-full bg-[#030712] text-[10px] font-black text-white">
+                      {(c.first_name || "?")[0].toUpperCase()}
+                    </div>
+                    <span className="text-sm font-semibold">{c.first_name}</span>
+                    {c.gig_role && c.gig_role !== "worker" && (
+                      <span className="rounded bg-[#F59E0B] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
+                        {c.gig_role}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 text-[10px] text-[#4B5563]">
+                First names only. Contact HCOB if you need to coordinate.
+              </div>
+            </div>
+          )}
         </div>
       )}
 
