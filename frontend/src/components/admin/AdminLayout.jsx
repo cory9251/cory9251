@@ -11,6 +11,8 @@ import {
   ClockCounterClockwise,
   ChartBar,
   FolderSimplePlus,
+  List,
+  X,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -31,6 +33,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [pendingCount, setPendingCount] = useState(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const refreshPending = async () => {
     try {
@@ -48,10 +51,38 @@ export default function AdminLayout() {
     return () => window.removeEventListener("hcob:requests-changed", onChange);
   }, [location.pathname]);
 
+  // Close the mobile drawer whenever the route changes
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  // ESC closes drawer + body scroll-lock while drawer is open
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [mobileOpen]);
+
   const onLogout = async () => {
     await logout();
     navigate("/", { replace: true });
   };
+
+  // Friendly section name for the mobile header — derived from the active nav.
+  const activeItem = [...nav]
+    .sort((a, b) => b.to.length - a.to.length)
+    .find((n) =>
+      n.end ? location.pathname === n.to : location.pathname.startsWith(n.to)
+    );
+  const currentLabel = activeItem ? activeItem.label : "HCOB Network";
   return (
     <div className="flex min-h-screen flex-col bg-white md:flex-row" data-testid="admin-layout">
       <aside className="hidden md:flex w-64 flex-col border-r border-[#E5E7EB] bg-white">
@@ -110,39 +141,137 @@ export default function AdminLayout() {
 
       {/* Mobile top bar */}
       <div className="md:hidden flex w-full flex-col">
-        <header className="flex items-center justify-between border-b border-[#E5E7EB] px-4 py-3">
+        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-[#E5E7EB] bg-white px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="grid h-7 w-7 place-items-center bg-[#030712] text-white">
-              <Lightning weight="fill" size={14} />
+            <button
+              data-testid="admin-mobile-menu-btn"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+              aria-expanded={mobileOpen}
+              className="-ml-2 grid h-10 w-10 place-items-center rounded-md text-[#030712] hover:bg-[#F3F4F6]"
+            >
+              <List size={22} weight="bold" />
+              {pendingCount > 0 && (
+                <span
+                  data-testid="admin-mobile-menu-badge"
+                  className="absolute mt-[-22px] ml-[18px] inline-flex h-4 min-w-[16px] items-center justify-center bg-[#F59E0B] px-1 text-[9px] font-bold tracking-widest text-white"
+                >
+                  {pendingCount > 99 ? "99+" : pendingCount}
+                </span>
+              )}
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="grid h-7 w-7 place-items-center bg-[#030712] text-white">
+                <Lightning weight="fill" size={14} />
+              </div>
+              <div className="font-display text-base font-black leading-none">
+                {currentLabel}
+              </div>
             </div>
-            <div className="font-display text-base font-black">HCOB Network</div>
           </div>
           <button
             data-testid="admin-mobile-logout"
             onClick={onLogout}
-            className="text-xs font-semibold text-[#0044FF]"
+            aria-label="Sign out"
+            className="grid h-9 w-9 place-items-center border border-[#E5E7EB] text-[#030712] hover:bg-[#030712] hover:text-white"
           >
-            Sign out
+            <SignOut size={14} />
           </button>
         </header>
-        <nav className="flex border-b border-[#E5E7EB]">
-          {nav.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.end}
-              className={({ isActive }) =>
-                `flex-1 py-3 text-center text-xs font-semibold ${
-                  isActive
-                    ? "border-b-2 border-[#0044FF] text-[#030712]"
-                    : "text-[#4B5563]"
-                }`
-              }
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
+
+        {/* Slide-out drawer + backdrop */}
+        <div
+          aria-hidden={!mobileOpen}
+          className={`fixed inset-0 z-40 md:hidden ${
+            mobileOpen ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
+          {/* Backdrop */}
+          <div
+            data-testid="admin-mobile-backdrop"
+            onClick={() => setMobileOpen(false)}
+            className={`absolute inset-0 bg-[#030712] transition-opacity duration-200 ${
+              mobileOpen ? "opacity-60" : "opacity-0"
+            }`}
+          />
+          {/* Drawer */}
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Operations menu"
+            data-testid="admin-mobile-drawer"
+            className={`absolute inset-y-0 left-0 flex w-[85%] max-w-[320px] transform flex-col bg-white shadow-2xl transition-transform duration-200 ease-out ${
+              mobileOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-5 py-4">
+              <div className="flex items-center gap-2">
+                <div className="grid h-8 w-8 place-items-center bg-[#030712] text-white">
+                  <Lightning weight="fill" size={16} />
+                </div>
+                <div>
+                  <div className="font-display text-base font-black leading-none">
+                    HCOB Network
+                  </div>
+                  <div className="font-mono-label text-[10px]">
+                    Operations Console
+                  </div>
+                </div>
+              </div>
+              <button
+                data-testid="admin-mobile-close"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close menu"
+                className="grid h-9 w-9 place-items-center text-[#030712] hover:bg-[#F3F4F6]"
+              >
+                <X size={18} weight="bold" />
+              </button>
+            </div>
+            <nav className="flex-1 overflow-y-auto px-3 py-5">
+              <div className="font-mono-label mb-3 px-3">Manage</div>
+              <div className="space-y-1">
+                {nav.map((n) => (
+                  <NavLink
+                    key={n.to}
+                    to={n.to}
+                    end={n.end}
+                    onClick={() => setMobileOpen(false)}
+                    data-testid={`mobile-nav-${n.label.toLowerCase()}`}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 border-l-2 px-3 py-3 text-sm transition-colors ${
+                        isActive
+                          ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
+                          : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+                      }`
+                    }
+                  >
+                    <n.icon size={20} weight="duotone" />
+                    <span className="flex-1">{n.label}</span>
+                    {n.badge && pendingCount > 0 && (
+                      <span
+                        data-testid="mobile-nav-requests-count"
+                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                      >
+                        {pendingCount > 99 ? "99+" : pendingCount}
+                      </span>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </nav>
+            <div className="border-t border-[#E5E7EB] p-4">
+              <div className="text-xs text-[#4B5563]">Signed in as</div>
+              <div className="truncate text-sm font-semibold">{user?.email}</div>
+              <button
+                data-testid="admin-mobile-drawer-logout"
+                onClick={onLogout}
+                className="mt-3 flex w-full items-center justify-center gap-2 border border-[#E5E7EB] py-2.5 text-xs hover:bg-[#F9FAFB]"
+              >
+                <SignOut size={14} /> Sign out
+              </button>
+            </div>
+          </aside>
+        </div>
       </div>
 
       <main className="flex-1 overflow-y-auto">
