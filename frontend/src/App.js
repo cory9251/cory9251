@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute, PublicOnly } from "@/components/ProtectedRoute";
 import Landing from "@/pages/Landing";
+import CustomersPage from "@/pages/Customers";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import AuthCallback from "@/pages/AuthCallback";
@@ -63,6 +64,8 @@ function RouterShell() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/rate/:token" element={<RatePage />} />
       <Route path="/gigs/:gigId" element={<PublicGigPage />} />
+      <Route path="/customers" element={<CustomersPage />} />
+      <Route path="/services" element={<CustomersPage />} />
 
       {/* Admin / Ops */}
       <Route

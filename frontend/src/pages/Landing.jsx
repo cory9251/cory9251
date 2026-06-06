@@ -70,6 +70,25 @@ export default function Landing() {
   }, []);
   return (
     <div className="min-h-screen bg-white text-[#030712]" data-testid="landing-page">
+      {/* Customer hire bar — visible above the worker-focused header */}
+      <a
+        href="/customers"
+        data-testid="customer-strip"
+        className="block bg-[#030712] text-white hover:bg-[#1f2937]"
+      >
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-2 text-[11px] sm:text-xs">
+          <span className="font-mono-label">
+            <span className="hidden sm:inline">NEED TO HIRE A SERVICE?</span>
+            <span className="sm:hidden">HIRE A PRO</span>
+          </span>
+          <span className="font-bold tracking-tight">
+            HCOB Network · Project management · Baltimore, MD
+          </span>
+          <span className="inline-flex items-center gap-1 font-bold">
+            (410) 870-9347 <ArrowRight size={12} />
+          </span>
+        </div>
+      </a>
       {/* Top bar */}
       <header className="border-b border-[#E5E7EB]">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
@@ -87,6 +106,13 @@ export default function Landing() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <a
+              data-testid="nav-customers-link"
+              href="/customers"
+              className="hidden md:inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-[#030712] hover:text-[#0044FF]"
+            >
+              For customers · (410) 870-9347 <ArrowRight size={14} />
+            </a>
             <Button
               data-testid="nav-login-btn"
               variant="ghost"
