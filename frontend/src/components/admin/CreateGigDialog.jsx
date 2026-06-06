@@ -68,6 +68,8 @@ export default function CreateGigDialog({
   onOpenChange,
   onCreated,
   initialDate,
+  projectId,
+  projectDefaults,
 }) {
   const today = new Date();
   const [form, setForm] = useState({
@@ -106,6 +108,25 @@ export default function CreateGigDialog({
   React.useEffect(() => {
     if (open && initialDate) setDate(initialDate);
   }, [open, initialDate]);
+
+  // Pre-fill from project defaults when the dialog opens for a project. Only
+  // applies to empty fields so the admin's typed values are never clobbered.
+  React.useEffect(() => {
+    if (!open) return;
+    if (!projectDefaults) return;
+    setForm((f) => ({
+      ...f,
+      location: f.location || projectDefaults.location || f.location,
+      address_line:
+        f.address_line || projectDefaults.address_line || f.address_line,
+      payment_timeline:
+        projectDefaults.payment_timeline || f.payment_timeline,
+      payment_timeline_note:
+        projectDefaults.payment_timeline_note || f.payment_timeline_note,
+      contact_phone:
+        f.contact_phone || projectDefaults.contact_phone || f.contact_phone,
+    }));
+  }, [open, projectDefaults]);
 
   // Auto-suggest matching workers as category + location change.
   // Parses a 5-digit ZIP out of the public location string.

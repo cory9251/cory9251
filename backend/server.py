@@ -12,7 +12,7 @@ import secrets
 import asyncio
 import re
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict
 
 import bcrypt
 import jwt
@@ -312,6 +312,9 @@ class GigIn(BaseModel):
     payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = "2_3_days"
     payment_timeline_note: Optional[str] = None
     contact_phone: Optional[str] = None
+    # Optional link to a parent project. When set, this gig is shown alongside
+    # its sibling gigs in the worker UI so the crews can coordinate.
+    project_id: Optional[str] = None
     # Recurrence — optional. If recurrence != 'none', the create endpoint generates
     # `repeat_count` gig instances spaced by the chosen period.
     recurrence: Optional[GigRecurrence] = "none"
@@ -340,6 +343,8 @@ class GigPatch(BaseModel):
     payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = None
     payment_timeline_note: Optional[str] = None
     contact_phone: Optional[str] = None
+    project_id: Optional[str] = None
+    clear_project: Optional[bool] = False
     status: Optional[str] = None  # admin can flip status from the Edit dialog
     publish_at: Optional[str] = None
 
@@ -413,6 +418,51 @@ class TimesheetEditIn(BaseModel):
     clear_clock_out: Optional[bool] = False
     # Per-worker break override (minutes). Same semantics as the approve payload.
     break_minutes: Optional[int] = None
+
+
+# ----- Projects ---------------------------------------------------------------
+# A project groups 2+ gigs that share a job site or coordinated outcome (e.g.,
+# trash-removal driver + handyman with tools). Workers on linked gigs see each
+# other in the project crew so they can coordinate; admins get a combined
+# roster + a shared notes thread for ops.
+
+class ProjectDefaults(BaseModel):
+    """Pre-fill values when adding a new gig under a project. Each is optional
+    so an admin can sync any subset (or none). On gig-create the dialog reads
+    these and pre-fills the form; the admin can then opt in/out per gig."""
+    location: Optional[str] = None
+    address_line: Optional[str] = None
+    scheduled_date: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = None
+    payment_timeline_note: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+class ProjectIn(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    client_name: Optional[str] = None
+    defaults: Optional[ProjectDefaults] = None
+
+
+class ProjectPatch(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    client_name: Optional[str] = None
+    defaults: Optional[ProjectDefaults] = None
+    archived: Optional[bool] = None
+
+
+class ProjectNoteIn(BaseModel):
+    text: str
+
+
+class LinkGigToProjectIn(BaseModel):
+    project_id: str
+    # When true, apply the project's defaults to the gig now. Defaults to
+    # false so admin can opt in explicitly.
+    sync_defaults: Optional[bool] = False
 
 
 class AdminRatingIn(BaseModel):
@@ -866,6 +916,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "payment_timeline": payload.payment_timeline or "2_3_days",
         "payment_timeline_note": payload.payment_timeline_note,
         "contact_phone": payload.contact_phone,
+        "project_id": payload.project_id,
         "status": payload.status or "open",
         "publish_at": payload.publish_at,
         "is_rush": False,
@@ -1078,6 +1129,51 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
                 ]
             else:
                 gig["crew"] = []
+
+        # Project context — show sibling gigs + their crews so coordinated
+        # workers can see who else is on the same job site. Only exposed to
+        # workers with an approved (non-requested) acceptance on THIS gig.
+        if my and my.get("status") and my["status"] != "requested" and gig.get("project_id"):
+            proj = await db.projects.find_one(
+                {"project_id": gig["project_id"]},
+                {"_id": 0, "project_id": 1, "title": 1, "client_name": 1},
+            )
+            if proj:
+                sib_gigs = await db.gigs.find(
+                    {"project_id": gig["project_id"], "gig_id": {"$ne": gig_id}},
+                    {"_id": 0, "gig_id": 1, "title": 1, "category": 1, "subcategory": 1, "scheduled_date": 1, "scheduled_at": 1},
+                ).sort("scheduled_at", 1).to_list(50)
+                sib_ids = [g["gig_id"] for g in sib_gigs]
+                sib_accs = await db.gig_acceptances.find(
+                    {
+                        "gig_id": {"$in": sib_ids},
+                        "status": {"$in": ["accepted", "on_the_clock", "clocked_in", "completed"]},
+                    },
+                    {"_id": 0, "gig_id": 1, "worker_id": 1, "gig_role": 1},
+                ).to_list(500)
+                sib_worker_ids = [a["worker_id"] for a in sib_accs]
+                sib_users = await db.users.find(
+                    {"user_id": {"$in": sib_worker_ids}},
+                    {"_id": 0, "user_id": 1, "name": 1},
+                ).to_list(500) if sib_worker_ids else []
+                wmap = {w["user_id"]: w for w in sib_users}
+                gtitle = {g["gig_id"]: g.get("title") for g in sib_gigs}
+                project_crew = [
+                    {
+                        "first_name": ((wmap.get(a["worker_id"]) or {}).get("name") or "Worker").split(" ")[0],
+                        "gig_role": a.get("gig_role") or "worker",
+                        "gig_id": a["gig_id"],
+                        "gig_title": gtitle.get(a["gig_id"]),
+                    }
+                    for a in sib_accs
+                ]
+                gig["project"] = {
+                    "project_id": proj["project_id"],
+                    "title": proj.get("title"),
+                    "client_name": proj.get("client_name"),
+                    "sibling_gigs": sib_gigs,
+                    "crew": project_crew,
+                }
     return gig
 
 
@@ -1100,6 +1196,10 @@ async def update_gig(
         raise HTTPException(404, "Gig not found")
 
     updates = payload.model_dump(exclude_unset=True)
+    # Handle `clear_project` sentinel separately — it isn't a real DB field.
+    clear_project = updates.pop("clear_project", False)
+    if clear_project:
+        updates["project_id"] = None
     if "slots" in updates:
         new_slots = int(updates["slots"])
         filled = int(gig.get("slots_filled") or 0)
@@ -1151,6 +1251,7 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "payment_timeline": src.get("payment_timeline") or "2_3_days",
         "payment_timeline_note": src.get("payment_timeline_note"),
         "contact_phone": src.get("contact_phone"),
+        "project_id": src.get("project_id"),
         "status": "open",
         "publish_at": None,
         "is_rush": False,
@@ -2998,6 +3099,240 @@ async def edit_acceptance_timesheet(
 
 
 
+
+# ----------------------------------------------------------------------------
+# Projects — bundle 2+ gigs that share a job site so crews can coordinate
+# ----------------------------------------------------------------------------
+
+def _serialize_project(p: dict) -> dict:
+    """Strip Mongo's _id and return the safe view."""
+    out = {k: v for k, v in p.items() if k != "_id"}
+    out.setdefault("defaults", {})
+    out.setdefault("notes", [])
+    out.setdefault("archived", False)
+    return out
+
+
+def _apply_project_defaults_to_gig(gig_payload: dict, defaults: dict) -> dict:
+    """Pre-fill the optional fields on a new gig from the project defaults.
+    Returns a new dict (does not mutate the input). Only fills fields that
+    are empty/None on the gig payload — never overwrites explicit values."""
+    if not defaults:
+        return gig_payload
+    merged = dict(gig_payload)
+    for key in ("location", "address_line", "scheduled_date", "scheduled_at",
+                "payment_timeline", "payment_timeline_note", "contact_phone"):
+        if defaults.get(key) and not merged.get(key):
+            merged[key] = defaults[key]
+    return merged
+
+
+@api.post("/projects")
+async def create_project(payload: ProjectIn, admin: dict = Depends(require_admin)):
+    project_id = f"proj_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "project_id": project_id,
+        "title": payload.title.strip(),
+        "description": payload.description or "",
+        "client_name": (payload.client_name or "").strip() or None,
+        "defaults": payload.defaults.model_dump() if payload.defaults else {},
+        "notes": [],
+        "archived": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": admin["user_id"],
+    }
+    await db.projects.insert_one(doc)
+    return _serialize_project(doc)
+
+
+@api.get("/projects")
+async def list_projects(
+    archived: bool = Query(False),
+    q: Optional[str] = Query(None),
+    admin: dict = Depends(require_admin),
+):
+    """List projects with linked-gig + crew counts. `q` filters by title or client."""
+    query: dict = {"archived": archived}
+    if q and q.strip():
+        rx = {"$regex": q.strip(), "$options": "i"}
+        query["$or"] = [{"title": rx}, {"client_name": rx}]
+    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    if not projects:
+        return []
+    pids = [p["project_id"] for p in projects]
+    gigs = await db.gigs.find({"project_id": {"$in": pids}}, {"_id": 0, "gig_id": 1, "project_id": 1, "status": 1, "slots": 1, "slots_filled": 1, "scheduled_at": 1}).to_list(2000)
+    gig_ids_by_proj: Dict[str, List[str]] = {}
+    slots_by_proj: Dict[str, Dict[str, int]] = {}
+    dates_by_proj: Dict[str, List[str]] = {}
+    for g in gigs:
+        gig_ids_by_proj.setdefault(g["project_id"], []).append(g["gig_id"])
+        s = slots_by_proj.setdefault(g["project_id"], {"slots": 0, "filled": 0})
+        s["slots"] += int(g.get("slots") or 0)
+        s["filled"] += int(g.get("slots_filled") or 0)
+        if g.get("scheduled_at"):
+            dates_by_proj.setdefault(g["project_id"], []).append(g["scheduled_at"])
+    # Crew counts via acceptances
+    accs = await db.gig_acceptances.find(
+        {"gig_id": {"$in": [g["gig_id"] for g in gigs]}, "status": {"$in": ["accepted", "on_the_clock", "clocked_in", "completed"]}},
+        {"_id": 0, "gig_id": 1, "worker_id": 1},
+    ).to_list(5000)
+    worker_set_by_proj: Dict[str, set] = {}
+    gig_to_proj = {g["gig_id"]: g["project_id"] for g in gigs}
+    for a in accs:
+        pid = gig_to_proj.get(a["gig_id"])
+        if pid:
+            worker_set_by_proj.setdefault(pid, set()).add(a["worker_id"])
+    out = []
+    for p in projects:
+        pid = p["project_id"]
+        dates = sorted(dates_by_proj.get(pid, []))
+        out.append({
+            **_serialize_project(p),
+            "gig_count": len(gig_ids_by_proj.get(pid, [])),
+            "worker_count": len(worker_set_by_proj.get(pid, set())),
+            "slots_total": slots_by_proj.get(pid, {}).get("slots", 0),
+            "slots_filled": slots_by_proj.get(pid, {}).get("filled", 0),
+            "first_scheduled_at": dates[0] if dates else None,
+            "last_scheduled_at": dates[-1] if dates else None,
+        })
+    return out
+
+
+@api.get("/projects/{project_id}")
+async def get_project(project_id: str, admin: dict = Depends(require_admin)):
+    """Full project: details + linked gigs + combined roster (admin view)."""
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    gigs = await db.gigs.find({"project_id": project_id}, {"_id": 0}).sort("scheduled_at", 1).to_list(500)
+    gig_ids = [g["gig_id"] for g in gigs]
+    accs = await db.gig_acceptances.find({"gig_id": {"$in": gig_ids}}, {"_id": 0}).to_list(2000)
+    worker_ids = list({a["worker_id"] for a in accs})
+    workers = await db.users.find(
+        {"user_id": {"$in": worker_ids}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "phone": 1, "first_name": 1, "last_name": 1},
+    ).to_list(2000)
+    wmap = {w["user_id"]: w for w in workers}
+    gtitle = {g["gig_id"]: g.get("title") for g in gigs}
+    gcat = {g["gig_id"]: g.get("category") for g in gigs}
+    crew = []
+    for a in accs:
+        if a.get("status") not in ("accepted", "on_the_clock", "clocked_in", "completed", "requested"):
+            continue
+        w = wmap.get(a["worker_id"]) or {}
+        crew.append({
+            "acceptance_id": a["acceptance_id"],
+            "gig_id": a["gig_id"],
+            "gig_title": gtitle.get(a["gig_id"]),
+            "gig_category": gcat.get(a["gig_id"]),
+            "worker_id": a["worker_id"],
+            "worker_name": w.get("name") or (
+                f"{w.get('first_name','')} {w.get('last_name','')}".strip()
+            ),
+            "worker_email": w.get("email"),
+            "worker_phone": w.get("phone"),
+            "gig_role": a.get("gig_role") or "worker",
+            "status": a.get("status"),
+        })
+    return {
+        **_serialize_project(proj),
+        "gigs": gigs,
+        "crew": crew,
+    }
+
+
+@api.put("/projects/{project_id}")
+async def update_project(project_id: str, payload: ProjectPatch, admin: dict = Depends(require_admin)):
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return await get_project(project_id, admin)
+    if "defaults" in updates and updates["defaults"] is not None:
+        # Already a dict via model_dump; keep as-is
+        pass
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updates["updated_by"] = admin["email"]
+    r = await db.projects.update_one({"project_id": project_id}, {"$set": updates})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Project not found")
+    return await get_project(project_id, admin)
+
+
+@api.delete("/projects/{project_id}")
+async def archive_project(project_id: str, admin: dict = Depends(require_admin)):
+    """Soft-archive a project and unlink all child gigs (gigs keep existing)."""
+    proj = await db.projects.find_one({"project_id": project_id})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {"archived": True, "archived_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.gigs.update_many({"project_id": project_id}, {"$set": {"project_id": None}})
+    return {"ok": True, "unlinked_gigs": True}
+
+
+@api.post("/projects/{project_id}/notes")
+async def add_project_note(project_id: str, payload: ProjectNoteIn, admin: dict = Depends(require_admin)):
+    if not payload.text or not payload.text.strip():
+        raise HTTPException(400, "Note text is required")
+    proj = await db.projects.find_one({"project_id": project_id})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    note = {
+        "note_id": f"note_{uuid.uuid4().hex[:12]}",
+        "author_id": admin["user_id"],
+        "author_name": admin.get("name") or admin.get("email"),
+        "text": payload.text.strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$push": {"notes": note}},
+    )
+    return note
+
+
+@api.delete("/projects/{project_id}/notes/{note_id}")
+async def delete_project_note(project_id: str, note_id: str, admin: dict = Depends(require_admin)):
+    r = await db.projects.update_one(
+        {"project_id": project_id},
+        {"$pull": {"notes": {"note_id": note_id}}},
+    )
+    if r.modified_count == 0:
+        raise HTTPException(404, "Note not found")
+    return {"ok": True}
+
+
+@api.post("/gigs/{gig_id}/link-to-project")
+async def link_gig_to_project(gig_id: str, payload: LinkGigToProjectIn, admin: dict = Depends(require_admin)):
+    """Attach an existing gig to a project. Optionally pull the project's
+    defaults onto the gig in the same call."""
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    proj = await db.projects.find_one({"project_id": payload.project_id})
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    updates: dict = {"project_id": payload.project_id}
+    if payload.sync_defaults:
+        # Always overwrite when admin opts in
+        d = proj.get("defaults") or {}
+        for key in ("location", "address_line", "scheduled_date", "scheduled_at",
+                    "payment_timeline", "payment_timeline_note", "contact_phone"):
+            if d.get(key) is not None:
+                updates[key] = d[key]
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": updates})
+    return {"ok": True, "project_id": payload.project_id}
+
+
+@api.delete("/gigs/{gig_id}/project")
+async def unlink_gig_from_project(gig_id: str, admin: dict = Depends(require_admin)):
+    r = await db.gigs.update_one({"gig_id": gig_id}, {"$set": {"project_id": None}})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Gig not found")
+    return {"ok": True}
+
+
 # ----------------------------------------------------------------------------
 # Worker ratings — admin manual stars + public client feedback link
 # ----------------------------------------------------------------------------
@@ -4829,6 +5164,15 @@ async def on_startup():
         {"payment_timeline": {"$exists": False}},
         {"$set": {"payment_timeline": "2_3_days", "payment_timeline_note": None}},
     )
+    # Backfill project_id on legacy gigs
+    await db.gigs.update_many(
+        {"project_id": {"$exists": False}},
+        {"$set": {"project_id": None}},
+    )
+    # Projects collection indices
+    await db.projects.create_index("project_id", unique=True)
+    await db.projects.create_index([("archived", 1), ("created_at", -1)])
+    await db.gigs.create_index("project_id")
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gigblast.com")
