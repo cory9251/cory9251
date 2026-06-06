@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -19,8 +19,15 @@ import CreateProjectDialog from "@/components/admin/CreateProjectDialog";
 
 export default function AdminProjects() {
   const nav = useNavigate();
+  const [search, setSearch] = useSearchParams();
   const [items, setItems] = useState([]);
-  const [archived, setArchived] = useState(false);
+  const archived = search.get("archived") === "true";
+  const setArchived = (v) => {
+    const next = new URLSearchParams(search);
+    if (v) next.set("archived", "true");
+    else next.delete("archived");
+    setSearch(next, { replace: true });
+  };
   const [q, setQ] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -141,7 +148,7 @@ export default function AdminProjects() {
                     )}
                   </div>
                   <div className="mt-1 font-display text-lg font-black leading-tight">
-                    {p.title}
+                    {p.title || "(Untitled project)"}
                   </div>
                 </div>
                 {p.archived && (

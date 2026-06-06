@@ -229,6 +229,29 @@
 - Graceful empty state when no open/upcoming gigs exist.
 - **Legacy backfill** — `on_startup` now coerces `is_rush=null` → `is_rush=False` on every existing gig (otherwise Mongo's null-vs-false ordering broke the RUSH-first sort for older docs).
 
+## Implemented — 2026-06 (Iteration 29: Projects — Linked Gigs Bundles)
+- **Concept**: a Project groups 2+ gigs that share a job site (e.g. truck driver + handyman + crew lead). Admins create projects; gigs are linked/unlinked; workers see other gigs in the same project + the crew on those sibling gigs.
+- **Backend** (`/api/projects/*`):
+  - `POST /api/projects` create (title, description-markdown, client_name, defaults={location, scheduled_date, scheduled_at, payment_timeline, contact_phone}).
+  - `GET /api/projects?archived=&q=` list with rolled-up `gig_count`/`worker_count`/`slots_total`/`slots_filled`/`first_scheduled_at`/`last_scheduled_at`.
+  - `GET /api/projects/{id}` full detail with linked gigs + crew across all gigs (worker name + per-gig role) + admin-only notes thread.
+  - `PUT /api/projects/{id}` partial edit; `DELETE /api/projects/{id}` archive (auto-unlinks gigs; doesn't delete gigs).
+  - `POST/DELETE /api/projects/{id}/notes` admin-only notes thread.
+  - `POST /api/gigs/{gig_id}/link-to-project` (body: `{project_id, sync_defaults}`) + `DELETE /api/gigs/{gig_id}/project` (unlink).
+  - Optional `sync_defaults=true` pulls project's defaults (location/scheduled_at/payment_timeline/contact_phone) into the gig.
+- **Gig list/detail enrichment**:
+  - `GET /api/gigs` (admin): each gig with a `project_id` is enriched with `project={project_id, title, client_name}` for the project pill.
+  - `GET /api/gigs/{id}` (admin): adds `project={project_id, title, client_name, archived, sibling_gigs[]}`.
+  - `GET /api/gigs/{id}` (worker, only when **approved** not requested): adds `project={project_id, title, client_name, sibling_gigs[], crew[]}` with crew exposing only `first_name + gig_role + gig_id + gig_title` (PII-stripped, no email/phone/last-name).
+- **Frontend**:
+  - New routes `/ops/projects` (list with Active/Archived URL-driven filter) + `/ops/projects/:projectId` (detail with linked-gigs grid, combined crew roster, admin notes thread).
+  - Sidebar entry **Projects** (folder icon) between Gigs and Workers.
+  - `CreateProjectDialog`, `EditProjectDialog`, `LinkGigToProjectDialog` (link existing gig from project detail), `PickProjectForGigDialog` (link from gig detail with inline create-project shortcut).
+  - `AdminGigs` rows now show a `project-pill-{gigId}` linking to the project detail.
+  - `GigDetail` (admin) shows a `project-banner` with title + Open project button + Unlink button when linked, else a `project-link-btn` to open the picker dialog.
+  - `WorkerGigDetail` shows a `worker-project-card` (after approval) listing the project title, sibling gigs, and PII-stripped crew chips.
+- **Testing**: 16/16 backend pytest pass (`/app/backend/tests/test_iter_projects.py`); E2E Playwright covered all 9 admin + 2 worker flows. UX polish: archive redirects to `?archived=true` so freshly-archived projects appear immediately on the Archived tab; URL-driven tab state survives reloads.
+
 ## Backlog
 ### P1
 - [ ] Worker push/email notification preferences (opt-in per channel)

@@ -62,7 +62,7 @@ export default function AdminProjectDetail() {
     try {
       await api.delete(`/projects/${projectId}`);
       toast.success("Project archived");
-      nav("/ops/projects");
+      nav("/ops/projects?archived=true");
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -331,6 +331,7 @@ export default function AdminProjectDetail() {
                     </span>
                     <button
                       onClick={() => deleteNote(n.note_id)}
+                      data-testid={`proj-note-delete-${n.note_id}`}
                       title="Delete note"
                       aria-label="Delete note"
                       className="text-[#9CA3AF] hover:text-[#EF4444]"
