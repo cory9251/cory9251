@@ -624,8 +624,24 @@ async def register(payload: RegisterIn, response: Response):
 async def login(payload: LoginIn, response: Response):
     email = payload.email.lower().strip()
     user = await db.users.find_one({"email": email})
-    if not user or not user.get("password_hash"):
+    if not user:
         raise HTTPException(401, "Invalid email or password")
+    # Account exists but was created via Google — they never set a password.
+    # Tell the frontend explicitly so it can show a "Continue with Google"
+    # affordance instead of generic "wrong password".
+    if not user.get("password_hash"):
+        provider = user.get("auth_provider") or "google"
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "no_password_set",
+                "provider": provider,
+                "message": (
+                    "This account was created with Google sign-in. "
+                    "Use 'Continue with Google' to sign in, or reset your password from the link below."
+                ),
+            },
+        )
     if not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
     await _issue_session(user["user_id"], response)

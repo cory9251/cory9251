@@ -111,6 +111,11 @@ export default function Register() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  inputMode="email"
                   className="mt-2 h-12 rounded-none border-[#030712]"
                 />
               </div>
@@ -124,6 +129,10 @@ export default function Register() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="new-password"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck="false"
                   className="mt-2 h-12 rounded-none border-[#030712]"
                 />
               </div>

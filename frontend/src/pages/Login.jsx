@@ -14,18 +14,40 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  // When server returns 409 no_password_set we render a richer message with
+  // a Google CTA right inside the error block.
+  const [needGoogle, setNeedGoogle] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
+    setNeedGoogle(false);
     setLoading(true);
     try {
-      const u = await login(email, password);
+      // Defensive client-side normalization — mobile keyboards can insert
+      // invisible spaces or auto-capitalize the first letter. The backend
+      // already lowercases email but trimming here keeps the displayed value
+      // honest and avoids confusion.
+      const cleanEmail = email.trim().toLowerCase();
+      const u = await login(cleanEmail, password);
       toast.success("Welcome back");
       nav(u.role === "admin" ? "/ops" : "/crew", { replace: true });
     } catch (e) {
-      setErr(getErr(e));
+      // FastAPI returns { detail: { code, provider, message } } for the
+      // Google-only edge case. Detect it before stringifying.
+      const detail = e?.response?.data?.detail;
+      if (
+        e?.response?.status === 409 &&
+        detail &&
+        typeof detail === "object" &&
+        detail.code === "no_password_set"
+      ) {
+        setNeedGoogle(true);
+        setErr(detail.message || "Use Google to sign in to this account.");
+      } else {
+        setErr(getErr(e));
+      }
     } finally {
       setLoading(false);
     }
@@ -74,6 +96,11 @@ export default function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  inputMode="email"
                   className="mt-2 h-12 rounded-none border-[#030712]"
                 />
               </div>
@@ -86,12 +113,39 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck="false"
                   className="mt-2 h-12 rounded-none border-[#030712]"
                 />
               </div>
               {err && (
-                <div data-testid="login-error" className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                  {err}
+                <div
+                  data-testid="login-error"
+                  className={`border p-3 text-sm ${
+                    needGoogle
+                      ? "border-[#0044FF]/30 bg-[#EFF3FF] text-[#1E3A8A]"
+                      : "border-red-200 bg-red-50 text-red-700"
+                  }`}
+                >
+                  <div className="font-semibold">
+                    {needGoogle ? "This account uses Google sign-in" : err}
+                  </div>
+                  {needGoogle && (
+                    <>
+                      <div className="mt-1 text-xs">{err}</div>
+                      <Button
+                        type="button"
+                        onClick={google}
+                        data-testid="login-error-google-btn"
+                        className="mt-3 h-10 w-full rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+                      >
+                        <GoogleLogo size={16} weight="bold" className="mr-2" />
+                        Continue with Google
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
               <Button

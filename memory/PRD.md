@@ -117,6 +117,14 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
+## Implemented — 2026-06 (Iteration 26: Auth UX — Google-only Account Detection + Mobile Keyboard Hardening)
+- **Root cause investigated**: users complaining "wrong password when it's right" were people who originally signed up via "Continue with Google" — the OAuth flow creates a user doc with `auth_provider="google"` and **no `password_hash`**. The old `/auth/login` returned a generic "Invalid email or password" which made them think the platform was broken.
+- **Backend `/auth/login`** now distinguishes three states: (a) no user → 401 generic, (b) user exists but Google-only → **409** with structured payload `{code: "no_password_set", provider, message}`, (c) password mismatch → 401 generic. Attacker can't enumerate accounts because mistyped emails still hit the 401 path.
+- **Frontend `Login.jsx`** catches the 409 and replaces the red error box with a friendly blue "**This account uses Google sign-in**" panel containing a one-click "Continue with Google" button.
+- **Mobile keyboard hardening** on Login + Register email/password inputs: `autoCapitalize="off"`, `autoCorrect="off"`, `spellCheck="false"`, `autoComplete` set to the correct value (`email`, `current-password`, `new-password`), and `inputMode="email"` on email fields. Prevents iOS/Android keyboards from silently auto-capitalizing the first character, inserting smart-quotes, or autocompleting an autocorrected variant of the password.
+- **Defensive client-side normalization** of email (trim + lower-case) before submit — backend already does this server-side, but doing it client-side too keeps the displayed value honest and avoids confusion.
+- Verified via curl: Google-only user → 409 with helpful detail; non-existent user → 401 generic; valid admin login → 200 (regression clean).
+
 ## Implemented — 2026-06 (Iteration 25: Break Deduction)
 - **Backend**:
   - `GigIn` / `GigPatch` gained `break_minutes: int` (default 0). Stored on the gig doc; admin sets it in Create / Edit Gig dialogs.
