@@ -75,6 +75,7 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
     pay_type: "hourly",
     slots: 1,
     duration_hours: "",
+    break_minutes: "0",
     contact_phone: "",
   });
   const [date, setDate] = useState(init.date);
@@ -97,6 +98,7 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
         pay_type: gig.pay_type || "hourly",
         slots: gig.slots ?? 1,
         duration_hours: gig.duration_hours != null ? String(gig.duration_hours) : "",
+        break_minutes: gig.break_minutes != null ? String(gig.break_minutes) : "0",
         contact_phone: gig.contact_phone || "",
       });
       const d = decomposeTime(gig.scheduled_at);
@@ -126,6 +128,7 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
         duration_hours: form.duration_hours
           ? parseFloat(form.duration_hours)
           : null,
+        break_minutes: parseInt(form.break_minutes || 0),
         // empty string clears address_line (treated as null on backend)
         address_line: form.address_line.trim() || null,
       });
@@ -325,6 +328,22 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
               onChange={(e) => set("duration_hours", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
             />
+          </div>
+
+          <div>
+            <Label className="font-mono-label">Break (min)</Label>
+            <Input
+              data-testid="edit-gig-break-minutes"
+              type="number"
+              min="0"
+              step="5"
+              value={form.break_minutes}
+              onChange={(e) => set("break_minutes", e.target.value)}
+              className="mt-2 h-11 rounded-none border-[#030712]"
+            />
+            <div className="mt-1 text-[10px] text-[#4B5563]">
+              Unpaid break deducted from clocked time
+            </div>
           </div>
 
           <div>

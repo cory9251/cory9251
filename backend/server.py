@@ -303,6 +303,10 @@ class GigIn(BaseModel):
     pay_type: PayType
     slots: int = 1
     duration_hours: Optional[float] = None
+    # Unpaid break minutes deducted from each worker's clocked time. Default
+    # is 0 — admin sets it per-gig in the Create/Edit dialog. Per-worker
+    # override lives on the acceptance.
+    break_minutes: Optional[int] = 0
     contact_phone: Optional[str] = None
     # Recurrence — optional. If recurrence != 'none', the create endpoint generates
     # `repeat_count` gig instances spaced by the chosen period.
@@ -328,6 +332,7 @@ class GigPatch(BaseModel):
     pay_type: Optional[PayType] = None
     slots: Optional[int] = None
     duration_hours: Optional[float] = None
+    break_minutes: Optional[int] = None
     contact_phone: Optional[str] = None
     status: Optional[str] = None  # admin can flip status from the Edit dialog
     publish_at: Optional[str] = None
@@ -387,6 +392,9 @@ class TimesheetApproveIn(BaseModel):
     hours_worked: Optional[float] = None
     earnings: Optional[float] = None
     note: Optional[str] = None
+    # Per-worker break override (minutes). When set, overrides the gig's default
+    # break_minutes for this acceptance. Pass null to leave unchanged.
+    break_minutes: Optional[int] = None
 
 
 class TimesheetEditIn(BaseModel):
@@ -397,6 +405,8 @@ class TimesheetEditIn(BaseModel):
     clock_in_at: Optional[str] = None
     clock_out_at: Optional[str] = None
     clear_clock_out: Optional[bool] = False
+    # Per-worker break override (minutes). Same semantics as the approve payload.
+    break_minutes: Optional[int] = None
 
 
 class AdminRatingIn(BaseModel):
@@ -830,6 +840,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "slots": payload.slots,
         "slots_filled": 0,
         "duration_hours": payload.duration_hours,
+        "break_minutes": int(payload.break_minutes or 0),
         "contact_phone": payload.contact_phone,
         "status": payload.status or "open",
         "publish_at": payload.publish_at,
@@ -997,9 +1008,17 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
                 a["pay_type_source"] = a.get("pay_type_source") or pay["pay_type_source"]
                 # If not yet clocked out, project what they'd earn
                 if a.get("earnings") is None and a.get("hours_worked") is not None:
+                    br = _resolve_break_minutes(a, gig)
+                    a["break_minutes_effective"] = br
+                    a["paid_hours"] = _compute_paid_hours(a.get("hours_worked"), br)
                     a["projected_earnings"] = _compute_earnings(
-                        pay["pay_rate"], pay["pay_type"], a.get("hours_worked")
+                        pay["pay_rate"], pay["pay_type"], a.get("hours_worked"), br
                     )
+                else:
+                    # Surface the effective break + paid_hours for the admin UI
+                    br = _resolve_break_minutes(a, gig)
+                    a["break_minutes_effective"] = br
+                    a["paid_hours"] = _compute_paid_hours(a.get("hours_worked"), br)
         gig["pending_requests"] = [a for a in all_rows if a.get("status") == "requested"]
         gig["acceptances"] = [a for a in all_rows if a.get("status") != "requested"]
     else:
@@ -1104,6 +1123,7 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "slots": src.get("slots") or 1,
         "slots_filled": 0,
         "duration_hours": src.get("duration_hours"),
+        "break_minutes": int(src.get("break_minutes") or 0),
         "contact_phone": src.get("contact_phone"),
         "status": "open",
         "publish_at": None,
@@ -1170,12 +1190,33 @@ def _resolve_pay(
     }
 
 
-def _compute_earnings(pay_rate: Optional[float], pay_type: Optional[str], hours: Optional[float]) -> Optional[float]:
+def _resolve_break_minutes(acceptance: Optional[dict], gig: Optional[dict]) -> int:
+    """Per-worker break override on the acceptance wins; otherwise fall back to
+    the gig's default break_minutes; otherwise 0. Never negative."""
+    if acceptance is not None and acceptance.get("break_minutes") is not None:
+        return max(0, int(acceptance["break_minutes"]))
+    if gig is not None and gig.get("break_minutes") is not None:
+        return max(0, int(gig["break_minutes"]))
+    return 0
+
+
+def _compute_paid_hours(hours_worked: Optional[float], break_minutes: int) -> Optional[float]:
+    """Subtract unpaid break minutes from clocked hours. Never negative."""
+    if hours_worked is None:
+        return None
+    paid = round(float(hours_worked) - (float(break_minutes) / 60.0), 2)
+    return max(0.0, paid)
+
+
+def _compute_earnings(pay_rate: Optional[float], pay_type: Optional[str], hours: Optional[float], break_minutes: int = 0) -> Optional[float]:
+    """Compute earnings, deducting unpaid break minutes from hourly pay only.
+    Flat-rate gigs always pay the posted amount regardless of break."""
     if pay_rate is None or pay_type is None:
         return None
     if pay_type == "hourly":
-        return round(float(pay_rate) * float(hours or 0), 2)
-    # flat / fixed rate — full posted amount regardless of hours
+        paid_hours = _compute_paid_hours(hours, break_minutes) or 0.0
+        return round(float(pay_rate) * float(paid_hours), 2)
+    # flat / fixed rate — full posted amount regardless of hours / break
     return round(float(pay_rate), 2)
 
 
@@ -2070,9 +2111,16 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
                 pay = _resolve_pay(a, w, g)
                 a["pay_rate_effective"] = pay["pay_rate"]
                 a["pay_type_effective"] = pay["pay_type"]
+                br = _resolve_break_minutes(a, g)
+                a["break_minutes_effective"] = br
+                a["paid_hours"] = _compute_paid_hours(a.get("hours_worked"), br)
                 a["projected_earnings"] = _compute_earnings(
-                    pay["pay_rate"], pay["pay_type"], a.get("hours_worked")
+                    pay["pay_rate"], pay["pay_type"], a.get("hours_worked"), br
                 )
+            else:
+                br = _resolve_break_minutes(a, g)
+                a["break_minutes_effective"] = br
+                a["paid_hours"] = _compute_paid_hours(a.get("hours_worked"), br)
     w["accepted_gigs"] = accepted
     # Attach rating aggregates so the WorkerDetail header can render stars.
     w.update(await _worker_rating_stats(user_id))
@@ -2496,7 +2544,9 @@ async def clock_out(gig_id: str, user: dict = Depends(get_current_user)):
     gig = await db.gigs.find_one({"gig_id": gig_id})
     worker = await db.users.find_one({"user_id": user["user_id"]})
     pay = _resolve_pay(acceptance, worker, gig)
-    earnings = _compute_earnings(pay["pay_rate"], pay["pay_type"], hours)
+    break_minutes = _resolve_break_minutes(acceptance, gig)
+    paid_hours = _compute_paid_hours(hours, break_minutes)
+    earnings = _compute_earnings(pay["pay_rate"], pay["pay_type"], hours, break_minutes)
 
     await db.gig_acceptances.update_one(
         {"acceptance_id": acceptance["acceptance_id"]},
@@ -2504,6 +2554,8 @@ async def clock_out(gig_id: str, user: dict = Depends(get_current_user)):
             "$set": {
                 "clock_out_at": now.isoformat(),
                 "hours_worked": hours,
+                "break_minutes_applied": break_minutes,
+                "paid_hours": paid_hours,
                 "pay_rate_applied": pay["pay_rate"],
                 "pay_type_applied": pay["pay_type"],
                 "pay_rate_source": pay["pay_rate_source"],
@@ -2518,6 +2570,8 @@ async def clock_out(gig_id: str, user: dict = Depends(get_current_user)):
         "ok": True,
         "clock_out_at": now.isoformat(),
         "hours_worked": hours,
+        "break_minutes": break_minutes,
+        "paid_hours": paid_hours,
         "earnings": earnings,
         "pay_rate_applied": pay["pay_rate"],
         "pay_type_applied": pay["pay_type"],
@@ -2638,7 +2692,9 @@ async def set_acceptance_pay_override(
         gig = await db.gigs.find_one({"gig_id": gig_id})
         worker = await db.users.find_one({"user_id": refreshed["worker_id"]})
         pay = _resolve_pay(refreshed, worker, gig)
-        new_earnings = _compute_earnings(pay["pay_rate"], pay["pay_type"], refreshed.get("hours_worked"))
+        br = _resolve_break_minutes(refreshed, gig)
+        new_paid = _compute_paid_hours(refreshed.get("hours_worked"), br)
+        new_earnings = _compute_earnings(pay["pay_rate"], pay["pay_type"], refreshed.get("hours_worked"), br)
         await db.gig_acceptances.update_one(
             {"acceptance_id": acceptance_id},
             {
@@ -2647,6 +2703,8 @@ async def set_acceptance_pay_override(
                     "pay_type_applied": pay["pay_type"],
                     "pay_rate_source": pay["pay_rate_source"],
                     "pay_type_source": pay["pay_type_source"],
+                    "break_minutes_applied": br,
+                    "paid_hours": new_paid,
                     "earnings": new_earnings,
                     # Override invalidates a prior approval — admin should re-approve
                     "timesheet_approved": False,
@@ -2685,6 +2743,12 @@ async def approve_timesheet(
     if payload.note:
         set_ops["timesheet_note"] = payload.note
 
+    # Per-worker break override (minutes) — when present, replaces the gig default
+    if payload.break_minutes is not None:
+        if payload.break_minutes < 0:
+            raise HTTPException(400, "break_minutes must be >= 0")
+        set_ops["break_minutes"] = int(payload.break_minutes)
+
     # Optional admin corrections (e.g. trim hours, set earnings manually)
     if payload.hours_worked is not None:
         if payload.hours_worked < 0:
@@ -2695,19 +2759,28 @@ async def approve_timesheet(
             raise HTTPException(400, "earnings must be >= 0")
         set_ops["earnings"] = round(float(payload.earnings), 2)
         set_ops["earnings_manual_override"] = True
-    elif payload.hours_worked is not None:
-        # Recompute earnings using existing rate snapshot, with the new hours
+    elif payload.hours_worked is not None or payload.break_minutes is not None:
+        # Recompute earnings whenever hours OR break changed.
         rate = acceptance.get("pay_rate_applied")
         ptype = acceptance.get("pay_type_applied")
+        gig = await db.gigs.find_one({"gig_id": gig_id})
         # Fallback to a fresh resolution if not snapshotted yet
         if rate is None or ptype is None:
-            gig = await db.gigs.find_one({"gig_id": gig_id})
             worker = await db.users.find_one({"user_id": acceptance["worker_id"]})
             pay = _resolve_pay(acceptance, worker, gig)
             rate, ptype = pay["pay_rate"], pay["pay_type"]
             set_ops["pay_rate_applied"] = rate
             set_ops["pay_type_applied"] = ptype
-        set_ops["earnings"] = _compute_earnings(rate, ptype, set_ops["hours_worked"])
+        effective_hours = set_ops.get("hours_worked", acceptance.get("hours_worked"))
+        # Use the new break if provided, else fall back to existing resolution
+        effective_break = (
+            set_ops.get("break_minutes")
+            if "break_minutes" in set_ops
+            else _resolve_break_minutes(acceptance, gig)
+        )
+        set_ops["break_minutes_applied"] = effective_break
+        set_ops["paid_hours"] = _compute_paid_hours(effective_hours, effective_break)
+        set_ops["earnings"] = _compute_earnings(rate, ptype, effective_hours, effective_break)
 
     await db.gig_acceptances.update_one(
         {"acceptance_id": acceptance_id}, {"$set": set_ops}
@@ -2832,6 +2905,8 @@ async def edit_acceptance_timesheet(
     if new_in is None:
         unset_ops["clock_in_at"] = ""
         unset_ops["hours_worked"] = ""
+        unset_ops["paid_hours"] = ""
+        unset_ops["break_minutes_applied"] = ""
         unset_ops["earnings"] = ""
         set_ops["status"] = "accepted"
     else:
@@ -2840,6 +2915,8 @@ async def edit_acceptance_timesheet(
     if new_out is None:
         unset_ops["clock_out_at"] = ""
         unset_ops["hours_worked"] = ""
+        unset_ops["paid_hours"] = ""
+        unset_ops["break_minutes_applied"] = ""
         unset_ops["earnings"] = ""
         if new_in is not None:
             set_ops["status"] = "clocked_in"
@@ -2853,11 +2930,24 @@ async def edit_acceptance_timesheet(
         gig = await db.gigs.find_one({"gig_id": gig_id})
         worker = await db.users.find_one({"user_id": acceptance["worker_id"]})
         pay = _resolve_pay(acceptance, worker, gig)
+
+        # Per-worker break override (minutes) — if provided, apply now so we
+        # can include it in the recompute below
+        if payload.break_minutes is not None:
+            if payload.break_minutes < 0:
+                raise HTTPException(400, "break_minutes must be >= 0")
+            set_ops["break_minutes"] = int(payload.break_minutes)
+            effective_break = int(payload.break_minutes)
+        else:
+            effective_break = _resolve_break_minutes(acceptance, gig)
+
         set_ops["pay_rate_applied"] = pay["pay_rate"]
         set_ops["pay_type_applied"] = pay["pay_type"]
         set_ops["pay_rate_source"] = pay["pay_rate_source"]
         set_ops["pay_type_source"] = pay["pay_type_source"]
-        set_ops["earnings"] = _compute_earnings(pay["pay_rate"], pay["pay_type"], hours)
+        set_ops["break_minutes_applied"] = effective_break
+        set_ops["paid_hours"] = _compute_paid_hours(hours, effective_break)
+        set_ops["earnings"] = _compute_earnings(pay["pay_rate"], pay["pay_type"], hours, effective_break)
         set_ops["earnings_manual_override"] = False
         set_ops["status"] = "completed"
 
@@ -4001,6 +4091,8 @@ async def _build_timesheet_rows(
     for r in rows:
         g = gmap.get(r["gig_id"]) or {}
         w = wmap.get(r["worker_id"]) or {}
+        br = _resolve_break_minutes(r, g)
+        paid_hours = _compute_paid_hours(r.get("hours_worked"), br)
         # If earnings not snapshotted (legacy), compute on the fly using current rates
         earnings = r.get("earnings")
         rate = r.get("pay_rate_applied")
@@ -4008,7 +4100,7 @@ async def _build_timesheet_rows(
         if earnings is None:
             pay = _resolve_pay(r, w, g)
             rate, ptype = pay["pay_rate"], pay["pay_type"]
-            earnings = _compute_earnings(rate, ptype, r.get("hours_worked"))
+            earnings = _compute_earnings(rate, ptype, r.get("hours_worked"), br)
         out.append(
             {
                 "acceptance_id": r["acceptance_id"],
@@ -4022,6 +4114,8 @@ async def _build_timesheet_rows(
                 "clock_in_at": r.get("clock_in_at"),
                 "clock_out_at": r.get("clock_out_at"),
                 "hours_worked": r.get("hours_worked"),
+                "break_minutes": br,
+                "paid_hours": paid_hours,
                 "pay_rate_applied": rate,
                 "pay_type_applied": ptype,
                 "earnings": earnings,
@@ -4045,6 +4139,8 @@ async def admin_reports_timesheets(
     """Return timesheet rows + totals."""
     rows = await _build_timesheet_rows(start, end, worker_id, gig_id, only_approved)
     total_hours = round(sum((r.get("hours_worked") or 0) for r in rows), 2)
+    total_paid_hours = round(sum((r.get("paid_hours") or 0) for r in rows), 2)
+    total_break_minutes = sum((r.get("break_minutes") or 0) for r in rows)
     total_earnings = round(sum((r.get("earnings") or 0) for r in rows), 2)
     approved_earnings = round(
         sum((r.get("earnings") or 0) for r in rows if r.get("timesheet_approved")), 2
@@ -4054,6 +4150,8 @@ async def admin_reports_timesheets(
         "totals": {
             "rows": len(rows),
             "hours": total_hours,
+            "paid_hours": total_paid_hours,
+            "break_minutes": total_break_minutes,
             "earnings": total_earnings,
             "approved_earnings": approved_earnings,
         },
@@ -4093,7 +4191,7 @@ async def admin_reports_timesheets_csv(
     rows = await _build_timesheet_rows(start, end, worker_id, gig_id, only_approved)
     header = [
         "Worker", "Worker email", "Gig", "Date", "Clock-in", "Clock-out",
-        "Hours", "Pay rate", "Pay type", "Earnings", "Timesheet approved",
+        "Hours clocked", "Break (min)", "Paid hours", "Pay rate", "Pay type", "Earnings", "Timesheet approved",
     ]
     lines = [",".join(header)]
     for r in rows:
@@ -4103,6 +4201,10 @@ async def admin_reports_timesheets_csv(
         earnings_s = f"{earnings:.2f}" if earnings is not None else ""
         hours = r.get("hours_worked")
         hours_s = f"{hours:.2f}" if hours is not None else ""
+        br = r.get("break_minutes")
+        br_s = f"{br:d}" if br is not None else "0"
+        paid = r.get("paid_hours")
+        paid_s = f"{paid:.2f}" if paid is not None else ""
         lines.append(",".join(_csv_escape(c) for c in [
             r.get("worker_name") or "",
             r.get("worker_email") or "",
@@ -4111,6 +4213,8 @@ async def admin_reports_timesheets_csv(
             _fmt_dt_for_csv(r.get("clock_in_at")),
             _fmt_dt_for_csv(r.get("clock_out_at")),
             hours_s,
+            br_s,
+            paid_s,
             rate_s,
             r.get("pay_type_applied") or "",
             earnings_s,
@@ -4489,16 +4593,22 @@ async def my_earnings(user: dict = Depends(get_current_user)):
 
     approved_rows = []
     approved_hours = 0.0
+    approved_paid_hours = 0.0
     approved_earnings = 0.0
+    approved_break_minutes = 0
     pending_count = 0
     pending_hours = 0.0
     for r in rows:
         g = gmap.get(r["gig_id"]) or {}
         hours = r.get("hours_worked") or 0
         earnings = r.get("earnings")
+        br = _resolve_break_minutes(r, g)
+        paid_hours = _compute_paid_hours(r.get("hours_worked"), br) or 0.0
         if r.get("timesheet_approved"):
             approved_hours += float(hours)
+            approved_paid_hours += float(paid_hours)
             approved_earnings += float(earnings or 0)
+            approved_break_minutes += int(br)
             approved_rows.append({
                 "acceptance_id": r["acceptance_id"],
                 "gig_id": r["gig_id"],
@@ -4508,6 +4618,8 @@ async def my_earnings(user: dict = Depends(get_current_user)):
                 "clock_in_at": r.get("clock_in_at"),
                 "clock_out_at": r.get("clock_out_at"),
                 "hours_worked": r.get("hours_worked"),
+                "break_minutes": br,
+                "paid_hours": paid_hours,
                 "pay_rate_applied": r.get("pay_rate_applied"),
                 "pay_type_applied": r.get("pay_type_applied"),
                 "earnings": earnings,
@@ -4520,6 +4632,8 @@ async def my_earnings(user: dict = Depends(get_current_user)):
         "approved": {
             "rows": approved_rows,
             "total_hours": round(approved_hours, 2),
+            "total_paid_hours": round(approved_paid_hours, 2),
+            "total_break_minutes": approved_break_minutes,
             "total_earnings": round(approved_earnings, 2),
         },
         "pending": {
@@ -4675,6 +4789,11 @@ async def on_startup():
     await db.gigs.update_many(
         {"tags": {"$exists": False}},
         {"$set": {"tags": []}},
+    )
+    # Backfill break_minutes on legacy gigs
+    await db.gigs.update_many(
+        {"break_minutes": {"$exists": False}},
+        {"$set": {"break_minutes": 0}},
     )
 
     # Seed admin

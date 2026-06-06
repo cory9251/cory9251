@@ -273,12 +273,29 @@ export default function WorkerGigDetail() {
           {completed ? (
             <div className="mt-3">
               <div className="font-display text-3xl font-black text-[#065F46]">
-                {acc.hours_worked != null ? acc.hours_worked.toFixed(2) : "—"} hours
+                {acc.paid_hours != null
+                  ? acc.paid_hours.toFixed(2)
+                  : acc.hours_worked != null
+                  ? acc.hours_worked.toFixed(2)
+                  : "—"}{" "}
+                hours paid
               </div>
               <div className="mt-1 text-xs text-[#065F46]/80">
                 Logged · {new Date(acc.clock_in_at).toLocaleTimeString()} →{" "}
                 {new Date(acc.clock_out_at).toLocaleTimeString()}
               </div>
+              {(acc.break_minutes_applied || acc.break_minutes_effective) ? (
+                <div
+                  data-testid="worker-break-line"
+                  className="mt-2 rounded-lg bg-white/60 px-2 py-1.5 text-[11px] text-[#065F46]"
+                >
+                  {`${Number(acc.hours_worked || 0).toFixed(2)}h worked – `}
+                  {`${(Number(acc.break_minutes_applied ?? acc.break_minutes_effective ?? 0) / 60).toFixed(2)}h break = `}
+                  <strong>
+                    {`${Number(acc.paid_hours ?? Math.max(0, (acc.hours_worked || 0) - (acc.break_minutes_applied ?? acc.break_minutes_effective ?? 0) / 60)).toFixed(2)}h paid`}
+                  </strong>
+                </div>
+              ) : null}
             </div>
           ) : onClock ? (
             <>

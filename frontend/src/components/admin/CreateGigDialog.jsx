@@ -77,6 +77,7 @@ export default function CreateGigDialog({
     pay_type: "hourly",
     slots: 1,
     duration_hours: "",
+    break_minutes: 0,
     contact_phone: "",
   });
   const [date, setDate] = useState(initialDate || today);
@@ -146,6 +147,7 @@ export default function CreateGigDialog({
         duration_hours: form.duration_hours
           ? parseFloat(form.duration_hours)
           : null,
+        break_minutes: parseInt(form.break_minutes || 0),
         address_line: form.address_line.trim() || null,
         recurrence,
         repeat_count: recurrence === "none" ? 1 : parseInt(repeatCount || 1),
@@ -166,6 +168,7 @@ export default function CreateGigDialog({
         pay_type: "hourly",
         slots: 1,
         duration_hours: "",
+        break_minutes: 0,
         contact_phone: "",
       });
     } catch (e) {
@@ -381,6 +384,23 @@ export default function CreateGigDialog({
               className="mt-2 h-11 rounded-none border-[#030712]"
               placeholder="4"
             />
+          </div>
+
+          <div>
+            <Label className="font-mono-label">Break (min)</Label>
+            <Input
+              data-testid="gig-break-minutes"
+              type="number"
+              min="0"
+              step="5"
+              value={form.break_minutes}
+              onChange={(e) => set("break_minutes", e.target.value)}
+              className="mt-2 h-11 rounded-none border-[#030712]"
+              placeholder="0"
+            />
+            <div className="mt-1 text-[10px] text-[#4B5563]">
+              Unpaid break deducted from clocked time
+            </div>
           </div>
 
           <div>

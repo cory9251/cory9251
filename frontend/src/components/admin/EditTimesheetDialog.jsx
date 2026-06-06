@@ -53,6 +53,7 @@ export default function EditTimesheetDialog({
   const [clockIn, setClockIn] = useState("");
   const [clockOut, setClockOut] = useState("");
   const [clearOut, setClearOut] = useState(false);
+  const [breakMin, setBreakMin] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -60,6 +61,13 @@ export default function EditTimesheetDialog({
       setClockIn(toLocalInput(acceptance.clock_in_at));
       setClockOut(toLocalInput(acceptance.clock_out_at));
       setClearOut(false);
+      // Pre-fill with the resolved break minutes (acceptance override → gig default → 0)
+      const eff =
+        acceptance.break_minutes_applied ??
+        acceptance.break_minutes ??
+        acceptance.break_minutes_effective ??
+        "";
+      setBreakMin(eff === "" || eff == null ? "" : String(eff));
     }
   }, [open, acceptance]);
 
@@ -93,6 +101,10 @@ export default function EditTimesheetDialog({
       } else {
         payload.clear_clock_out = true;
       }
+      // Send break override when admin entered a value; empty input = leave unchanged
+      if (breakMin !== "" && !isNaN(parseInt(breakMin))) {
+        payload.break_minutes = Math.max(0, parseInt(breakMin));
+      }
       await api.put(
         `/gigs/${gigId}/acceptances/${acceptance.acceptance_id}/timesheet`,
         payload
@@ -109,17 +121,27 @@ export default function EditTimesheetDialog({
   // Live preview of hours + earnings based on current inputs
   const rate = acceptance.pay_rate_applied ?? acceptance.pay_rate_effective;
   const rateType = acceptance.pay_type_applied || acceptance.pay_type_effective;
+  // Effective break: input value if provided, else acceptance/gig fallback
+  const effBreakMin =
+    breakMin !== "" && !isNaN(parseInt(breakMin))
+      ? Math.max(0, parseInt(breakMin))
+      : (acceptance.break_minutes_applied ??
+         acceptance.break_minutes ??
+         acceptance.break_minutes_effective ??
+         0);
   let previewHours = null;
+  let previewPaidHours = null;
   let previewEarnings = null;
   if (clockIn && !clearOut && clockOut) {
     const inDt = new Date(clockIn);
     const outDt = new Date(clockOut);
     if (outDt > inDt) {
       previewHours = (outDt - inDt) / 3600000;
+      previewPaidHours = Math.max(0, previewHours - effBreakMin / 60);
       if (rate != null) {
         previewEarnings =
           rateType === "hourly"
-            ? Number(rate) * previewHours
+            ? Number(rate) * previewPaidHours
             : Number(rate);
       }
     }
@@ -190,23 +212,58 @@ export default function EditTimesheetDialog({
             )}
           </div>
 
+          <div>
+            <div className="flex items-center justify-between">
+              <Label className="font-mono-label">Break (min)</Label>
+              <span className="font-mono-label text-[9px] text-[#4B5563]">
+                Override per worker
+              </span>
+            </div>
+            <Input
+              data-testid="edit-break-minutes"
+              type="number"
+              min="0"
+              step="5"
+              value={breakMin}
+              onChange={(e) => setBreakMin(e.target.value)}
+              placeholder={
+                acceptance.break_minutes_applied != null
+                  ? `${acceptance.break_minutes_applied}`
+                  : acceptance.break_minutes_effective != null
+                  ? `gig default · ${acceptance.break_minutes_effective}`
+                  : "0"
+              }
+              className="mt-2 h-11 rounded-none border-[#030712]"
+            />
+            <div className="mt-1 text-[10px] text-[#4B5563]">
+              Leave blank to use the gig's default break
+            </div>
+          </div>
+
           {/* Live preview */}
-          <div className="grid grid-cols-2 gap-3 border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs">
+          <div className="grid grid-cols-3 gap-3 border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs">
             <div>
-              <div className="font-mono-label">Hours (preview)</div>
+              <div className="font-mono-label">Clocked</div>
               <div className="mt-1 font-display text-lg font-black">
                 {previewHours != null ? `${previewHours.toFixed(2)}h` : "—"}
               </div>
             </div>
             <div>
-              <div className="font-mono-label">Earnings (preview)</div>
+              <div className="font-mono-label">Paid (−break)</div>
+              <div className="mt-1 font-display text-lg font-black">
+                {previewPaidHours != null ? `${previewPaidHours.toFixed(2)}h` : "—"}
+              </div>
+              <div className="text-[9px] text-[#4B5563]">−{effBreakMin}min</div>
+            </div>
+            <div>
+              <div className="font-mono-label">Earnings</div>
               <div className="mt-1 font-display text-lg font-black text-[#10B981]">
                 {previewEarnings != null
                   ? `$${previewEarnings.toFixed(2)}`
                   : "—"}
               </div>
             </div>
-            <div className="col-span-2 text-[10px] text-[#4B5563]">
+            <div className="col-span-3 text-[10px] text-[#4B5563]">
               Rate applied:{" "}
               {rate != null
                 ? `$${Number(rate).toFixed(2)} ${rateType === "hourly" ? "/hr" : "flat"}`

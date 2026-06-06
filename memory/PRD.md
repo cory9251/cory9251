@@ -117,14 +117,35 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
-## Implemented — 2026-06 (Iteration 24: Calendar v2 — Multi-View + Heatmap)
+## Implemented — 2026-06 (Iteration 25: Break Deduction)
+- **Backend**:
+  - `GigIn` / `GigPatch` gained `break_minutes: int` (default 0). Stored on the gig doc; admin sets it in Create / Edit Gig dialogs.
+  - `TimesheetEditIn` and `TimesheetApproveIn` gained `break_minutes` per-worker override. Override on the acceptance wins; falls back to the gig default; falls back to 0.
+  - New helpers: `_resolve_break_minutes(acceptance, gig)`, `_compute_paid_hours(hours_worked, break_minutes)`. `_compute_earnings` now subtracts break time for hourly pay (flat-rate pays full amount regardless).
+  - `clock_out`, `update_acceptance_pay`, `edit_acceptance_timesheet`, `approve_timesheet` all recompute earnings using the new helper and snapshot `break_minutes_applied` + `paid_hours` on the acceptance.
+  - `/me/earnings` exposes `break_minutes`, `paid_hours` per row + `total_paid_hours`, `total_break_minutes` in the approved totals.
+  - `/admin/reports/timesheets` returns `break_minutes` + `paid_hours` per row and totals; CSV has new "Break (min)" and "Paid hours" columns.
+  - Startup backfill ensures every legacy gig gets `break_minutes=0`.
+- **Frontend**:
+  - **CreateGigDialog + EditGigDialog**: new "Break (min)" field (number input, default 0, helper text "Unpaid break deducted from clocked time").
+  - **EditTimesheetDialog**: new "Break (min) — Override per worker" field. Empty leaves gig default; live preview now shows 3-column Clocked / Paid (-break) / Earnings.
+  - **WorkerAccepted (`/crew/my-gigs`)**: completed gigs now show "Xh worked – Xh break = Xh paid" under the earnings line. Top earnings summary card shows paid-hours total.
+  - **WorkerGigDetail**: completed time-tracking card shows "Xh hours paid" with a subtle break breakdown below.
+- **Tests**: 9 new pytest cases in `/app/backend/tests/test_iter25_breaks.py`; 9/9 pass + 19/19 iter21 regression = 28/28 green.
+
+## Implemented — 2026-06 (Iteration 24: Calendar v2 — Multi-View + Heatmap + Mobile)
 - Three view modes (toggle pills top-right): **Month / Week / Day**.
 - **Month**: 6-row grid with workload heatmap tinting (blue→red gradient based on total slot demand vs busiest day); per-day pay/hours/filled-vs-total slot mini-stats; pin-tag icons embedded in each gig chip.
 - **Week**: 7-column workspace, each column shows per-day pay/slot totals in the header and stackable gig cards with category color + tag icons.
 - **Day**: hour-by-hour timeline (6 AM → midnight) with full gig detail cards in each bucket; 4 summary KPIs (Gigs/Pay/Hours/Workforce); right-side "At a glance" panel with big-stat cards + a clickable roster list.
+- **Mobile responsiveness**:
+  - Header collapses (smaller toggle pills, 9×9 prev/next buttons, "+" hides label, compact title).
+  - Legend strip becomes horizontally scrollable.
+  - **Month**: dot-only chips per day (4 dots + N indicator), single-letter weekday headers (S M T W T F S); tapping a day with gigs opens a **bottom sheet** with Gigs/Pay/Slots summary, full gig list, and a sticky "+ Add gig on this day" button.
+  - **Week**: 7 columns stack vertically into a one-day-per-row agenda; each row has a tap-to-add header and the day's gig cards beneath.
+  - **Day**: KPI strip wraps, hour timeline reduces gutter, sidebar stacks below content.
 - Heatmap legend strip in the header explains the color scale.
-- All views share the prev/next/today nav, "+ New gig", and category/legend strip.
-- All previous testIDs preserved (`cal-day-{key}`, `cal-chip-{gigId}`, `cal-prev`, `cal-next`, `cal-today`, `cal-new-gig`) plus new ones for the view toggle and per-view chips (`cal-view-month/week/day`, `cal-week-day-{key}`, `cal-week-chip-{id}`, `day-hour-{h}`, `day-card-{id}`).
+- All previous testIDs preserved (`cal-day-{key}`, `cal-chip-{gigId}`, `cal-prev`, `cal-next`, `cal-today`, `cal-new-gig`) plus new ones for the view toggle, per-view chips, and the mobile sheet (`cal-view-month/week/day`, `cal-week-day-{key}`, `cal-week-chip-{id}`, `day-hour-{h}`, `day-card-{id}`, `cal-day-sheet`, `cal-day-sheet-close`, `cal-day-sheet-gig-{id}`, `cal-day-sheet-add`).
 
 ## Implemented — 2026-06 (Iteration 23: SEO + Open Graph)
 - Site-wide meta tags in `index.html` (OG, Twitter Card, theme-color, branded favicon set).
