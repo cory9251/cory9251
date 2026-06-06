@@ -34,6 +34,8 @@ import {
   UserCircle,
   CheckCircle,
   MapPin,
+  CaretDown,
+  CaretUp,
 } from "@phosphor-icons/react";
 
 const SUBCATS = {
@@ -86,6 +88,14 @@ export default function CreateGigDialog({
   const [ampm, setAmpm] = useState("AM");
   const [recurrence, setRecurrence] = useState("none");
   const [repeatCount, setRepeatCount] = useState(4);
+  // Suggested workers panel: collapsed by default on mobile so it doesn't
+  // hide the form. Auto-expanded on first render on desktop.
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setSuggestionsOpen(window.matchMedia("(min-width: 768px)").matches);
+    }
+  }, []);
   const [loading, setLoading] = useState(false);
 
   // Sync initialDate when reopened from calendar cell
@@ -191,7 +201,7 @@ export default function CreateGigDialog({
         </DialogHeader>
         <form
           onSubmit={submit}
-          className="grid max-h-[80vh] grid-cols-1 gap-4 overflow-y-auto p-6 md:grid-cols-2"
+          className="grid max-h-[70vh] grid-cols-1 gap-4 overflow-y-auto p-6 md:max-h-[80vh] md:grid-cols-2"
         >
           <div className="md:col-span-2">
             <Label className="font-mono-label">Title</Label>
@@ -528,65 +538,89 @@ export default function CreateGigDialog({
           </div>
         </form>
 
-        {/* Suggested workers — auto-updates from category + ZIP in location */}
+        {/* Suggested workers — auto-updates from category + ZIP in location.
+            Collapsed by default on mobile so it doesn't hide the form. */}
         {suggested.length > 0 && (
           <div
             data-testid="suggested-workers-panel"
-            className="border-t border-[#E5E7EB] bg-[#F9FAFB] px-6 py-5"
+            className="border-t border-[#E5E7EB] bg-[#F9FAFB]"
           >
-            <div className="font-mono-label flex items-center gap-2">
-              <Sparkle size={12} weight="duotone" className="text-[#0044FF]" />
-              Best-fit workers
+            <button
+              type="button"
+              data-testid="suggested-workers-toggle"
+              onClick={() => setSuggestionsOpen((v) => !v)}
+              className="flex w-full items-center gap-2 px-6 py-4 text-left hover:bg-[#F0F4FF]"
+              aria-expanded={suggestionsOpen}
+            >
+              <Sparkle size={14} weight="duotone" className="text-[#0044FF]" />
+              <span className="font-mono-label">
+                Best-fit workers
+                <span className="ml-1.5 inline-flex items-center rounded-full bg-[#0044FF] px-1.5 py-0.5 text-[9px] font-bold tracking-widest text-white">
+                  {suggested.length}
+                </span>
+              </span>
               {zipFromLoc && (
-                <span className="text-[10px] text-[#4B5563]">
+                <span className="hidden text-[10px] text-[#4B5563] sm:inline">
                   · {form.category} · ZIP {zipFromLoc}
                 </span>
               )}
-            </div>
-            <p className="mt-1 text-xs text-[#4B5563]">
-              Based on profile skills + ZIP. Post the gig, then approve their request
-              or use "Add a worker" to assign directly.
-            </p>
-            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-              {suggested.map((w) => (
-                <div
-                  key={w.user_id}
-                  data-testid={`suggested-worker-${w.user_id}`}
-                  className="flex items-start gap-3 border border-[#E5E7EB] bg-white p-3"
-                >
-                  <div className="grid h-9 w-9 shrink-0 place-items-center bg-[#F0F4FF] text-[#0044FF]">
-                    <UserCircle size={20} weight="duotone" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <div className="truncate font-display text-sm font-bold">
-                        {w.name}
+              <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold text-[#4B5563]">
+                {suggestionsOpen ? "Hide" : "Show"}
+                {suggestionsOpen ? (
+                  <CaretUp size={12} weight="bold" />
+                ) : (
+                  <CaretDown size={12} weight="bold" />
+                )}
+              </span>
+            </button>
+            {suggestionsOpen && (
+              <div className="max-h-[50vh] overflow-y-auto px-6 pb-5">
+                <p className="text-xs text-[#4B5563]">
+                  Based on profile skills + ZIP. Post the gig, then approve their
+                  request or use "Add a worker" to assign directly.
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {suggested.map((w) => (
+                    <div
+                      key={w.user_id}
+                      data-testid={`suggested-worker-${w.user_id}`}
+                      className="flex items-start gap-3 border border-[#E5E7EB] bg-white p-3"
+                    >
+                      <div className="grid h-9 w-9 shrink-0 place-items-center bg-[#F0F4FF] text-[#0044FF]">
+                        <UserCircle size={20} weight="duotone" />
                       </div>
-                      <span className="ml-auto inline-flex items-center gap-0.5 bg-[#0044FF] px-1.5 py-0.5 text-[9px] font-bold tracking-widest text-white">
-                        {w.score}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px] text-[#4B5563]">
-                      {w.zip_code && (
-                        <span className="inline-flex items-center gap-0.5">
-                          <MapPin size={9} weight="duotone" /> {w.zip_code}
-                        </span>
-                      )}
-                      {w.id_verified && (
-                        <span className="inline-flex items-center gap-0.5 text-[#10B981]">
-                          <CheckCircle size={9} weight="fill" /> ID OK
-                        </span>
-                      )}
-                    </div>
-                    {w.reasons.length > 0 && (
-                      <div className="mt-1 truncate text-[10px] text-[#4B5563]">
-                        {w.reasons.join(" · ")}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="truncate font-display text-sm font-bold">
+                            {w.name}
+                          </div>
+                          <span className="ml-auto inline-flex items-center gap-0.5 bg-[#0044FF] px-1.5 py-0.5 text-[9px] font-bold tracking-widest text-white">
+                            {w.score}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px] text-[#4B5563]">
+                          {w.zip_code && (
+                            <span className="inline-flex items-center gap-0.5">
+                              <MapPin size={9} weight="duotone" /> {w.zip_code}
+                            </span>
+                          )}
+                          {w.id_verified && (
+                            <span className="inline-flex items-center gap-0.5 text-[#10B981]">
+                              <CheckCircle size={9} weight="fill" /> ID OK
+                            </span>
+                          )}
+                        </div>
+                        {w.reasons.length > 0 && (
+                          <div className="mt-1 truncate text-[10px] text-[#4B5563]">
+                            {w.reasons.join(" · ")}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
       </DialogContent>

@@ -117,6 +117,16 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
+## Implemented — 2026-06 (Iteration 27: Mobile — Collapsible Best-Fit Workers Panel)
+- **Bug**: On mobile the "Best-fit workers" panel in `CreateGigDialog` was eating the bottom half of the dialog and pushing the form (Title field included) out of reach. Users couldn't name a gig from their phones.
+- **Fix**: Panel is now collapsible.
+  - **Mobile default**: collapsed → single-line header "✨ BEST-FIT WORKERS [count] · Show ▾" so the form has full screen height.
+  - **Desktop default**: expanded (no behavior change on big screens).
+  - Tap the header anywhere to toggle; caret flips between ▾ Show / ▴ Hide.
+  - Expanded panel has its own `max-h-[50vh]` scrollable area so 10+ workers don't blow out the dialog.
+- Form `max-h` reduced slightly on mobile (70vh) to leave room for the collapsed-panel header.
+- testIDs: `suggested-workers-toggle` (new), `suggested-workers-panel`, `suggested-worker-{user_id}` (preserved).
+
 ## Implemented — 2026-06 (Iteration 26: Auth UX — Google-only Account Detection + Mobile Keyboard Hardening)
 - **Root cause investigated**: users complaining "wrong password when it's right" were people who originally signed up via "Continue with Google" — the OAuth flow creates a user doc with `auth_provider="google"` and **no `password_hash`**. The old `/auth/login` returned a generic "Invalid email or password" which made them think the platform was broken.
 - **Backend `/auth/login`** now distinguishes three states: (a) no user → 401 generic, (b) user exists but Google-only → **409** with structured payload `{code: "no_password_set", provider, message}`, (c) password mismatch → 401 generic. Attacker can't enumerate accounts because mistyped emails still hit the 401 path.
