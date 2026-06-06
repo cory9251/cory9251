@@ -48,6 +48,8 @@ import ApproveTimesheetDialog from "@/components/admin/ApproveTimesheetDialog";
 import EditTimesheetDialog from "@/components/admin/EditTimesheetDialog";
 import RatingDialog, { StarsDisplay } from "@/components/admin/RatingDialog";
 import { TAG_CONFIG, TAG_PRIORITY, getOrderedTags } from "@/lib/gigTags";
+import { getPaymentTimeline } from "@/lib/paymentTimeline";
+import MarkdownView from "@/components/MarkdownView";
 
 export default function GigDetail() {
   const { gigId } = useParams();
@@ -194,15 +196,18 @@ export default function GigDetail() {
           </h1>
           {(() => {
             const activeTags = getOrderedTags(gig.tags);
-            if (activeTags.length === 0) return null;
+            const pt = getPaymentTimeline(gig.payment_timeline);
+            const PI = pt.icon;
             return (
               <div
                 data-testid="active-tags-banner"
                 className="mt-3 flex flex-wrap items-center gap-2"
               >
-                <span className="font-mono-label text-[10px] text-[#4B5563]">
-                  Pinned to top of feed
-                </span>
+                {activeTags.length > 0 && (
+                  <span className="font-mono-label text-[10px] text-[#4B5563]">
+                    Pinned to top of feed
+                  </span>
+                )}
                 {activeTags.map((t) => {
                   const cfg = TAG_CONFIG[t];
                   const I = cfg.icon;
@@ -220,10 +225,36 @@ export default function GigDetail() {
                     </span>
                   );
                 })}
+                <span
+                  data-testid="payment-timeline-pill"
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.18em] ${pt.pillClass}`}
+                  title={
+                    gig.payment_timeline === "custom" && gig.payment_timeline_note
+                      ? gig.payment_timeline_note
+                      : pt.description
+                  }
+                >
+                  <PI
+                    size={11}
+                    weight="fill"
+                    className={pt.pulse ? "animate-pulse" : ""}
+                  />
+                  {pt.label}
+                </span>
               </div>
             );
           })()}
-          <p className="mt-4 text-[#4B5563] leading-relaxed">{gig.description}</p>
+          {gig.payment_timeline === "custom" && gig.payment_timeline_note && (
+            <p
+              data-testid="payment-timeline-note"
+              className="mt-2 inline-block bg-[#FFFBEB] px-3 py-1.5 text-xs text-[#92400E]"
+            >
+              <strong>Payment note:</strong> {gig.payment_timeline_note}
+            </p>
+          )}
+          <div className="mt-4 text-[#4B5563]">
+            <MarkdownView text={gig.description} />
+          </div>
 
           <dl className="mt-8 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
             <Item label="Public location" value={gig.location} />

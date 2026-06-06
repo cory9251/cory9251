@@ -307,6 +307,10 @@ class GigIn(BaseModel):
     # is 0 — admin sets it per-gig in the Create/Edit dialog. Per-worker
     # override lives on the acceptance.
     break_minutes: Optional[int] = 0
+    # When workers can expect payment. UI shows this as a colored pill on
+    # cards and detail pages so workers know if it's same-day cash vs payroll.
+    payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = "2_3_days"
+    payment_timeline_note: Optional[str] = None
     contact_phone: Optional[str] = None
     # Recurrence — optional. If recurrence != 'none', the create endpoint generates
     # `repeat_count` gig instances spaced by the chosen period.
@@ -333,6 +337,8 @@ class GigPatch(BaseModel):
     slots: Optional[int] = None
     duration_hours: Optional[float] = None
     break_minutes: Optional[int] = None
+    payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = None
+    payment_timeline_note: Optional[str] = None
     contact_phone: Optional[str] = None
     status: Optional[str] = None  # admin can flip status from the Edit dialog
     publish_at: Optional[str] = None
@@ -857,6 +863,8 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "slots_filled": 0,
         "duration_hours": payload.duration_hours,
         "break_minutes": int(payload.break_minutes or 0),
+        "payment_timeline": payload.payment_timeline or "2_3_days",
+        "payment_timeline_note": payload.payment_timeline_note,
         "contact_phone": payload.contact_phone,
         "status": payload.status or "open",
         "publish_at": payload.publish_at,
@@ -1140,6 +1148,8 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "slots_filled": 0,
         "duration_hours": src.get("duration_hours"),
         "break_minutes": int(src.get("break_minutes") or 0),
+        "payment_timeline": src.get("payment_timeline") or "2_3_days",
+        "payment_timeline_note": src.get("payment_timeline_note"),
         "contact_phone": src.get("contact_phone"),
         "status": "open",
         "publish_at": None,
@@ -3162,6 +3172,8 @@ async def public_gig_lookup(gig_id: str):
         "duration_hours": gig.get("duration_hours"),
         "pay_rate": gig.get("pay_rate"),
         "pay_type": gig.get("pay_type"),
+        "payment_timeline": gig.get("payment_timeline") or "2_3_days",
+        "payment_timeline_note": gig.get("payment_timeline_note"),
         "slots": gig.get("slots"),
         "slots_filled": gig.get("slots_filled"),
         "status": gig.get("status"),
@@ -3449,6 +3461,7 @@ async def public_gig_feed(limit: int = Query(3, ge=1, le=24)):
             "scheduled_at": g.get("scheduled_at"),
             "pay_rate": g.get("pay_rate"),
             "pay_type": g.get("pay_type"),
+            "payment_timeline": g.get("payment_timeline") or "2_3_days",
             "slots": g.get("slots"),
             "slots_filled": g.get("slots_filled"),
             "status": g.get("status"),
@@ -4810,6 +4823,11 @@ async def on_startup():
     await db.gigs.update_many(
         {"break_minutes": {"$exists": False}},
         {"$set": {"break_minutes": 0}},
+    )
+    # Backfill payment_timeline on legacy gigs
+    await db.gigs.update_many(
+        {"payment_timeline": {"$exists": False}},
+        {"$set": {"payment_timeline": "2_3_days", "payment_timeline_note": None}},
     )
 
     # Seed admin

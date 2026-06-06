@@ -23,6 +23,7 @@ import {
   CaretRight,
 } from "@phosphor-icons/react";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
+import { getPaymentTimeline } from "@/lib/paymentTimeline";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -173,6 +174,11 @@ export default function WorkerFeed() {
             const activeTags = getOrderedTags(g.tags);
             const tagBorder = getTagBorderClass(g.tags);
             const isPinned = activeTags.length > 0 || g.is_rush;
+            const pt = getPaymentTimeline(g.payment_timeline);
+            // Only highlight same-day or custom on the card (default 2-3 day
+            // pay is implicit and doesn't need a pill).
+            const showPayPill = g.payment_timeline === "same_day" || g.payment_timeline === "custom";
+            const PI = pt.icon;
             return (
               <button
                 key={g.gig_id}
@@ -182,7 +188,7 @@ export default function WorkerFeed() {
                   tagBorder || "border border-black/5"
                 }`}
               >
-                {activeTags.length > 0 && (
+                {(activeTags.length > 0 || showPayPill) && (
                   <div
                     data-testid={`tag-stack-${g.gig_id}`}
                     className="-mt-1 mb-3 flex flex-wrap gap-1.5"
@@ -205,6 +211,19 @@ export default function WorkerFeed() {
                         </span>
                       );
                     })}
+                    {showPayPill && (
+                      <span
+                        data-testid={`pay-pill-${g.gig_id}`}
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.18em] ${pt.pillClass}`}
+                      >
+                        <PI
+                          size={11}
+                          weight="fill"
+                          className={pt.pulse ? "animate-pulse" : ""}
+                        />
+                        {pt.short}
+                      </span>
+                    )}
                   </div>
                 )}
                 <div className="flex items-start justify-between gap-3">

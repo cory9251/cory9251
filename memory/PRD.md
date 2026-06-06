@@ -117,6 +117,18 @@
 - **Admin gigs list**: each rush gig now shows a small "🔥 RUSH" pill next to its title in the table.
 - Backend support was already in place (blast endpoint auto-flips `is_rush=true`; `PUT /api/gigs/{id}/rush` lets admins flip independently). This iteration was purely surfacing the state in the UI.
 
+## Implemented — 2026-06 (Iteration 28: Rich Gig Descriptions + Payment Timeline)
+- **Markdown descriptions**: replaced plain `Textarea` in CreateGigDialog and EditGigDialog with a custom `MarkdownEditor` (Write / Preview tabs + toolbar for bold/italic/heading/bullets/numbered/link). Stores plain markdown in the existing `description` field — no schema change needed.
+- **Markdown rendering** via new `MarkdownView` component (uses `react-markdown` + `remark-gfm` + `skipHtml` for safety) rendered on: admin GigDetail, worker WorkerGigDetail, and the public PublicGigPage. Links open in new tab with `rel="noopener noreferrer"`.
+- **Payment timeline**: new `payment_timeline` field on every gig with 4 options — `same_day`, `2_3_days` (default), `weekly`, `custom`. Optional `payment_timeline_note` (free text, shown when `custom`).
+- Frontend `lib/paymentTimeline.js` is the single source of truth for labels, icons, pill colors (green=same-day pulsing, blue=2–3 days, black=weekly, amber=custom).
+- **Where it surfaces**:
+  - **Admin GigDetail**: colored pulsing pill in the tags banner under the title; the custom note shows as an amber callout.
+  - **Worker GigDetail (mobile + desktop)**: same pill right under the title.
+  - **Worker Feed cards**: same-day and custom show a small pill in the tag stack; default 2-3-day pay is implicit (no clutter).
+  - **Public landing snippet + share endpoint**: `payment_timeline` exposed in the `/api/public/gigs` and `/api/public/gigs/{id}` responses so unauthenticated visitors see the same payment-promise signal.
+- **Backend**: `GigIn`, `GigPatch`, `_gig_doc`, duplicate-recurring path, public endpoints all updated. Startup backfill ensures every legacy gig gets `payment_timeline="2_3_days"`. 28/28 regression tests still pass.
+
 ## Implemented — 2026-06 (Iteration 27: Mobile — Collapsible Best-Fit Workers Panel)
 - **Bug**: On mobile the "Best-fit workers" panel in `CreateGigDialog` was eating the bottom half of the dialog and pushing the form (Title field included) out of reach. Users couldn't name a gig from their phones.
 - **Fix**: Panel is now collapsible.

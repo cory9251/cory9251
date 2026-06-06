@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+import { getPaymentTimeline } from "@/lib/paymentTimeline";
+import MarkdownView from "@/components/MarkdownView";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
@@ -157,9 +159,37 @@ export default function WorkerGigDetail() {
         <h1 className="mt-2 font-display text-3xl font-black tracking-tight">
           {gig.title}
         </h1>
-        <p className="mt-3 text-sm text-[#4B5563] leading-relaxed">
-          {gig.description}
-        </p>
+        {(() => {
+          const pt = getPaymentTimeline(gig.payment_timeline);
+          const PI = pt.icon;
+          return (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span
+                data-testid="worker-payment-timeline-pill"
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.18em] ${pt.pillClass}`}
+                title={pt.description}
+              >
+                <PI
+                  size={11}
+                  weight="fill"
+                  className={pt.pulse ? "animate-pulse" : ""}
+                />
+                {pt.label}
+              </span>
+            </div>
+          );
+        })()}
+        {gig.payment_timeline === "custom" && gig.payment_timeline_note && (
+          <p
+            data-testid="worker-payment-timeline-note"
+            className="mt-2 inline-block bg-[#FFFBEB] px-3 py-1.5 text-xs text-[#92400E]"
+          >
+            <strong>Payment note:</strong> {gig.payment_timeline_note}
+          </p>
+        )}
+        <div className="mt-3 text-sm text-[#4B5563] leading-relaxed">
+          <MarkdownView text={gig.description} />
+        </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#E5E7EB] pt-4 text-sm">
           <Row icon={CurrencyDollar} label="Pay">

@@ -14,6 +14,8 @@ import {
   Sparkle,
   ArrowRight,
 } from "@phosphor-icons/react";
+import { getPaymentTimeline } from "@/lib/paymentTimeline";
+import MarkdownView from "@/components/MarkdownView";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -135,10 +137,24 @@ export default function PublicGigPage() {
               label="Slots"
               value={`${gig.slots_filled || 0} / ${gig.slots || 0} filled`}
             />
+            {(() => {
+              const pt = getPaymentTimeline(gig.payment_timeline);
+              const PI = pt.icon;
+              return (
+                <Row icon={PI} label="Payment" value={pt.label} />
+              );
+            })()}
+            {gig.payment_timeline === "custom" && gig.payment_timeline_note && (
+              <div className="bg-[#FFFBEB] px-3 py-1.5 text-xs text-[#92400E]">
+                <strong>Note:</strong> {gig.payment_timeline_note}
+              </div>
+            )}
             {gig.description && (
               <div className="border-t border-[#E5E7EB] pt-3">
                 <div className="font-mono-label">Description</div>
-                <p className="mt-1 text-[#4B5563]">{gig.description}</p>
+                <div className="mt-1 text-[#4B5563]">
+                  <MarkdownView text={gig.description} />
+                </div>
               </div>
             )}
           </div>

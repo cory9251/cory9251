@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import MarkdownEditor from "@/components/MarkdownEditor";
+import { PAYMENT_TIMELINE_OPTIONS } from "@/lib/paymentTimeline";
 import {
   Select,
   SelectContent,
@@ -80,6 +82,8 @@ export default function CreateGigDialog({
     slots: 1,
     duration_hours: "",
     break_minutes: 0,
+    payment_timeline: "2_3_days",
+    payment_timeline_note: "",
     contact_phone: "",
   });
   const [date, setDate] = useState(initialDate || today);
@@ -179,6 +183,8 @@ export default function CreateGigDialog({
         slots: 1,
         duration_hours: "",
         break_minutes: 0,
+        payment_timeline: "2_3_days",
+        payment_timeline_note: "",
         contact_phone: "",
       });
     } catch (e) {
@@ -216,14 +222,15 @@ export default function CreateGigDialog({
           </div>
           <div className="md:col-span-2">
             <Label className="font-mono-label">Description</Label>
-            <Textarea
-              data-testid="gig-description"
-              required
-              rows={3}
-              value={form.description}
-              onChange={(e) => set("description", e.target.value)}
-              className="mt-2 rounded-none border-[#030712]"
-            />
+            <div className="mt-2">
+              <MarkdownEditor
+                value={form.description}
+                onChange={(v) => set("description", v)}
+                placeholder="What's the job? Use **bold**, _italic_, and - bullets for clarity. Include arrival instructions, what to bring, parking notes, etc."
+                testIdPrefix="gig-description"
+                rows={5}
+              />
+            </div>
           </div>
 
           <div>
@@ -457,6 +464,40 @@ export default function CreateGigDialog({
               onChange={(e) => set("slots", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
             />
+          </div>
+
+          <div className="md:col-span-2">
+            <Label className="font-mono-label">Payment timeline</Label>
+            <Select
+              value={form.payment_timeline}
+              onValueChange={(v) => set("payment_timeline", v)}
+            >
+              <SelectTrigger
+                data-testid="gig-payment-timeline"
+                className="mt-2 h-11 rounded-none border-[#030712]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAYMENT_TIMELINE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="mt-1 text-[10px] text-[#4B5563]">
+              When workers get paid — shown as a pill on their feed and the gig detail
+            </div>
+            {form.payment_timeline === "custom" && (
+              <Input
+                data-testid="gig-payment-timeline-note"
+                placeholder="e.g. paid Friday by Cash App after walkthrough"
+                value={form.payment_timeline_note}
+                onChange={(e) => set("payment_timeline_note", e.target.value)}
+                className="mt-2 h-11 rounded-none border-[#030712]"
+              />
+            )}
           </div>
 
           <div>
