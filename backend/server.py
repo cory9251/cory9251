@@ -492,6 +492,25 @@ class SettingsTestIn(BaseModel):
     to: str
 
 
+class QuoteRequestIn(BaseModel):
+    """Public lead capture from /customers — a prospective client requesting a
+    quote. SMS notifies HCOB ops. Honeypot field 'website' silently rejected."""
+    name: str = Field(min_length=2, max_length=120)
+    phone: str = Field(min_length=7, max_length=40)
+    email: Optional[str] = None
+    service: str = Field(min_length=2, max_length=120)
+    timeline: str = Field(min_length=1, max_length=60)
+    message: Optional[str] = Field(default=None, max_length=2000)
+    address: Optional[str] = Field(default=None, max_length=240)
+    # Honeypot — bots fill in hidden fields. Real users won't.
+    website: Optional[str] = None
+
+
+class QuoteRequestPatch(BaseModel):
+    status: Optional[Literal["new", "contacted", "won", "lost", "dismissed"]] = None
+    admin_note: Optional[str] = None
+
+
 class AdminResetPasswordIn(BaseModel):
     new_password: Optional[str] = None  # If None/blank, server generates a temp password
 
@@ -3845,6 +3864,161 @@ async def public_gig_feed(limit: int = Query(3, ge=1, le=24)):
         }
         for g in gigs
     ]
+
+
+# ----------------------------------------------------------------------------
+# Public quote-request lead capture from /customers — sends an SMS to the
+# HCOB owner phone and stores the lead so admins can follow up.
+# ----------------------------------------------------------------------------
+# Fallback owner phone if no override has been configured in app_settings.
+HCOB_OWNER_PHONE = os.environ.get("HCOB_OWNER_PHONE", "+14108709347")
+
+
+def _format_quote_sms(q: dict) -> str:
+    parts = [
+        "[HCOB Quote]",
+        f"{q['name']} — {q['phone']}",
+        f"Service: {q['service']}",
+        f"Timeline: {q['timeline']}",
+    ]
+    if q.get("email"):
+        parts.append(f"Email: {q['email']}")
+    if q.get("address"):
+        parts.append(f"Where: {q['address'][:80]}")
+    if q.get("message"):
+        msg = q["message"]
+        if len(msg) > 220:
+            msg = msg[:217] + "..."
+        parts.append(f"Note: {msg}")
+    return "\n".join(parts)
+
+
+@api.post("/public/quote-requests")
+async def create_quote_request(payload: QuoteRequestIn, request: Request):
+    """Lead capture from the customer marketing page. No auth required."""
+    # Honeypot — bots fill hidden fields, real users don't. Silently accept.
+    if (payload.website or "").strip():
+        return {"ok": True, "quote_id": "spam_ignored"}
+
+    name = payload.name.strip()
+    phone = payload.phone.strip()
+    if not name or not phone:
+        raise HTTPException(400, "Name and phone are required.")
+
+    # Light rate-limit: max 5 leads per IP per hour.
+    ip = (request.client.host if request.client else "") or "unknown"
+    one_hour_ago = (
+        datetime.now(timezone.utc) - timedelta(hours=1)
+    ).isoformat()
+    recent = await db.quote_requests.count_documents(
+        {"ip": ip, "created_at": {"$gte": one_hour_ago}}
+    )
+    if recent >= 5:
+        raise HTTPException(
+            429,
+            "Too many requests. Please call (410) 870-9347 directly — we'll help right away.",
+        )
+
+    quote_id = f"qr_{uuid.uuid4().hex[:12]}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "quote_id": quote_id,
+        "name": name,
+        "phone": phone,
+        "email": (payload.email or "").strip() or None,
+        "service": payload.service.strip(),
+        "timeline": payload.timeline.strip(),
+        "message": (payload.message or "").strip() or None,
+        "address": (payload.address or "").strip() or None,
+        "status": "new",
+        "admin_note": None,
+        "ip": ip,
+        "user_agent": (request.headers.get("user-agent") or "")[:200],
+        "created_at": now_iso,
+        "sms_sent": False,
+        "sms_error": None,
+    }
+    await db.quote_requests.insert_one(doc)
+
+    # Fire SMS to the HCOB owner phone (best-effort — never block the
+    # customer's success state on an SMS failure).
+    settings_doc = await _get_settings_doc()
+    sms_creds = await _resolve_sms_creds()
+    owner_phone = (settings_doc.get("quote_notify_phone") or HCOB_OWNER_PHONE).strip()
+    sms_sent = False
+    sms_err = None
+    if sms_creds["sid"] and sms_creds["token"] and sms_creds["from_"] and owner_phone:
+        try:
+            await asyncio.to_thread(
+                _send_sms_sync,
+                sms_creds["sid"],
+                sms_creds["token"],
+                sms_creds["from_"],
+                owner_phone,
+                _format_quote_sms(doc),
+            )
+            sms_sent = True
+        except Exception as e:
+            sms_err = str(e)[:200]
+            logger.error(f"Quote-request SMS failed for {quote_id}: {e}")
+    else:
+        sms_err = "no_twilio_creds"
+
+    await db.quote_requests.update_one(
+        {"quote_id": quote_id},
+        {"$set": {"sms_sent": sms_sent, "sms_error": sms_err}},
+    )
+
+    return {
+        "ok": True,
+        "quote_id": quote_id,
+        "message": "Thanks! We'll text or call you back shortly. For urgent needs call (410) 870-9347.",
+    }
+
+
+@api.get("/admin/quote-requests")
+async def list_quote_requests(
+    status: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    admin: dict = Depends(require_admin),
+):
+    q = {}
+    if status:
+        q["status"] = status
+    rows = (
+        await db.quote_requests.find(q, {"_id": 0, "ip": 0, "user_agent": 0})
+        .sort("created_at", -1)
+        .to_list(limit)
+    )
+    counts = {
+        "new": await db.quote_requests.count_documents({"status": "new"}),
+        "contacted": await db.quote_requests.count_documents({"status": "contacted"}),
+        "won": await db.quote_requests.count_documents({"status": "won"}),
+        "lost": await db.quote_requests.count_documents({"status": "lost"}),
+        "dismissed": await db.quote_requests.count_documents({"status": "dismissed"}),
+    }
+    return {"items": rows, "counts": counts}
+
+
+@api.patch("/admin/quote-requests/{quote_id}")
+async def update_quote_request(
+    quote_id: str, payload: QuoteRequestPatch, admin: dict = Depends(require_admin)
+):
+    existing = await db.quote_requests.find_one({"quote_id": quote_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Quote request not found")
+    updates = {}
+    if payload.status is not None:
+        updates["status"] = payload.status
+    if payload.admin_note is not None:
+        updates["admin_note"] = payload.admin_note
+    if not updates:
+        return existing
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.quote_requests.update_one({"quote_id": quote_id}, {"$set": updates})
+    return await db.quote_requests.find_one(
+        {"quote_id": quote_id}, {"_id": 0, "ip": 0, "user_agent": 0}
+    )
 
 
 # ----------------------------------------------------------------------------

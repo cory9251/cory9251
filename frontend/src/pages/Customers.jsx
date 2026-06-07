@@ -1,9 +1,11 @@
 import React, { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import QuoteRequestForm from "@/components/QuoteRequestForm";
 import {
   Phone,
   ArrowRight,
+  PaperPlaneTilt,
   Lightning,
   ShieldCheck,
   CheckCircle,
@@ -183,18 +185,18 @@ export default function CustomersPage() {
 
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <a
-                data-testid="hero-call-cta"
-                href={PHONE_HREF}
-                className="inline-flex h-14 items-center gap-2 bg-[#030712] px-6 text-base font-bold text-white hover:bg-[#1f2937]"
+                data-testid="hero-quote-cta"
+                href="#quote"
+                className="inline-flex h-14 items-center gap-2 bg-[#0044FF] px-6 text-base font-bold text-white hover:bg-[#0036cc]"
               >
-                <Phone size={18} weight="fill" /> Call {PHONE_DISPLAY}
+                <PaperPlaneTilt size={18} weight="fill" /> Request a quote
               </a>
               <a
-                data-testid="hero-services-cta"
-                href="#services"
+                data-testid="hero-call-cta"
+                href={PHONE_HREF}
                 className="inline-flex h-14 items-center gap-2 border border-[#030712] bg-white px-6 text-base font-semibold text-[#030712] hover:bg-[#F3F4F6]"
               >
-                See what we handle <ArrowRight size={16} />
+                <Phone size={18} weight="fill" /> Call {PHONE_DISPLAY}
               </a>
             </div>
 
@@ -247,13 +249,50 @@ export default function CustomersPage() {
         </div>
       </section>
 
+      {/* Quote-request form — primary lead capture */}
+      <section
+        id="quote"
+        data-testid="customers-quote"
+        className="border-b border-[#E5E7EB] bg-[#F9FAFB] py-12 md:py-20"
+      >
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-5 md:px-8 lg:grid-cols-5">
+          <div className="lg:col-span-2">
+            <div className="font-mono-label mb-3">Get a quote</div>
+            <h2 className="font-display text-3xl sm:text-4xl md:text-5xl font-black leading-[1.02] tracking-tight">
+              Send us the basics. We&apos;ll text you back.
+            </h2>
+            <p className="mt-4 text-[#4B5563]">
+              Tell us what you need and we&apos;ll line up the right pro. No accounts,
+              no logins, no spam — just a quick reply from a real person.
+            </p>
+            <ul className="mt-6 space-y-3 text-sm text-[#030712]">
+              <li className="flex items-center gap-2">
+                <span className="inline-block h-1.5 w-6 bg-[#0044FF]" />
+                Reply usually within the hour during business hours
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="inline-block h-1.5 w-6 bg-[#0044FF]" />
+                Free estimates · no obligation
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="inline-block h-1.5 w-6 bg-[#0044FF]" />
+                One point of contact for every service
+              </li>
+            </ul>
+          </div>
+          <div className="lg:col-span-3">
+            <QuoteRequestForm />
+          </div>
+        </div>
+      </section>
+
       {/* Mission strip */}
       <section className="border-b border-[#E5E7EB] bg-[#030712] py-10 text-white md:py-14">
         <div className="mx-auto max-w-5xl px-6">
           <div className="font-mono-label mb-3 text-[#0044FF]">Our mission</div>
           <p className="font-display text-2xl md:text-3xl font-black leading-tight tracking-tight">
-            "Create a better experience for customers while creating better
-            opportunities for local professionals."
+            &ldquo;Create a better experience for customers while creating better
+            opportunities for local professionals.&rdquo;
           </p>
           <p className="mt-5 max-w-3xl text-sm md:text-base text-[#9CA3AF] leading-relaxed">
             We believe customers deserve affordable, dependable services from
@@ -277,7 +316,7 @@ export default function CustomersPage() {
             </h2>
             <p className="mt-4 text-[#4B5563]">
               We coordinate one service or many — and we manage the process so
-              you don't have to source, screen, schedule, or chase contractors.
+              you don&apos;t have to source, screen, schedule, or chase contractors.
             </p>
           </div>
 
@@ -306,7 +345,7 @@ export default function CustomersPage() {
 
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border border-dashed border-[#030712]/30 bg-[#F9FAFB] px-5 py-4">
             <div className="text-sm text-[#4B5563]">
-              Don't see your service?{" "}
+              Don&apos;t see your service?{" "}
               <strong className="text-[#030712]">We probably handle it.</strong>
             </div>
             <a
@@ -409,18 +448,18 @@ export default function CustomersPage() {
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <a
-              data-testid="footer-call-cta"
-              href={PHONE_HREF}
+              data-testid="footer-quote-cta"
+              href="#quote"
               className="inline-flex h-14 items-center gap-2 bg-[#0044FF] px-6 text-base font-bold text-white hover:bg-[#0036cc]"
             >
-              <Phone size={18} weight="fill" /> Call {PHONE_DISPLAY}
+              <PaperPlaneTilt size={18} weight="fill" /> Request a quote
             </a>
             <a
-              data-testid="footer-services-cta"
-              href="#services"
+              data-testid="footer-call-cta"
+              href={PHONE_HREF}
               className="inline-flex h-14 items-center gap-2 border border-white/30 bg-transparent px-6 text-base font-semibold text-white hover:bg-white/10"
             >
-              Browse services <ArrowRight size={16} />
+              <Phone size={18} weight="fill" /> Call {PHONE_DISPLAY}
             </a>
           </div>
         </div>

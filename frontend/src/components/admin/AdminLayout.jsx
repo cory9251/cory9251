@@ -11,6 +11,7 @@ import {
   ClockCounterClockwise,
   ChartBar,
   FolderSimplePlus,
+  EnvelopeOpen,
   List,
   X,
 } from "@phosphor-icons/react";
@@ -20,7 +21,8 @@ import { api } from "@/lib/api";
 const nav = [
   { to: "/ops", label: "Dashboard", icon: House, end: true },
   { to: "/ops/calendar", label: "Calendar", icon: CalendarBlank, end: false },
-  { to: "/ops/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: true },
+  { to: "/ops/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: "pending" },
+  { to: "/ops/quotes", label: "Quotes", icon: EnvelopeOpen, end: false, badge: "quotes" },
   { to: "/ops/gigs", label: "Gigs", icon: Briefcase, end: false },
   { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
   { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
@@ -33,6 +35,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [pendingCount, setPendingCount] = useState(null);
+  const [quotesCount, setQuotesCount] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const refreshPending = async () => {
@@ -44,9 +47,22 @@ export default function AdminLayout() {
     }
   };
 
+  const refreshQuotes = async () => {
+    try {
+      const { data } = await api.get("/admin/quote-requests?status=new&limit=1");
+      setQuotesCount(data?.counts?.new ?? 0);
+    } catch {
+      // silent
+    }
+  };
+
   useEffect(() => {
     refreshPending();
-    const onChange = () => refreshPending();
+    refreshQuotes();
+    const onChange = () => {
+      refreshPending();
+      refreshQuotes();
+    };
     window.addEventListener("hcob:requests-changed", onChange);
     return () => window.removeEventListener("hcob:requests-changed", onChange);
   }, [location.pathname]);
@@ -114,12 +130,20 @@ export default function AdminLayout() {
               >
                 <n.icon size={18} weight="duotone" />
                 <span className="flex-1">{n.label}</span>
-                {n.badge && pendingCount > 0 && (
+                {n.badge === "pending" && pendingCount > 0 && (
                   <span
                     data-testid="nav-requests-count"
                     className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
                   >
                     {pendingCount > 99 ? "99+" : pendingCount}
+                  </span>
+                )}
+                {n.badge === "quotes" && quotesCount > 0 && (
+                  <span
+                    data-testid="nav-quotes-count"
+                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#0044FF] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                  >
+                    {quotesCount > 99 ? "99+" : quotesCount}
                   </span>
                 )}
               </NavLink>
@@ -151,12 +175,15 @@ export default function AdminLayout() {
               className="-ml-2 grid h-10 w-10 place-items-center rounded-md text-[#030712] hover:bg-[#F3F4F6]"
             >
               <List size={22} weight="bold" />
-              {pendingCount > 0 && (
+              {(pendingCount > 0 || quotesCount > 0) && (
                 <span
                   data-testid="admin-mobile-menu-badge"
                   className="absolute mt-[-22px] ml-[18px] inline-flex h-4 min-w-[16px] items-center justify-center bg-[#F59E0B] px-1 text-[9px] font-bold tracking-widest text-white"
                 >
-                  {pendingCount > 99 ? "99+" : pendingCount}
+                  {(() => {
+                    const c = (pendingCount || 0) + (quotesCount || 0);
+                    return c > 99 ? "99+" : c;
+                  })()}
                 </span>
               )}
             </button>
@@ -247,12 +274,20 @@ export default function AdminLayout() {
                   >
                     <n.icon size={20} weight="duotone" />
                     <span className="flex-1">{n.label}</span>
-                    {n.badge && pendingCount > 0 && (
+                    {n.badge === "pending" && pendingCount > 0 && (
                       <span
                         data-testid="mobile-nav-requests-count"
                         className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
                       >
                         {pendingCount > 99 ? "99+" : pendingCount}
+                      </span>
+                    )}
+                    {n.badge === "quotes" && quotesCount > 0 && (
+                      <span
+                        data-testid="mobile-nav-quotes-count"
+                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#0044FF] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                      >
+                        {quotesCount > 99 ? "99+" : quotesCount}
                       </span>
                     )}
                   </NavLink>
