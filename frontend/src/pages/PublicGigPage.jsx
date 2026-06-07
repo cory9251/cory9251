@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import {
   CurrencyDollar,
@@ -29,6 +30,15 @@ export default function PublicGigPage() {
   const [gig, setGig] = useState(null);
   const [loading, setLoading] = useState(true);
   const nav = useNavigate();
+  const { user } = useAuth() || {};
+
+  // Logged-in workers hitting a blast/share link skip the public landing and
+  // land directly on the authenticated gig view.
+  useEffect(() => {
+    if (user && user.role === "worker") {
+      nav(`/crew/gigs/${gigId}`, { replace: true });
+    }
+  }, [user, gigId, nav]);
 
   useEffect(() => {
     (async () => {

@@ -1740,12 +1740,41 @@ async def withdraw_gig(gig_id: str, user: dict = Depends(get_current_user)):
 
 
 # ---- Blast -----------------------------------------------------------------
-def _format_gig_email(gig: dict) -> str:
+def _resolve_public_base(request: Request | None = None) -> str:
+    """Return the canonical public origin so blast emails/SMS can include deep
+    links. Order of precedence: proxy-forwarded headers → PUBLIC_BASE_URL env
+    → safe production fallback."""
+    if request is not None:
+        fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        fwd_proto = request.headers.get("x-forwarded-proto") or "https"
+        if fwd_host and "localhost" not in fwd_host and "0.0.0.0" not in fwd_host:
+            return f"{fwd_proto}://{fwd_host}".rstrip("/")
+    env_base = (os.environ.get("PUBLIC_BASE_URL") or "").strip()
+    if env_base:
+        return env_base.rstrip("/")
+    return "https://hcobnetwork.com"
+
+
+def _format_gig_email(gig: dict, base_url: str = "") -> str:
     pay = (
         f"${gig['pay_rate']:.2f}/hr"
         if gig["pay_type"] == "hourly"
         else f"${gig['pay_rate']:.2f} flat"
     )
+    base = (base_url or _resolve_public_base()).rstrip("/")
+    cta_url = f"{base}/gigs/{gig['gig_id']}"
+    cta_block = f"""
+            <table cellpadding="0" cellspacing="0" style="margin:24px 0 8px;">
+              <tr><td bgcolor="#0044FF" style="border-radius:0;">
+                <a href="{cta_url}" target="_blank" style="display:inline-block;padding:14px 28px;background:#0044FF;color:#FFFFFF;font-size:15px;font-weight:bold;letter-spacing:.04em;text-decoration:none;text-transform:uppercase;">
+                  View & accept this gig →
+                </a>
+              </td></tr>
+            </table>
+            <p style="margin:4px 0 0;font-size:12px;color:#6B7280;">
+              Or open this link in your phone:<br/>
+              <a href="{cta_url}" style="color:#0044FF;word-break:break-all;">{cta_url}</a>
+            </p>"""
     return f"""
     <table width="100%" cellpadding="0" cellspacing="0" style="font-family:Arial,Helvetica,sans-serif;background:#F9FAFB;padding:24px;">
       <tr><td>
@@ -1763,7 +1792,8 @@ def _format_gig_email(gig: dict) -> str:
               <tr><td style="color:#4B5563;">Pay</td><td><strong>{pay}</strong></td></tr>
               <tr><td style="color:#4B5563;">Slots</td><td><strong>{gig['slots']}</strong></td></tr>
             </table>
-            <p style="margin-top:24px;color:#4B5563;font-size:13px;">Open the app to accept this gig before it fills up.</p>
+            {cta_block}
+            <p style="margin-top:24px;color:#4B5563;font-size:13px;">Be quick — gigs fill on a first-claimed basis.</p>
           </td></tr>
         </table>
       </td></tr>
@@ -1771,13 +1801,18 @@ def _format_gig_email(gig: dict) -> str:
     """
 
 
-def _format_gig_sms(gig: dict) -> str:
+def _format_gig_sms(gig: dict, base_url: str = "") -> str:
     pay = (
         f"${gig['pay_rate']:.0f}/hr"
         if gig["pay_type"] == "hourly"
         else f"${gig['pay_rate']:.0f}"
     )
-    return f"[HCOB Network] {gig['title']} — {gig['location']} — {gig['scheduled_date']} — {pay}. Open the app to accept."
+    base = (base_url or _resolve_public_base()).rstrip("/")
+    link = f"{base}/gigs/{gig['gig_id']}"
+    return (
+        f"[HCOB Network] {gig['title']} — {gig['location']} — "
+        f"{gig['scheduled_date']} — {pay}. Tap to claim: {link}"
+    )
 
 
 async def _get_settings_doc() -> dict:
@@ -1822,7 +1857,10 @@ def _send_sms_sync(sid: str, token: str, from_: str, to: str, body: str) -> dict
 
 @api.post("/gigs/{gig_id}/blast")
 async def blast_gig(
-    gig_id: str, payload: BlastIn, admin: dict = Depends(require_admin)
+    gig_id: str,
+    payload: BlastIn,
+    request: Request,
+    admin: dict = Depends(require_admin),
 ):
     gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
     if not gig:
@@ -1837,8 +1875,9 @@ async def blast_gig(
 
     counts = {"in_app": 0, "email": 0, "sms": 0, "email_failed": 0, "sms_failed": 0}
     subject = f"New Gig: {gig['title']}"
-    html = _format_gig_email(gig)
-    sms_body = _format_gig_sms(gig)
+    base_url = _resolve_public_base(request)
+    html = _format_gig_email(gig, base_url)
+    sms_body = _format_gig_sms(gig, base_url)
 
     notif_docs = []
     for w in workers:
@@ -3426,7 +3465,8 @@ async def unlink_gig_from_project(gig_id: str, admin: dict = Depends(require_adm
     return {"ok": True}
 
 
-def _format_project_email(project: dict, gigs: list) -> str:
+def _format_project_email(project: dict, gigs: list, base_url: str = "") -> str:
+    base = (base_url or _resolve_public_base()).rstrip("/")
     rows = []
     for g in gigs:
         pay = (
@@ -3435,32 +3475,50 @@ def _format_project_email(project: dict, gigs: list) -> str:
             else f"${g['pay_rate']:.0f}"
         )
         slots_open = max(0, (g.get("slots") or 0) - (g.get("slots_filled") or 0))
+        gig_url = f"{base}/gigs/{g.get('gig_id')}"
         rows.append(
-            f"<li style='margin-bottom:10px;'>"
-            f"<strong>{g.get('title', '')}</strong> "
-            f"<span style='color:#4B5563'>· {g.get('category', '').title()}"
-            f"{' · ' + g.get('subcategory') if g.get('subcategory') else ''}</span><br/>"
-            f"<span style='color:#4B5563;font-size:13px'>"
+            f"<li style='margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #F3F4F6;'>"
+            f"<div style='font-weight:bold;color:#030712;font-size:15px'>{g.get('title', '')}</div>"
+            f"<div style='color:#4B5563;font-size:13px;margin:2px 0 6px;'>"
+            f"{g.get('category', '').title()}"
+            f"{' · ' + g.get('subcategory') if g.get('subcategory') else ''} · "
             f"{g.get('scheduled_date') or 'TBD'} · {pay} · {slots_open} spot{'' if slots_open == 1 else 's'} open"
-            f"</span></li>"
+            f"</div>"
+            f"<a href='{gig_url}' target='_blank' style='display:inline-block;padding:8px 14px;background:#030712;color:#FFFFFF;font-size:12px;font-weight:bold;letter-spacing:.04em;text-decoration:none;text-transform:uppercase;'>"
+            f"View this gig →"
+            f"</a>"
+            f"</li>"
         )
-    rows_html = "<ul style='padding-left:20px;margin:14px 0'>" + "".join(rows) + "</ul>"
+    rows_html = "<ul style='padding-left:0;list-style:none;margin:14px 0'>" + "".join(rows) + "</ul>"
+    feed_url = f"{base}/crew"
     return (
-        f"<div style='font-family:Inter,Arial,sans-serif;max-width:560px;padding:18px;border:1px solid #E5E7EB'>"
+        f"<div style='font-family:Inter,Arial,sans-serif;max-width:600px;padding:20px;background:#F9FAFB'>"
+        f"<div style='background:#FFFFFF;border:1px solid #E5E7EB;padding:24px;'>"
         f"<div style='font-size:11px;letter-spacing:2px;color:#0044FF;font-weight:bold'>NEW PROJECT · HCOB NETWORK</div>"
-        f"<h2 style='margin:6px 0 0 0;font-weight:900;font-size:24px'>{project.get('title', '')}</h2>"
+        f"<h2 style='margin:6px 0 0 0;font-weight:900;font-size:24px;color:#030712'>{project.get('title', '')}</h2>"
         f"<div style='color:#4B5563;font-size:13px;margin-top:4px'>"
-        f"{len(gigs)} gigs available · {(project.get('defaults') or {}).get('location') or 'Baltimore, MD'}"
+        f"{len(gigs)} gig{'' if len(gigs) == 1 else 's'} available · {(project.get('defaults') or {}).get('location') or 'Baltimore, MD'}"
         f"</div>"
+        f"<div style='font-size:11px;letter-spacing:2px;color:#4B5563;margin-top:18px;font-weight:bold'>ROLES AVAILABLE</div>"
         f"{rows_html}"
-        f"<p style='font-size:13px;color:#4B5563'>Open the HCOB Network app to claim the role you want.</p>"
+        f"<table cellpadding='0' cellspacing='0' style='margin-top:8px'>"
+        f"<tr><td bgcolor='#0044FF'>"
+        f"<a href='{feed_url}' target='_blank' style='display:inline-block;padding:14px 28px;background:#0044FF;color:#FFFFFF;font-size:15px;font-weight:bold;letter-spacing:.04em;text-decoration:none;text-transform:uppercase;'>"
+        f"Open the full feed →"
+        f"</a></td></tr></table>"
+        f"<p style='font-size:12px;color:#6B7280;margin-top:14px;'>"
+        f"Or open this link on your phone:<br/>"
+        f"<a href='{feed_url}' style='color:#0044FF;word-break:break-all;'>{feed_url}</a>"
+        f"</p>"
+        f"</div>"
         f"</div>"
     )
 
 
-def _format_project_sms(project: dict, gigs: list) -> str:
+def _format_project_sms(project: dict, gigs: list, base_url: str = "") -> str:
     # Build a compact summary. Twilio accepts 1600 char multipart SMS but we
     # keep this under ~320 to land as a single message most of the time.
+    base = (base_url or _resolve_public_base()).rstrip("/")
     title = project.get("title") or "Project"
     n = len(gigs)
     roles = []
@@ -3473,15 +3531,25 @@ def _format_project_sms(project: dict, gigs: list) -> str:
     loc = (project.get("defaults") or {}).get("location") or "Baltimore, MD"
     pays = [g.get("pay_rate") or 0 for g in gigs if g.get("pay_rate")]
     pay_line = f" Pay from ${min(pays):.0f}/hr." if pays else ""
+    # For single-gig projects, deep-link straight to that gig; otherwise drop
+    # them into the feed where the project-pill helps them find the right one.
+    link = (
+        f"{base}/gigs/{gigs[0].get('gig_id')}"
+        if len(gigs) == 1 and gigs[0].get("gig_id")
+        else f"{base}/crew"
+    )
     return (
         f"[HCOB Project] {title} — {loc}. {n} gig{'s' if n != 1 else ''}: {role_str}."
-        f"{pay_line} Open the app to claim a role."
+        f"{pay_line} Tap to claim: {link}"
     )
 
 
 @api.post("/projects/{project_id}/blast")
 async def blast_project(
-    project_id: str, payload: BlastIn, admin: dict = Depends(require_admin)
+    project_id: str,
+    payload: BlastIn,
+    request: Request,
+    admin: dict = Depends(require_admin),
 ):
     """Send ONE consolidated notification about a multi-gig project to every
     worker. Each linked gig is also auto-flagged as RUSH (consistent with the
@@ -3516,8 +3584,9 @@ async def blast_project(
 
     counts = {"in_app": 0, "email": 0, "sms": 0, "email_failed": 0, "sms_failed": 0}
     subject = f"New Project: {project.get('title')}"
-    html = _format_project_email(project, blastable_gigs)
-    sms_body = _format_project_sms(project, blastable_gigs)
+    base_url = _resolve_public_base(request)
+    html = _format_project_email(project, blastable_gigs, base_url)
+    sms_body = _format_project_sms(project, blastable_gigs, base_url)
 
     notif_docs = []
     for w in workers:
