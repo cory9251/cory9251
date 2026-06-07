@@ -161,16 +161,18 @@ export default function WorkerGigDetail() {
           {gig.title}
         </h1>
         {gig.project_lite && (
-          <div
+          <button
             data-testid="worker-project-lite-badge"
-            className="mt-3 inline-flex items-center gap-1.5 bg-[#030712] px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white"
-            title={`This gig is part of the project: ${gig.project_lite.title}. You'll see the full crew & sibling gigs once you're approved.`}
+            onClick={() => nav(`/crew/projects/${gig.project_lite.project_id}`)}
+            className="mt-3 inline-flex items-center gap-1.5 bg-[#030712] px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white hover:bg-[#1f2937]"
+            title={`Tap to view all gigs in: ${gig.project_lite.title}`}
           >
             <FolderSimple size={11} weight="fill" /> PART OF PROJECT ·{" "}
             <span className="font-bold normal-case tracking-normal">
               {gig.project_lite.title}
             </span>
-          </div>
+            <span className="ml-1">→</span>
+          </button>
         )}
         {(() => {
           const pt = getPaymentTimeline(gig.payment_timeline);
@@ -310,6 +312,13 @@ export default function WorkerGigDetail() {
               Client · {gig.project.client_name}
             </div>
           )}
+          <button
+            data-testid="worker-project-card-open"
+            onClick={() => nav(`/crew/projects/${gig.project.project_id}`)}
+            className="mt-3 inline-flex items-center gap-1 border border-[#030712] bg-[#030712] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#1f2937]"
+          >
+            <FolderSimple size={12} weight="fill" /> View all project gigs →
+          </button>
 
           {(gig.project.sibling_gigs || []).length > 0 && (
             <div className="mt-3">

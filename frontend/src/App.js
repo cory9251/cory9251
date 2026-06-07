@@ -21,6 +21,7 @@ import AdminReports from "@/pages/admin/AdminReports";
 import AdminProjects from "@/pages/admin/AdminProjects";
 import AdminProjectDetail from "@/pages/admin/AdminProjectDetail";
 import AdminQuotes from "@/pages/admin/AdminQuotes";
+import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import RatePage from "@/pages/RatePage";
 import PublicGigPage from "@/pages/PublicGigPage";
 import WorkerLayout from "@/components/worker/WorkerLayout";
@@ -113,6 +114,7 @@ function RouterShell() {
       >
         <Route index element={<WorkerFeed />} />
         <Route path="gigs/:gigId" element={<WorkerGigDetail />} />
+        <Route path="projects/:projectId" element={<WorkerProjectPage />} />
         <Route path="my-gigs" element={<WorkerAccepted />} />
         <Route path="me" element={<WorkerProfile />} />
       </Route>

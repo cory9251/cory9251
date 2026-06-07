@@ -181,11 +181,19 @@ export default function WorkerFeed() {
             const showPayPill = g.payment_timeline === "same_day" || g.payment_timeline === "custom";
             const PI = pt.icon;
             return (
-              <button
+              <div
                 key={g.gig_id}
+                role="button"
+                tabIndex={0}
                 data-testid={`feed-gig-${g.gig_id}`}
                 onClick={() => nav(`/crew/gigs/${g.gig_id}`)}
-                className={`gb-tactile relative w-full rounded-2xl bg-white p-5 text-left transition-all ${
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    nav(`/crew/gigs/${g.gig_id}`);
+                  }
+                }}
+                className={`gb-tactile relative w-full cursor-pointer rounded-2xl bg-white p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#0044FF] ${
                   tagBorder || "border border-black/5"
                 }`}
               >
@@ -226,14 +234,19 @@ export default function WorkerFeed() {
                       </span>
                     )}
                     {g.project && (
-                      <span
+                      <button
+                        type="button"
                         data-testid={`project-pill-${g.gig_id}`}
-                        title={`Part of project: ${g.project.title}`}
-                        className="inline-flex max-w-[180px] items-center gap-1 rounded-full bg-[#030712] px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white"
+                        title={`Tap to view all gigs in: ${g.project.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          nav(`/crew/projects/${g.project.project_id}`);
+                        }}
+                        className="inline-flex max-w-[180px] items-center gap-1 rounded-full bg-[#030712] px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white hover:bg-[#1f2937]"
                       >
                         <FolderSimple size={11} weight="fill" />
                         <span className="truncate">PROJECT</span>
-                      </span>
+                      </button>
                     )}
                   </div>
                 )}
@@ -273,7 +286,7 @@ export default function WorkerFeed() {
                   <Bit icon={MapPin} value={g.location} />
                   <Bit icon={Clock} value={g.scheduled_date} />
                 </div>
-              </button>
+              </div>
             );
           })
         )}

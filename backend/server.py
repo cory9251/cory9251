@@ -3403,6 +3403,145 @@ async def archive_project(project_id: str, admin: dict = Depends(require_admin))
     return {"ok": True, "unlinked_gigs": True}
 
 
+@api.get("/projects/{project_id}/worker-view")
+async def get_project_worker_view(
+    project_id: str, user: dict = Depends(get_current_user)
+):
+    """Read-only project view for workers. Project structure (title, gigs,
+    roles, slots) is visible to ANY logged-in worker so they can shop the
+    feed. Crew identity (first names + roles per gig) is only revealed once
+    the requesting worker is APPROVED on at least one project gig — matches
+    the same gate as the per-gig 'You're working alongside' card."""
+    if user.get("role") not in ("worker", "admin"):
+        raise HTTPException(403, "Workers and admins only")
+
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not proj or proj.get("archived"):
+        raise HTTPException(404, "Project not found")
+
+    # Pull every gig linked to this project
+    gigs = await db.gigs.find({"project_id": project_id}, {"_id": 0}).sort(
+        "scheduled_at", 1
+    ).to_list(200)
+    if not gigs:
+        return {
+            "project_id": project_id,
+            "title": proj.get("title"),
+            "description": proj.get("description") or "",
+            "scheduled_window": None,
+            "linked_gigs": [],
+            "crew_visible": False,
+            "my_gigs": [],
+        }
+
+    # The worker's own acceptances across the project's gigs
+    my_acceptances = []
+    if user.get("role") == "worker":
+        my_acceptances = await db.gig_acceptances.find(
+            {
+                "worker_id": user["user_id"],
+                "gig_id": {"$in": [g["gig_id"] for g in gigs]},
+            },
+            {"_id": 0},
+        ).to_list(200)
+    my_acc_by_gig = {a["gig_id"]: a for a in my_acceptances}
+
+    # Worker can see crew identity only if they're already approved on at
+    # least one project gig (status that isn't 'requested').
+    approved_statuses = {"accepted", "on_the_clock", "clocked_in", "completed"}
+    crew_visible = (
+        user.get("role") == "admin"
+        or any(a.get("status") in approved_statuses for a in my_acceptances)
+    )
+
+    # Approved roster for every project gig (PII stripped — first name only)
+    crew_by_gig: Dict[str, List[dict]] = {}
+    if crew_visible:
+        all_accs = await db.gig_acceptances.find(
+            {
+                "gig_id": {"$in": [g["gig_id"] for g in gigs]},
+                "status": {"$in": list(approved_statuses)},
+            },
+            {"_id": 0, "gig_id": 1, "worker_id": 1, "gig_role": 1, "status": 1},
+        ).to_list(2000)
+        wids = list({a["worker_id"] for a in all_accs})
+        wlookup = await db.users.find(
+            {"user_id": {"$in": wids}},
+            {"_id": 0, "user_id": 1, "name": 1, "first_name": 1, "last_name": 1},
+        ).to_list(2000)
+        wmap = {w["user_id"]: w for w in wlookup}
+        for a in all_accs:
+            w = wmap.get(a["worker_id"]) or {}
+            first = (
+                w.get("first_name")
+                or (w.get("name") or "").split()[0]
+                or "Crew"
+            )
+            crew_by_gig.setdefault(a["gig_id"], []).append(
+                {
+                    "first_name": first,
+                    "gig_role": a.get("gig_role") or "worker",
+                    "is_me": a["worker_id"] == user.get("user_id"),
+                    "status": a.get("status"),
+                }
+            )
+
+    # Build the gig list with worker-safe fields only
+    safe_gigs = []
+    my_gig_titles = []
+    for g in gigs:
+        mine = my_acc_by_gig.get(g["gig_id"])
+        slots_open = max(0, (g.get("slots") or 0) - (g.get("slots_filled") or 0))
+        is_approved_here = mine and mine.get("status") in approved_statuses
+        safe_gigs.append(
+            {
+                "gig_id": g["gig_id"],
+                "title": g.get("title"),
+                "category": g.get("category"),
+                "subcategory": g.get("subcategory"),
+                "description_snippet": (g.get("description") or "")[:200],
+                "scheduled_date": g.get("scheduled_date"),
+                "scheduled_at": g.get("scheduled_at"),
+                # Public location only (city/state) — never the address line
+                "location": g.get("location"),
+                "slots": g.get("slots") or 0,
+                "slots_filled": g.get("slots_filled") or 0,
+                "slots_open": slots_open,
+                "pay_rate": g.get("pay_rate"),
+                "pay_type": g.get("pay_type"),
+                "status": g.get("status"),
+                "tags": g.get("tags") or [],
+                "is_rush": bool(g.get("is_rush")),
+                "my_acceptance_status": mine.get("status") if mine else None,
+                "my_gig_role": mine.get("gig_role") if mine else None,
+                "approved_crew": crew_by_gig.get(g["gig_id"], [])
+                if crew_visible
+                else None,
+                "approved_count": len(crew_by_gig.get(g["gig_id"], []))
+                if crew_visible
+                else g.get("slots_filled") or 0,
+            }
+        )
+        if is_approved_here:
+            my_gig_titles.append(g.get("title"))
+
+    # Scheduled window (earliest → latest gig date)
+    dates = [g.get("scheduled_at") for g in gigs if g.get("scheduled_at")]
+    window = None
+    if dates:
+        window = {"start": min(dates), "end": max(dates)}
+
+    return {
+        "project_id": project_id,
+        "title": proj.get("title"),
+        "description": proj.get("description") or "",
+        "scheduled_window": window,
+        "linked_gigs": safe_gigs,
+        "crew_visible": crew_visible,
+        "my_gigs": my_gig_titles,
+    }
+
+
 @api.post("/projects/{project_id}/notes")
 async def add_project_note(project_id: str, payload: ProjectNoteIn, admin: dict = Depends(require_admin)):
     if not payload.text or not payload.text.strip():
