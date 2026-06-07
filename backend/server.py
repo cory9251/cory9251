@@ -4497,30 +4497,63 @@ async def public_gig_feed(limit: int = Query(3, ge=1, le=24)):
 
 
 # ----------------------------------------------------------------------------
-# Public quote-request lead capture from /customers — sends an SMS to the
-# HCOB owner phone and stores the lead so admins can follow up.
+# Public quote-request lead capture from /customers — emails the owner with
+# the lead and stores it so admins can follow up.
 # ----------------------------------------------------------------------------
-# Fallback owner phone if no override has been configured in app_settings.
+# Owner contact defaults. Both overridable via app_settings (Settings page).
 HCOB_OWNER_PHONE = os.environ.get("HCOB_OWNER_PHONE", "+14108709347")
+HCOB_OWNER_EMAIL = os.environ.get("HCOB_OWNER_EMAIL", "corymclarke7126@gmail.com")
 
 
-def _format_quote_sms(q: dict) -> str:
-    parts = [
-        "[HCOB Quote]",
-        f"{q['name']} — {q['phone']}",
-        f"Service: {q['service']}",
-        f"Timeline: {q['timeline']}",
+def _format_quote_email(q: dict) -> tuple[str, str]:
+    """Build a (subject, html_body) pair for the owner's lead notification."""
+    rows = [
+        ("Name", q.get("name")),
+        ("Phone", q.get("phone")),
+        ("Email", q.get("email")),
+        ("Service", q.get("service")),
+        ("Timeline", q.get("timeline")),
+        ("Address", q.get("address")),
     ]
-    if q.get("email"):
-        parts.append(f"Email: {q['email']}")
-    if q.get("address"):
-        parts.append(f"Where: {q['address'][:80]}")
+    table_rows = "".join(
+        f"<tr><td style='padding:6px 12px;color:#4B5563;font-size:13px;width:100px'>{k}</td>"
+        f"<td style='padding:6px 12px;color:#030712;font-weight:600;font-size:14px'>{v}</td></tr>"
+        for k, v in rows
+        if v
+    )
+    message_block = ""
     if q.get("message"):
-        msg = q["message"]
-        if len(msg) > 220:
-            msg = msg[:217] + "..."
-        parts.append(f"Note: {msg}")
-    return "\n".join(parts)
+        message_block = (
+            f"<div style='margin-top:16px;padding:14px;background:#F9FAFB;border-left:3px solid #0044FF;color:#030712;font-size:14px;line-height:1.5'>"
+            f"{q['message']}</div>"
+        )
+    phone_link = f"tel:{q.get('phone', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')}"
+    subject = f"[HCOB Lead] {q.get('name')} — {q.get('service')} ({q.get('timeline')})"
+    html = (
+        f"<div style='font-family:Inter,Arial,sans-serif;max-width:600px;padding:20px;background:#F9FAFB'>"
+        f"<div style='background:#FFFFFF;border:1px solid #E5E7EB;padding:24px'>"
+        f"<div style='font-size:11px;letter-spacing:2px;color:#0044FF;font-weight:bold'>NEW QUOTE REQUEST · HCOB NETWORK</div>"
+        f"<h2 style='margin:6px 0 16px 0;font-size:22px;color:#030712'>{q.get('name')}</h2>"
+        f"<table cellspacing='0' style='border-collapse:collapse;border:1px solid #E5E7EB;width:100%'>"
+        f"{table_rows}"
+        f"</table>"
+        f"{message_block}"
+        f"<table cellpadding='0' cellspacing='0' style='margin-top:22px'><tr>"
+        f"<td bgcolor='#0044FF' style='padding:0 8px 0 0'>"
+        f"<a href='{phone_link}' style='display:inline-block;padding:12px 22px;background:#0044FF;color:#FFFFFF;font-size:14px;font-weight:bold;text-decoration:none'>"
+        f"📞 Call {q.get('name', '').split()[0] if q.get('name') else 'them'}"
+        f"</a></td>"
+        f"<td bgcolor='#030712'>"
+        f"<a href='https://hcobnetwork.com/ops/quotes' style='display:inline-block;padding:12px 22px;background:#030712;color:#FFFFFF;font-size:14px;font-weight:bold;text-decoration:none'>"
+        f"Open lead inbox →"
+        f"</a></td>"
+        f"</tr></table>"
+        f"<p style='font-size:11px;color:#9CA3AF;margin-top:18px'>"
+        f"Lead ID: {q.get('quote_id')} · Received {q.get('created_at')}"
+        f"</p>"
+        f"</div></div>"
+    )
+    return subject, html
 
 
 @api.post("/public/quote-requests")
@@ -4565,38 +4598,44 @@ async def create_quote_request(payload: QuoteRequestIn, request: Request):
         "ip": ip,
         "user_agent": (request.headers.get("user-agent") or "")[:200],
         "created_at": now_iso,
+        # Notification delivery status (email-first now, sms field kept for
+        # backward-compat with existing admin UI).
+        "notify_sent": False,
+        "notify_error": None,
         "sms_sent": False,
         "sms_error": None,
     }
     await db.quote_requests.insert_one(doc)
 
-    # Fire SMS to the HCOB owner phone (best-effort — never block the
-    # customer's success state on an SMS failure).
+    # Email the owner — primary delivery channel for new leads.
     settings_doc = await _get_settings_doc()
-    sms_creds = await _resolve_sms_creds()
-    owner_phone = (settings_doc.get("quote_notify_phone") or HCOB_OWNER_PHONE).strip()
-    sms_sent = False
-    sms_err = None
-    if sms_creds["sid"] and sms_creds["token"] and sms_creds["from_"] and owner_phone:
+    email_creds = await _resolve_email_creds()
+    owner_email = (
+        (settings_doc.get("quote_notify_email") or HCOB_OWNER_EMAIL)
+    ).strip()
+    notify_sent = False
+    notify_err = None
+    if email_creds and email_creds.get("api_key") and owner_email:
         try:
+            subject, html = _format_quote_email(doc)
             await asyncio.to_thread(
-                _send_sms_sync,
-                sms_creds["sid"],
-                sms_creds["token"],
-                sms_creds["from_"],
-                owner_phone,
-                _format_quote_sms(doc),
+                _send_email_sync,
+                email_creds["api_key"],
+                email_creds["sender"],
+                owner_email,
+                subject,
+                html,
             )
-            sms_sent = True
+            notify_sent = True
         except Exception as e:
-            sms_err = str(e)[:200]
-            logger.error(f"Quote-request SMS failed for {quote_id}: {e}")
+            notify_err = str(e)[:200]
+            logger.error(f"Quote-request email failed for {quote_id}: {e}")
     else:
-        sms_err = "no_twilio_creds"
+        notify_err = "no_email_creds"
 
     await db.quote_requests.update_one(
         {"quote_id": quote_id},
-        {"$set": {"sms_sent": sms_sent, "sms_error": sms_err}},
+        {"$set": {"notify_sent": notify_sent, "notify_error": notify_err}},
     )
 
     return {

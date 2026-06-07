@@ -1,5 +1,4 @@
 import React, { useEffect } from "react";
-import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import QuoteRequestForm from "@/components/QuoteRequestForm";
 import {
@@ -124,7 +123,10 @@ export default function CustomersPage() {
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-[#E5E7EB] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-6">
-          <Link to="/" className="flex items-center gap-2">
+          <div
+            data-testid="customers-brand-lockup"
+            className="flex items-center gap-2"
+          >
             <div className="grid h-8 w-8 place-items-center bg-[#030712] text-white">
               <Lightning weight="fill" size={18} />
             </div>
@@ -136,7 +138,7 @@ export default function CustomersPage() {
                 Project management · Baltimore, MD
               </div>
             </div>
-          </Link>
+          </div>
           <div className="flex items-center gap-2">
             <a
               data-testid="header-phone-cta"
@@ -467,7 +469,7 @@ export default function CustomersPage() {
 
       {/* Footer */}
       <footer className="border-t border-[#E5E7EB] bg-white">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-8 px-5 py-10 md:grid-cols-3 md:px-8">
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-8 px-5 py-10 md:grid-cols-2 md:px-8">
           <div>
             <div className="flex items-center gap-2">
               <div className="grid h-8 w-8 place-items-center bg-[#030712] text-white">
@@ -493,19 +495,12 @@ export default function CustomersPage() {
             <div className="mt-2 text-xs text-[#4B5563]">
               Mon–Sat · Serving Baltimore, Maryland
             </div>
-          </div>
-          <div>
-            <div className="font-mono-label mb-3">For professionals</div>
-            <Link
-              to="/"
-              className="inline-flex items-center gap-1 text-sm font-semibold text-[#030712] hover:text-[#0044FF]"
+            <a
+              href="#quote"
+              className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#0044FF] hover:underline"
             >
-              Looking for gigs? Join the crew <ArrowRight size={14} />
-            </Link>
-            <div className="mt-2 text-[11px] text-[#4B5563]">
-              Independent professionals in our network access work through the
-              HCOB Cleaners crew portal.
-            </div>
+              Request a quote <ArrowRight size={14} />
+            </a>
           </div>
         </div>
         <div className="border-t border-[#E5E7EB] py-5 text-center text-[11px] text-[#4B5563]">

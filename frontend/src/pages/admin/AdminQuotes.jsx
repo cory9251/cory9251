@@ -60,8 +60,8 @@ export default function AdminQuotes() {
         Quote requests
       </h1>
       <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
-        Customer leads from the <code>/customers</code> page. Twilio also texts
-        the on-call number when a new request lands.
+        Customer leads from the <code>/customers</code> page. New leads are
+        emailed to the HCOB owner (configurable in Settings).
       </p>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -123,19 +123,19 @@ export default function AdminQuotes() {
                       {q.name}
                     </div>
                     <StatusPill status={q.status} />
-                    {q.sms_sent ? (
+                    {q.notify_sent || q.sms_sent ? (
                       <span
-                        title="HCOB owner was notified by SMS"
+                        title="HCOB owner was notified by email"
                         className="inline-flex items-center gap-1 bg-[#ECFDF5] px-2 py-0.5 text-[10px] font-bold text-[#22C55E]"
                       >
-                        <CheckCircle size={10} weight="fill" /> SMS sent
+                        <CheckCircle size={10} weight="fill" /> Email sent
                       </span>
                     ) : (
                       <span
-                        title={q.sms_error || "SMS not sent"}
+                        title={q.notify_error || q.sms_error || "Email not sent"}
                         className="inline-flex items-center gap-1 bg-[#FEF2F2] px-2 py-0.5 text-[10px] font-bold text-[#EF4444]"
                       >
-                        SMS · not sent
+                        Email · not sent
                       </span>
                     )}
                   </div>
