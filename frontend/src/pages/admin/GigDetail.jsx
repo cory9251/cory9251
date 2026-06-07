@@ -31,6 +31,7 @@ import {
   EnvelopeSimple,
   DeviceMobile,
   Bell,
+  BellRinging,
   CheckCircle,
   EyeSlash,
   UserPlus,
@@ -69,7 +70,7 @@ export default function GigDetail() {
   const [ratingDialog, setRatingDialog] = useState(null); // { acceptance }
   const [duplicating, setDuplicating] = useState(false);
   const [rosterSearch, setRosterSearch] = useState("");
-  const [channels, setChannels] = useState({ in_app: true, email: false, sms: false });
+  const [channels, setChannels] = useState({ in_app: true, push: true, email: false, sms: false });
   const [blasting, setBlasting] = useState(false);
 
   const load = async () => {
@@ -144,7 +145,7 @@ export default function GigDetail() {
       const { data } = await api.post(`/gigs/${gigId}/blast`, { channels: arr });
       const c = data.counts;
       toast.success(
-        `Blast sent — in-app ${c.in_app}, email ${c.email}, SMS ${c.sms}`
+        `Blast sent — in-app ${c.in_app || 0}, push ${c.push || 0}, email ${c.email || 0}, SMS ${c.sms || 0}`
       );
       setBlastOpen(false);
       load();
@@ -843,6 +844,14 @@ export default function GigDetail() {
               desc="Workers see it in their feed instantly."
               checked={channels.in_app}
               onChange={(v) => setChannels((c) => ({ ...c, in_app: v }))}
+            />
+            <ChannelToggle
+              testId="channel-push"
+              icon={BellRinging}
+              title="Push notification"
+              desc="Native lockscreen ping for workers who enabled push. Free."
+              checked={channels.push}
+              onChange={(v) => setChannels((c) => ({ ...c, push: v }))}
             />
             <ChannelToggle
               testId="channel-email"

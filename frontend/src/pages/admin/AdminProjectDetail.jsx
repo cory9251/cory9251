@@ -85,12 +85,12 @@ export default function AdminProjectDetail() {
     setBlasting(true);
     try {
       const { data } = await api.post(`/projects/${projectId}/blast`, {
-        channels: ["in_app", "email", "sms"],
+        channels: ["in_app", "push", "email", "sms"],
       });
       const c = data?.counts || {};
       toast.success(
         `Project blasted to ${data.workers_targeted || 0} workers · ` +
-          `SMS: ${c.sms || 0} · Email: ${c.email || 0} · In-app: ${c.in_app || 0}`,
+          `Push: ${c.push || 0} · SMS: ${c.sms || 0} · Email: ${c.email || 0} · In-app: ${c.in_app || 0}`,
         { duration: 5000 }
       );
       load();

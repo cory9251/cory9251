@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/AuthContext";
+import PushNotificationToggle from "@/components/worker/PushNotificationToggle";
 import {
   Camera,
   IdentificationCard,
@@ -169,6 +170,12 @@ export default function WorkerProfile() {
         idVerified={!!user.id_verified}
         progressPct={progressPct}
       />
+
+      {/* Push notifications — high in the flow so workers see it on first
+          profile visit. Gracefully degrades to PWA-install hints on iOS. */}
+      <div className="mt-6">
+        <PushNotificationToggle />
+      </div>
 
       {/* Avatar + ID */}
       <div className="mt-6 gb-tactile rounded-2xl border border-black/5 bg-white p-5">

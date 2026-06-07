@@ -1,0 +1,24 @@
+{
+  "name": "HCOB Network",
+  "short_name": "HCOB",
+  "description": "HCOB Network — dispatch for cleaning, labor, and driver gigs across Baltimore, MD.",
+  "start_url": "/crew",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFFFF",
+  "theme_color": "#030712",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
