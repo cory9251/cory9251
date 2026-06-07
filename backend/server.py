@@ -1059,11 +1059,31 @@ async def list_gigs(
             {"worker_id": user["user_id"]}, {"_id": 0}
         ).to_list(1000)
         accepted_map = {a["gig_id"]: a for a in accepted}
+
+        # Pre-fetch project titles for any project-linked gigs in this feed so
+        # the worker UI can show a 'PROJECT' badge on the card. We intentionally
+        # only expose `project_id` + `title` here (no client_name) — full
+        # project context is only revealed after acceptance.
+        wpids = list({g.get("project_id") for g in gigs if g.get("project_id")})
+        wpmap = {}
+        if wpids:
+            wprojs = await db.projects.find(
+                {"project_id": {"$in": wpids}, "archived": {"$ne": True}},
+                {"_id": 0, "project_id": 1, "title": 1},
+            ).to_list(500)
+            wpmap = {p["project_id"]: p for p in wprojs}
+
         out = []
         for g in gigs:
             a = accepted_map.get(g["gig_id"])
             g = _strip_sensitive_for_worker(g, a)
             g["my_acceptance"] = a
+            pid = g.get("project_id")
+            if pid and pid in wpmap:
+                g["project"] = {
+                    "project_id": pid,
+                    "title": wpmap[pid].get("title"),
+                }
             out.append(g)
         return out
 
@@ -1161,6 +1181,20 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
         )
         gig = _strip_sensitive_for_worker(gig, my)
         gig["my_acceptance"] = my
+
+        # Minimal project hint shown to ALL workers (even before requesting) so
+        # they know this gig is part of a coordinated project. Full sibling/
+        # crew details are only revealed once approved (below).
+        if gig.get("project_id"):
+            proj_lite = await db.projects.find_one(
+                {"project_id": gig["project_id"], "archived": {"$ne": True}},
+                {"_id": 0, "project_id": 1, "title": 1},
+            )
+            if proj_lite:
+                gig["project_lite"] = {
+                    "project_id": proj_lite["project_id"],
+                    "title": proj_lite.get("title"),
+                }
         # If this worker is APPROVED (not just "requested"), let them see their
         # crew — other approved workers, first name + role only.
         if my and my.get("status") and my["status"] != "requested":
@@ -3390,6 +3424,185 @@ async def unlink_gig_from_project(gig_id: str, admin: dict = Depends(require_adm
     if r.matched_count == 0:
         raise HTTPException(404, "Gig not found")
     return {"ok": True}
+
+
+def _format_project_email(project: dict, gigs: list) -> str:
+    rows = []
+    for g in gigs:
+        pay = (
+            f"${g['pay_rate']:.0f}/hr"
+            if g.get("pay_type") == "hourly"
+            else f"${g['pay_rate']:.0f}"
+        )
+        slots_open = max(0, (g.get("slots") or 0) - (g.get("slots_filled") or 0))
+        rows.append(
+            f"<li style='margin-bottom:10px;'>"
+            f"<strong>{g.get('title', '')}</strong> "
+            f"<span style='color:#4B5563'>· {g.get('category', '').title()}"
+            f"{' · ' + g.get('subcategory') if g.get('subcategory') else ''}</span><br/>"
+            f"<span style='color:#4B5563;font-size:13px'>"
+            f"{g.get('scheduled_date') or 'TBD'} · {pay} · {slots_open} spot{'' if slots_open == 1 else 's'} open"
+            f"</span></li>"
+        )
+    rows_html = "<ul style='padding-left:20px;margin:14px 0'>" + "".join(rows) + "</ul>"
+    return (
+        f"<div style='font-family:Inter,Arial,sans-serif;max-width:560px;padding:18px;border:1px solid #E5E7EB'>"
+        f"<div style='font-size:11px;letter-spacing:2px;color:#0044FF;font-weight:bold'>NEW PROJECT · HCOB NETWORK</div>"
+        f"<h2 style='margin:6px 0 0 0;font-weight:900;font-size:24px'>{project.get('title', '')}</h2>"
+        f"<div style='color:#4B5563;font-size:13px;margin-top:4px'>"
+        f"{len(gigs)} gigs available · {(project.get('defaults') or {}).get('location') or 'Baltimore, MD'}"
+        f"</div>"
+        f"{rows_html}"
+        f"<p style='font-size:13px;color:#4B5563'>Open the HCOB Network app to claim the role you want.</p>"
+        f"</div>"
+    )
+
+
+def _format_project_sms(project: dict, gigs: list) -> str:
+    # Build a compact summary. Twilio accepts 1600 char multipart SMS but we
+    # keep this under ~320 to land as a single message most of the time.
+    title = project.get("title") or "Project"
+    n = len(gigs)
+    roles = []
+    for g in gigs[:4]:
+        # Use subcategory if present, otherwise the short title
+        roles.append((g.get("subcategory") or g.get("title") or "").strip()[:30])
+    role_str = ", ".join([r for r in roles if r])
+    if len(gigs) > 4:
+        role_str += f", +{len(gigs) - 4} more"
+    loc = (project.get("defaults") or {}).get("location") or "Baltimore, MD"
+    pays = [g.get("pay_rate") or 0 for g in gigs if g.get("pay_rate")]
+    pay_line = f" Pay from ${min(pays):.0f}/hr." if pays else ""
+    return (
+        f"[HCOB Project] {title} — {loc}. {n} gig{'s' if n != 1 else ''}: {role_str}."
+        f"{pay_line} Open the app to claim a role."
+    )
+
+
+@api.post("/projects/{project_id}/blast")
+async def blast_project(
+    project_id: str, payload: BlastIn, admin: dict = Depends(require_admin)
+):
+    """Send ONE consolidated notification about a multi-gig project to every
+    worker. Each linked gig is also auto-flagged as RUSH (consistent with the
+    individual gig-blast endpoint) so the project's gigs float to the top of
+    the feed."""
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if project.get("archived"):
+        raise HTTPException(400, "Cannot blast an archived project")
+
+    # Only blast OPEN gigs with at least one remaining slot.
+    linked_gigs = await db.gigs.find(
+        {"project_id": project_id, "status": "open"}, {"_id": 0}
+    ).to_list(200)
+    blastable_gigs = [
+        g for g in linked_gigs
+        if (g.get("slots") or 0) - (g.get("slots_filled") or 0) > 0
+    ]
+    if not blastable_gigs:
+        raise HTTPException(
+            400,
+            "This project has no open gigs with available slots to blast. Add a gig or reopen one first.",
+        )
+
+    workers = await db.users.find(
+        {"role": "worker"}, {"_id": 0, "password_hash": 0}
+    ).to_list(1000)
+
+    email_creds = await _resolve_email_creds() if "email" in payload.channels else None
+    sms_creds = await _resolve_sms_creds() if "sms" in payload.channels else None
+
+    counts = {"in_app": 0, "email": 0, "sms": 0, "email_failed": 0, "sms_failed": 0}
+    subject = f"New Project: {project.get('title')}"
+    html = _format_project_email(project, blastable_gigs)
+    sms_body = _format_project_sms(project, blastable_gigs)
+
+    notif_docs = []
+    for w in workers:
+        if "in_app" in payload.channels:
+            notif_docs.append(
+                {
+                    "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+                    "user_id": w["user_id"],
+                    "project_id": project_id,
+                    "gig_id": None,
+                    "title": subject,
+                    "body": f"{len(blastable_gigs)} gigs available — {project.get('title')}",
+                    "read": False,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            counts["in_app"] += 1
+        if "email" in payload.channels and w.get("email") and email_creds:
+            try:
+                await asyncio.to_thread(
+                    _send_email_sync,
+                    email_creds["api_key"],
+                    email_creds["sender"],
+                    w["email"],
+                    subject,
+                    html,
+                )
+                counts["email"] += 1
+            except Exception as e:
+                logger.error(f"Project email send failed for {w['email']}: {e}")
+                counts["email_failed"] += 1
+        if "sms" in payload.channels and w.get("phone") and sms_creds:
+            try:
+                await asyncio.to_thread(
+                    _send_sms_sync,
+                    sms_creds["sid"],
+                    sms_creds["token"],
+                    sms_creds["from_"],
+                    w["phone"],
+                    sms_body,
+                )
+                counts["sms"] += 1
+            except Exception as e:
+                logger.error(f"Project SMS send failed for {w.get('phone')}: {e}")
+                counts["sms_failed"] += 1
+
+    if notif_docs:
+        await db.notifications.insert_many(notif_docs)
+
+    # Auto-pin all blasted gigs to the top of the feed by flipping is_rush=True
+    # and adding the "rush" tag (matches single-gig blast behavior).
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for g in blastable_gigs:
+        existing_tags = [t for t in (g.get("tags") or []) if t in GIG_TAG_VALUES]
+        if "rush" not in existing_tags:
+            existing_tags.insert(0, "rush")
+        await db.gigs.update_one(
+            {"gig_id": g["gig_id"]},
+            {
+                "$set": {
+                    "last_blast_at": now_iso,
+                    "blast_channels": payload.channels,
+                    "is_rush": True,
+                    "rush_at": now_iso,
+                    "tags": existing_tags,
+                },
+                "$inc": {"blast_count": 1},
+            },
+        )
+
+    # Track on the project doc itself.
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {"last_blast_at": now_iso, "last_blast_channels": payload.channels},
+            "$inc": {"blast_count": 1},
+        },
+    )
+
+    return {
+        "ok": True,
+        "counts": counts,
+        "workers_targeted": len(workers),
+        "gigs_blasted": len(blastable_gigs),
+    }
 
 
 # ----------------------------------------------------------------------------

@@ -21,6 +21,7 @@ import {
   IdentificationCard,
   ShieldCheck,
   CaretRight,
+  FolderSimple,
 } from "@phosphor-icons/react";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
@@ -188,7 +189,7 @@ export default function WorkerFeed() {
                   tagBorder || "border border-black/5"
                 }`}
               >
-                {(activeTags.length > 0 || showPayPill) && (
+                {(activeTags.length > 0 || showPayPill || g.project) && (
                   <div
                     data-testid={`tag-stack-${g.gig_id}`}
                     className="-mt-1 mb-3 flex flex-wrap gap-1.5"
@@ -222,6 +223,16 @@ export default function WorkerFeed() {
                           className={pt.pulse ? "animate-pulse" : ""}
                         />
                         {pt.short}
+                      </span>
+                    )}
+                    {g.project && (
+                      <span
+                        data-testid={`project-pill-${g.gig_id}`}
+                        title={`Part of project: ${g.project.title}`}
+                        className="inline-flex max-w-[180px] items-center gap-1 rounded-full bg-[#030712] px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white"
+                      >
+                        <FolderSimple size={11} weight="fill" />
+                        <span className="truncate">PROJECT</span>
                       </span>
                     )}
                   </div>

@@ -160,6 +160,18 @@ export default function WorkerGigDetail() {
         <h1 className="mt-2 font-display text-3xl font-black tracking-tight">
           {gig.title}
         </h1>
+        {gig.project_lite && (
+          <div
+            data-testid="worker-project-lite-badge"
+            className="mt-3 inline-flex items-center gap-1.5 bg-[#030712] px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white"
+            title={`This gig is part of the project: ${gig.project_lite.title}. You'll see the full crew & sibling gigs once you're approved.`}
+          >
+            <FolderSimple size={11} weight="fill" /> PART OF PROJECT ·{" "}
+            <span className="font-bold normal-case tracking-normal">
+              {gig.project_lite.title}
+            </span>
+          </div>
+        )}
         {(() => {
           const pt = getPaymentTimeline(gig.payment_timeline);
           const PI = pt.icon;

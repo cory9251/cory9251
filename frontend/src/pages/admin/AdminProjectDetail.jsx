@@ -16,6 +16,7 @@ import {
   CalendarBlank,
   Note as NoteIcon,
   PaperPlaneRight,
+  Megaphone,
   Broom,
   Wrench,
   Car,
@@ -42,6 +43,7 @@ export default function AdminProjectDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [blasting, setBlasting] = useState(false);
 
   const load = async () => {
     try {
@@ -65,6 +67,37 @@ export default function AdminProjectDetail() {
       nav("/ops/projects?archived=true");
     } catch (e) {
       toast.error(getErr(e));
+    }
+  };
+
+  const blastProject = async () => {
+    const blastableCount = (project?.linked_gigs || []).filter(
+      (g) => g.status === "open" && (g.slots || 0) - (g.slots_filled || 0) > 0
+    ).length;
+    if (blastableCount === 0) {
+      toast.error("Add an open gig with available slots before blasting.");
+      return;
+    }
+    const msg =
+      `Blast this project to ALL workers via SMS, email, and in-app?\n\n` +
+      `${blastableCount} gig${blastableCount === 1 ? "" : "s"} will be auto-pinned as RUSH at the top of the feed.`;
+    if (!window.confirm(msg)) return;
+    setBlasting(true);
+    try {
+      const { data } = await api.post(`/projects/${projectId}/blast`, {
+        channels: ["in_app", "email", "sms"],
+      });
+      const c = data?.counts || {};
+      toast.success(
+        `Project blasted to ${data.workers_targeted || 0} workers · ` +
+          `SMS: ${c.sms || 0} · Email: ${c.email || 0} · In-app: ${c.in_app || 0}`,
+        { duration: 5000 }
+      );
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBlasting(false);
     }
   };
 
@@ -135,6 +168,17 @@ export default function AdminProjectDetail() {
                 Archived
               </div>
             )}
+            {project.last_blast_at && (
+              <div
+                data-testid="proj-last-blast"
+                className="font-mono-label mt-2 inline-flex items-center gap-1.5 bg-[#FEF2F2] px-2 py-1 text-[10px] text-[#991B1B]"
+                title={`Last blasted ${new Date(project.last_blast_at).toLocaleString()}`}
+              >
+                <Megaphone size={10} weight="fill" />
+                Blasted {timeAgo(project.last_blast_at)} ·{" "}
+                {project.blast_count || 1}× total
+              </div>
+            )}
             {project.description && (
               <div className="mt-4 max-w-2xl text-sm text-[#4B5563]">
                 <MarkdownView text={project.description} />
@@ -142,6 +186,16 @@ export default function AdminProjectDetail() {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              data-testid="proj-blast-btn"
+              onClick={blastProject}
+              disabled={blasting}
+              className="h-10 rounded-none bg-[#EF4444] text-white hover:bg-[#dc2626] disabled:opacity-60"
+              title="Send SMS + email + in-app notifications about this project to all workers"
+            >
+              <Megaphone size={14} className="mr-1" weight="fill" />
+              {blasting ? "Blasting…" : "Blast project"}
+            </Button>
             <Button
               data-testid="proj-add-gig-btn"
               onClick={() => setCreateGigOpen(true)}
@@ -445,5 +499,22 @@ function fmtDateTime(iso) {
     });
   } catch {
     return iso;
+  }
+}
+
+
+function timeAgo(iso) {
+  try {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    if (d < 30) return `${d}d ago`;
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return "";
   }
 }
