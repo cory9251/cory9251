@@ -113,6 +113,13 @@ export default function Landing() {
             >
               For customers · (410) 870-9347 <ArrowRight size={14} />
             </a>
+            <Link
+              data-testid="nav-vas-link"
+              to="/vas"
+              className="hidden md:inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-[#030712] hover:text-[#0044FF]"
+            >
+              Become a VA <ArrowRight size={14} />
+            </Link>
             <Button
               data-testid="nav-login-btn"
               variant="ghost"
@@ -165,9 +172,18 @@ export default function Landing() {
                 onClick={() => nav("/login")}
                 className="h-12 rounded-none border-[#030712] px-6"
               >
-                I'm already on the crew
+                I&apos;m already on the crew
               </Button>
             </div>
+            <Link
+              to="/vas"
+              data-testid="hero-vas-callout"
+              className="mt-5 inline-flex items-center gap-2 border-l-2 border-[#0044FF] bg-[#F0F4FF] px-4 py-2.5 text-xs font-semibold text-[#030712] hover:bg-[#E0E9FF]"
+            >
+              <CurrencyDollar size={14} weight="fill" className="text-[#0044FF]" />
+              Prefer to refer leads instead of working gigs?
+              <span className="text-[#0044FF]">Earn with our VA program →</span>
+            </Link>
             <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-3">
               {benefits.map((b) => (
                 <div key={b.t} className="flex items-start gap-3 text-xs">
