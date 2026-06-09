@@ -21,8 +21,7 @@ const SERVICES = [
   "Painting",
   "Property Maintenance",
   "Specialty Property Services",
-  "Multiple services / I'll explain",
-  "Other",
+  "Other (I'll explain in notes)",
 ];
 
 const TIMELINES = [
@@ -42,7 +41,7 @@ export default function QuoteRequestForm() {
     name: "",
     phone: "",
     email: "",
-    service: "",
+    services: [], // multi-select
     timeline: "",
     address: "",
     message: "",
@@ -53,6 +52,18 @@ export default function QuoteRequestForm() {
   const [done, setDone] = useState(null); // { name } on success
 
   const update = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
+
+  const toggleService = (label) => {
+    setF((s) => {
+      const has = s.services.includes(label);
+      return {
+        ...s,
+        services: has
+          ? s.services.filter((x) => x !== label)
+          : [...s.services, label],
+      };
+    });
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -65,8 +76,8 @@ export default function QuoteRequestForm() {
       setError("Please enter a valid phone number we can reach you at.");
       return;
     }
-    if (!f.service) {
-      setError("Pick the service you're looking for.");
+    if (!f.services.length) {
+      setError("Pick at least one service you need.");
       return;
     }
     if (!f.timeline) {
@@ -75,7 +86,11 @@ export default function QuoteRequestForm() {
     }
     setSubmitting(true);
     try {
-      await axios.post(`${apiBase}/api/public/quote-requests`, f);
+      // Backend keeps a single `service` string — join the selections so the
+      // admin inbox + lead email read naturally.
+      const { services, ...rest } = f;
+      const payload = { ...rest, service: services.join(" · ") };
+      await axios.post(`${apiBase}/api/public/quote-requests`, payload);
       setDone({ name: f.name.trim().split(/\s+/)[0] });
     } catch (err) {
       const msg =
@@ -200,21 +215,53 @@ export default function QuoteRequestForm() {
             autoComplete="email"
           />
         </Field>
-        <Field label="What do you need?" required full>
-          <select
-            data-testid="quote-input-service"
-            value={f.service}
-            onChange={update("service")}
-            className="quote-input"
-            required
+        <Field
+          label={`What do you need?${
+            f.services.length ? ` · ${f.services.length} selected` : ""
+          }`}
+          required
+          full
+        >
+          <div
+            role="group"
+            aria-label="Services needed"
+            data-testid="quote-services-grid"
+            className="grid grid-cols-1 gap-1.5 sm:grid-cols-2"
           >
-            <option value="">Pick a service…</option>
-            {SERVICES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+            {SERVICES.map((s) => {
+              const checked = f.services.includes(s);
+              return (
+                <label
+                  key={s}
+                  data-testid={`quote-service-option-${s.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30)}`}
+                  className={`flex cursor-pointer items-start gap-2.5 border px-3 py-2.5 text-sm transition-colors ${
+                    checked
+                      ? "border-[#030712] bg-[#030712] text-white"
+                      : "border-[#E5E7EB] bg-white text-[#030712] hover:border-[#030712]"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleService(s)}
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[#0044FF]"
+                    aria-label={s}
+                  />
+                  <span className="leading-snug">{s}</span>
+                </label>
+              );
+            })}
+          </div>
+          {f.services.length > 0 && (
+            <button
+              type="button"
+              data-testid="quote-services-clear"
+              onClick={() => setF((s) => ({ ...s, services: [] }))}
+              className="mt-2 inline-flex items-center text-[11px] font-semibold text-[#4B5563] hover:text-[#EF4444]"
+            >
+              Clear all
+            </button>
+          )}
         </Field>
         <Field label="How soon?" required full>
           <div className="flex flex-wrap gap-2">
