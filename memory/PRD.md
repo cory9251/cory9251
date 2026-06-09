@@ -287,8 +287,70 @@
 - [x] Admin Workers filters (skills/availability/zip/vehicle/profile/search) — Feb 2026
 - [x] Auto-suggest matching workers on create-gig dialog — Feb 2026
 
+---
+
+## VA Commission Marketing Program — Phase 1 (Feb 2026, this session)
+
+**Goal:** A self-contained module inside the HCOB Network platform that lets cleaning-lead Virtual Assistants (VAs) submit prospects, watch them move through a 7-stage pipeline, and automatically earn commissions — with mandatory Program Manager review and final Owner sign-off before any payout.
+
+### Roles introduced
+- **VA** (`role=va`, `va_status ∈ {pending, approved, suspended, removed}`): self-signup via `/register?as=va` or PM-created. Pending VAs cannot submit leads.
+- **Program Manager** (`role=admin`, `is_program_manager=true`): seeded as `mechiebadlong77@gmail.com` / `Mechie2026!`. Reviews leads, approves commissions, manages VA accounts.
+- **Owner** (`role=admin`, `is_owner=true`): set on `admin@hcobcleaners.com`. Final payout sign-off + mark-paid + bulk-approve.
+
+### New DB collections
+- `va_leads` — every prospect with stage history + ownership lock
+- `commissions` — per-lead commission records, full lifecycle status
+- `va_violations` — permanent audit log of duplicate-lead, self-referral, account_suspended, commission_flagged events
+- `commercial_accounts` — recurring 5% commission tracking
+- New `users` fields: `va_status`, `va_phone`, `va_address`, `is_owner`, `is_program_manager`, `must_change_password`
+
+### Commission rate engine
+- Routine 1-time → $10 (or recurring tier if part of series)
+- Recurring visits: V1=$15, V2=$25, V3-6=$10 each, lifetime cap $100 per client
+- Deep / Move-Out / Specialty → $25 flat
+- Commercial → 5% of monthly revenue
+- Cleaner Referral (future): $20 → $30 → $50, cap $100
+
+### Safeguards (enforced at DB layer)
+- **Duplicate lead** — block if phone OR email already in active lead. Allow resubmit if original is `Completed` or `Lost` AND > 90 days old. Violation logged.
+- **Self-referral** — block if prospect address matches VA's registered address (case/whitespace/punctuation-insensitive). Violation logged.
+- **Timestamp ownership lock** — set on lead create. Can't be edited or transferred.
+- **Double-payment** — `mark-paid` on an already-paid commission returns 400. Status frozen once paid.
+- **Suspension** — kills all sessions immediately. Removed accounts cannot re-authenticate.
+
+### Commission lifecycle (verified)
+1. VA submits lead → `stage=new_lead`
+2. PM advances stage Booked → commission record created with `status=calculating`
+3. PM advances stage Paid (with job_value) → commission `status=pending_approval` (PM queue)
+4. PM Approve / Flag (note required) / Reject
+5. Owner one-click sign-off → `owner_approved` (or bulk per VA per week)
+6. Owner mark-paid (method + reference) → `paid`. VA notification fired.
+
+### Backend (server.py ~7400 lines now — overdue refactor)
+- New models (LeadIn, LeadStageIn, CommissionActionIn, OwnerBulkApproveIn, CommissionMarkPaidIn, VAAccountAdminIn, CommercialAccountIn/Patch)
+- Routes `/api/va/*`, `/api/pm/*`, `/api/owner/*` (full surface in `/app/memory/test_credentials.md`)
+- Indices created on startup for fast lookups
+- Mechie seed + Owner flag migration on every boot (idempotent)
+- 26/26 pytest pass (`/app/backend/tests/test_va_commission.py` + `test_va_commission_extra.py`)
+
+### Frontend
+- VA portal `/va` with sidebar (Dashboard, Submit Lead, My Leads, Earnings) + pending-status banner
+- Admin sidebar gains a **VA Commission** section (5 entries) + Owner-only **Payouts** entry with live count badges
+- New pages: AdminVAOverview, AdminVAPipeline, AdminVACommissions, AdminVAs, AdminCommercialAccounts, AdminOwnerPayouts
+- Register page upgraded with role toggle (Worker / VA) + VA-specific fields
+
+### Known minor follow-ups
+- [ ] `prospect_phone` is required (FRD-consistent). Could be relaxed to "phone OR email" with explicit 400.
+- [ ] Two non-blocking console 403s on Mechie's view of `/ops/va-program/commissions` — `is_owner` guarded but seemingly stale call. Cosmetic.
+- [ ] `/va/submit` "Preferred datetime" uses browser-default — replace with shadcn DatePicker.
+- [ ] Phase 2: Stripe ACH auto-payouts (deferred per user choice), email/SMS triggers on stage update.
+- [ ] Phase 3: Advanced leaderboard intelligence, automated reactivation outreach.
+
 ## Next steps
 1. Wire real Resend + Twilio keys (admin to provide), then enable per-blast email/SMS
 2. Add worker mobile-app PWA install prompt OR convert via Emergent Mobile Agent (Expo/React Native)
 3. Google Auth (optional social login)
 4. Worker reliability/rating system (auto-compute from punctuality, completion, no-shows)
+5. **Backend modularization** — `server.py` is at ~7400 lines. Split into `routes/auth.py`, `routes/gigs.py`, `routes/projects.py`, `routes/va_commission.py`, `routes/owner.py`.
+6. **VA Commission Phase 2** — Stripe ACH auto-payouts, stage-update email/SMS triggers, cleaner referral tracking.
