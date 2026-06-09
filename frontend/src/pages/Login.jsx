@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { roleHomePath } from "@/components/ProtectedRoute";
 import { getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { GoogleLogo, ArrowLeft } from "@phosphor-icons/react";
@@ -32,7 +33,7 @@ export default function Login() {
       const cleanEmail = email.trim().toLowerCase();
       const u = await login(cleanEmail, password);
       toast.success("Welcome back");
-      nav(u.role === "admin" ? "/ops" : "/crew", { replace: true });
+      nav(roleHomePath(u), { replace: true });
     } catch (e) {
       // FastAPI returns { detail: { code, provider, message } } for the
       // Google-only edge case. Detect it before stringifying.

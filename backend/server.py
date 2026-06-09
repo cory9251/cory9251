@@ -263,7 +263,10 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
     name: str
-    role: Optional[Literal["worker", "admin"]] = "worker"
+    role: Optional[Literal["worker", "admin", "va"]] = "worker"
+    # VA-only optional fields captured at signup
+    va_phone: Optional[str] = None
+    va_address: Optional[str] = None  # registered home address — used for self-referral check
 
 
 class LoginIn(BaseModel):
@@ -571,6 +574,12 @@ async def _get_user_by_id(user_id: str) -> Optional[dict]:
     else:
         user["profile_complete"] = True
         user["profile_missing_fields"] = []
+    # Default flags for owner / PM so the frontend always has them.
+    user.setdefault("is_owner", False)
+    user.setdefault("is_program_manager", False)
+    user.setdefault("must_change_password", False)
+    if user.get("role") == "va":
+        user.setdefault("va_status", "pending")
     return user
 
 
@@ -677,6 +686,26 @@ async def register(payload: RegisterIn, response: Response):
     existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(400, "Email already registered")
+
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    # VA signup path — separate doc shape, pending approval by Program Manager.
+    if payload.role == "va":
+        doc = {
+            "user_id": user_id,
+            "email": email,
+            "password_hash": hash_password(payload.password),
+            "name": payload.name,
+            "role": "va",
+            "va_status": "pending",  # pending | approved | suspended | removed
+            "va_phone": (payload.va_phone or "").strip(),
+            "va_address": (payload.va_address or "").strip(),
+            "must_change_password": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "auth_provider": "local",
+        }
+        await db.users.insert_one(doc)
+        await _issue_session(user_id, response)
+        return await _get_user_by_id(user_id)
 
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     doc = {
@@ -6027,7 +6056,1203 @@ async def test_settings(
             raise HTTPException(400, f"SMS test failed: {e}")
 
 
-# ---- Startup ---------------------------------------------------------------
+# ============================================================================
+# VA COMMISSION MARKETING PROGRAM — Phase 1
+# ----------------------------------------------------------------------------
+# Module enables commission-based Virtual Assistants (VAs) to submit cleaning
+# leads, track their pipeline, and earn commissions. Program Manager (Mechie,
+# admin role + is_program_manager=True) reviews leads and approves commissions.
+# Owner (admin role + is_owner=True) does final payout sign-off.
+# ============================================================================
+
+LeadStage = Literal["new_lead", "contacted", "quoted", "booked", "completed", "paid", "lost"]
+LeadServiceType = Literal["routine", "deep", "moveout", "specialty", "commercial", "unknown"]
+LeadPropertySize = Literal["studio", "1br", "2br", "3br", "4br", "5br", "commercial"]
+LeadSource = Literal[
+    "facebook_marketplace",
+    "facebook_groups",
+    "craigslist",
+    "direct_message",
+    "referral",
+    "other",
+]
+
+COMMISSION_RATES = {
+    "routine": 10.0,
+    "deep": 25.0,
+    "moveout": 25.0,
+    "specialty": 25.0,
+    "commercial_pct": 0.05,
+}
+RECURRING_TIERS = {
+    1: 15.0,
+    2: 25.0,
+    3: 10.0,
+    4: 10.0,
+    5: 10.0,
+    6: 10.0,
+}
+RECURRING_LIFETIME_CAP = 100.0
+CLEANER_REFERRAL_TIERS = {1: 20.0, 5: 30.0, 10: 50.0}
+CLEANER_REFERRAL_CAP = 100.0
+DUPLICATE_REOPEN_DAYS = 90  # leads completed/lost > 90 days old don't block dupes
+
+
+class VARegisterDetailsIn(BaseModel):
+    """Optional VA-only profile data set after signup."""
+    va_phone: Optional[str] = None
+    va_address: Optional[str] = None
+
+
+class LeadIn(BaseModel):
+    prospect_name: str = Field(min_length=2, max_length=120)
+    prospect_phone: str = Field(min_length=7, max_length=40)
+    prospect_email: Optional[str] = None
+    prospect_address: Optional[str] = None  # used for self-referral check
+    service_type: LeadServiceType
+    property_size: LeadPropertySize
+    preferred_datetime: Optional[str] = None  # ISO 8601 date or datetime
+    source: LeadSource
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+class LeadStageIn(BaseModel):
+    stage: LeadStage
+    job_value: Optional[float] = None  # required when stage='paid' for commercial calc
+    note: Optional[str] = None
+
+
+class CommissionActionIn(BaseModel):
+    """Mechie's approve / flag / reject action on a commission."""
+    note: Optional[str] = None
+
+
+class OwnerBulkApproveIn(BaseModel):
+    """Owner bulk-approves all pm_approved commissions for a VA within a window."""
+    va_user_id: str
+    week_start: Optional[str] = None  # ISO date — defaults to start of current week (Mon)
+    week_end: Optional[str] = None    # ISO date — defaults to end of current week (Sun)
+
+
+class CommissionMarkPaidIn(BaseModel):
+    payout_reference: Optional[str] = None  # check number, Venmo ref, etc.
+    payout_method: Optional[Literal["cash", "venmo", "zelle", "check", "ach", "other"]] = "other"
+
+
+class VAAccountAdminIn(BaseModel):
+    """Program Manager creates a VA account directly."""
+    email: EmailStr
+    name: str
+    password: str = Field(min_length=6)
+    va_phone: Optional[str] = None
+    va_address: Optional[str] = None
+    auto_approve: Optional[bool] = True
+
+
+class VAStatusActionIn(BaseModel):
+    note: Optional[str] = None
+
+
+class CommercialAccountIn(BaseModel):
+    account_name: str = Field(min_length=2, max_length=160)
+    va_user_id: str
+    monthly_revenue: float = Field(ge=0)
+    start_date: Optional[str] = None  # ISO date
+    notes: Optional[str] = None
+
+
+class CommercialAccountPatch(BaseModel):
+    account_name: Optional[str] = None
+    monthly_revenue: Optional[float] = None
+    active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+async def require_va(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "va":
+        raise HTTPException(403, "VA access required")
+    if user.get("va_status") == "removed":
+        raise HTTPException(403, "Account removed")
+    return user
+
+
+async def require_va_active(user: dict = Depends(get_current_user)) -> dict:
+    """VA must be 'approved' to submit leads / view earnings."""
+    if user.get("role") != "va":
+        raise HTTPException(403, "VA access required")
+    status = user.get("va_status") or "pending"
+    if status != "approved":
+        raise HTTPException(403, f"VA account is {status}. Wait for Program Manager approval.")
+    return user
+
+
+async def require_program_manager_or_owner(
+    request: Request, user: dict = Depends(get_current_user)
+) -> dict:
+    """Mechie (Program Manager) AND any admin can manage VA accounts/leads.
+    Owner = admin with is_owner=True (for final payout sign-off only).
+    """
+    role = user.get("role")
+    if role != "admin":
+        raise HTTPException(403, "Operations access required")
+    if user.get("is_read_only") and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        raise HTTPException(403, "Read-only admin — cannot mutate")
+    return user
+
+
+async def require_owner(
+    request: Request, user: dict = Depends(get_current_user)
+) -> dict:
+    """Owner-only — final payout sign-off."""
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Owner access required")
+    if not user.get("is_owner"):
+        raise HTTPException(403, "Owner sign-off required — this user is not the Owner")
+    return user
+
+
+def _normalize_phone(p: Optional[str]) -> str:
+    if not p:
+        return ""
+    return re.sub(r"[^\d]", "", p)
+
+
+def _normalize_email(e: Optional[str]) -> str:
+    if not e:
+        return ""
+    return e.lower().strip()
+
+
+def _normalize_address(a: Optional[str]) -> str:
+    if not a:
+        return ""
+    s = a.lower().strip()
+    # Strip punctuation that often varies between submissions; collapse whitespace
+    s = re.sub(r"[,.;:]", " ", s)
+    return re.sub(r"\s+", " ", s)
+
+
+def _serialize_lead(lead: dict, include_owner: bool = True) -> dict:
+    out = {k: v for k, v in lead.items() if k != "_id"}
+    if not include_owner:
+        out.pop("va_user_id", None)
+        out.pop("va_name", None)
+    return out
+
+
+def _serialize_commission(c: dict) -> dict:
+    return {k: v for k, v in c.items() if k != "_id"}
+
+
+async def _log_violation(
+    va_user_id: Optional[str],
+    kind: str,
+    details: dict,
+    flagged_by: str = "system",
+) -> None:
+    """Permanent violation log — cannot be deleted by any user role."""
+    await db.va_violations.insert_one({
+        "violation_id": f"viol_{uuid.uuid4().hex[:12]}",
+        "va_user_id": va_user_id,
+        "kind": kind,  # duplicate_lead, self_referral, dispute, account_removed, etc.
+        "details": details,
+        "flagged_by": flagged_by,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+async def _find_duplicate_lead(phone_norm: str, email_norm: str) -> Optional[dict]:
+    """Return the conflicting active lead, or None if dupe window allows resubmit.
+    Per scoping: allow resubmit if original is `Completed` or `Lost` > 90 days old.
+    """
+    q = {"$or": []}
+    if phone_norm:
+        q["$or"].append({"prospect_phone_norm": phone_norm})
+    if email_norm:
+        q["$or"].append({"prospect_email_norm": email_norm})
+    if not q["$or"]:
+        return None
+    cur = db.va_leads.find(q)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=DUPLICATE_REOPEN_DAYS)
+    async for d in cur:
+        stage = d.get("stage")
+        if stage in ("completed", "lost", "paid"):
+            ts_str = d.get("stage_changed_at") or d.get("created_at") or ""
+            try:
+                ts = datetime.fromisoformat(ts_str)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts < cutoff:
+                    continue  # eligible for resubmit
+            except Exception:
+                pass
+        return d
+    return None
+
+
+async def _next_recurring_visit_count(va_user_id: str, phone_norm: str, email_norm: str) -> int:
+    """Count completed/paid recurring jobs for the same client+VA — returns next visit number."""
+    q = {
+        "va_user_id": va_user_id,
+        "stage": {"$in": ["completed", "paid"]},
+        "service_type": "routine",  # only routine cleanings count as recurring
+    }
+    or_clauses = []
+    if phone_norm:
+        or_clauses.append({"prospect_phone_norm": phone_norm})
+    if email_norm:
+        or_clauses.append({"prospect_email_norm": email_norm})
+    if or_clauses:
+        q["$or"] = or_clauses
+    count = await db.va_leads.count_documents(q)
+    return count + 1  # next visit
+
+
+async def _va_lifetime_recurring_total(va_user_id: str, phone_norm: str, email_norm: str) -> float:
+    """Lifetime commission paid out / pending for this VA+client recurring chain."""
+    q: dict = {"va_user_id": va_user_id, "kind": "recurring"}
+    or_clauses = []
+    if phone_norm:
+        or_clauses.append({"client_phone_norm": phone_norm})
+    if email_norm:
+        or_clauses.append({"client_email_norm": email_norm})
+    if or_clauses:
+        q["$or"] = or_clauses
+    total = 0.0
+    async for c in db.commissions.find(q):
+        if c.get("status") != "rejected":
+            total += float(c.get("amount") or 0)
+    return total
+
+
+async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = None) -> dict:
+    """Compute commission for a lead based on its service type.
+    Returns dict with `amount`, `kind`, `visit_number`, `notes` (str)."""
+    svc = lead.get("service_type")
+    phone = lead.get("prospect_phone_norm") or ""
+    email = lead.get("prospect_email_norm") or ""
+    va = lead.get("va_user_id")
+
+    if svc == "commercial":
+        rev = float(job_value or lead.get("job_value") or 0)
+        amount = round(rev * COMMISSION_RATES["commercial_pct"], 2)
+        return {
+            "amount": amount,
+            "kind": "commercial_one_time",
+            "visit_number": None,
+            "notes": f"5% of ${rev:.2f} job value",
+        }
+
+    if svc == "routine":
+        visit = await _next_recurring_visit_count(va, phone, email)
+        if visit >= 7:
+            return {"amount": 0.0, "kind": "recurring", "visit_number": visit,
+                    "notes": "Visit 7+ — recurring cap reached ($0)"}
+        per_visit = RECURRING_TIERS.get(visit, 0.0)
+        if visit == 1:
+            # first routine visit could either be a $10 routine OR a $15 recurring V1 —
+            # treat first as $15 if part of recurring series. Per FRD, recurring tiers
+            # supersede flat $10 for routine.
+            current_paid = await _va_lifetime_recurring_total(va, phone, email)
+            remaining = max(0.0, RECURRING_LIFETIME_CAP - current_paid)
+            amount = min(per_visit, remaining)
+            return {"amount": amount, "kind": "recurring", "visit_number": visit,
+                    "notes": f"Recurring visit {visit} (${per_visit:.0f})"}
+        current_paid = await _va_lifetime_recurring_total(va, phone, email)
+        remaining = max(0.0, RECURRING_LIFETIME_CAP - current_paid)
+        amount = min(per_visit, remaining)
+        return {"amount": amount, "kind": "recurring", "visit_number": visit,
+                "notes": f"Recurring visit {visit} (${per_visit:.0f}) · ${current_paid:.0f}/$100 lifetime cap"}
+
+    if svc in ("deep", "moveout", "specialty"):
+        return {"amount": COMMISSION_RATES[svc], "kind": "one_time", "visit_number": None,
+                "notes": f"{svc.title()} flat $25"}
+
+    # Unknown / fallback
+    return {"amount": 0.0, "kind": "unknown", "visit_number": None,
+            "notes": "Service type unknown — manual review needed"}
+
+
+async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculating") -> Optional[dict]:
+    """Create or update a commission record for this lead. Phase 1 commission lifecycle:
+       Booked → status=calculating (record created so VA sees progress)
+       Paid → status=pending_approval (surfaces in PM queue, auto-calc amount)
+    """
+    existing = await db.commissions.find_one({"lead_id": lead["lead_id"]})
+    calc = await _calc_commission_for_lead(lead, lead.get("job_value"))
+    now = datetime.now(timezone.utc).isoformat()
+    if existing:
+        # Recompute amount if we're entering pending_approval. Once approved/paid, freeze.
+        if existing.get("status") in ("approved", "paid", "owner_approved"):
+            return {k: v for k, v in existing.items() if k != "_id"}
+        await db.commissions.update_one(
+            {"commission_id": existing["commission_id"]},
+            {"$set": {
+                "amount": calc["amount"],
+                "kind": calc["kind"],
+                "visit_number": calc["visit_number"],
+                "calc_notes": calc["notes"],
+                "status": target_status,
+                "updated_at": now,
+                # Snapshot client identifiers for cap lookups even if lead is later edited
+                "client_phone_norm": lead.get("prospect_phone_norm"),
+                "client_email_norm": lead.get("prospect_email_norm"),
+                "job_value": lead.get("job_value"),
+            }},
+        )
+        fresh = await db.commissions.find_one({"commission_id": existing["commission_id"]})
+        return {k: v for k, v in fresh.items() if k != "_id"} if fresh else None
+
+    doc = {
+        "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+        "lead_id": lead["lead_id"],
+        "va_user_id": lead["va_user_id"],
+        "va_name": lead.get("va_name"),
+        "prospect_name": lead.get("prospect_name"),
+        "service_type": lead.get("service_type"),
+        "client_phone_norm": lead.get("prospect_phone_norm"),
+        "client_email_norm": lead.get("prospect_email_norm"),
+        "amount": calc["amount"],
+        "kind": calc["kind"],  # one_time, recurring, commercial_one_time, cleaner_referral
+        "visit_number": calc["visit_number"],
+        "calc_notes": calc["notes"],
+        "status": target_status,  # calculating, pending_approval, pm_approved, owner_approved, paid, flagged, rejected
+        "pm_action_at": None,
+        "pm_action_note": None,
+        "owner_action_at": None,
+        "paid_at": None,
+        "payout_reference": None,
+        "payout_method": None,
+        "job_value": lead.get("job_value"),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.commissions.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+# ---------------------------------------------------------------------------
+# VA portal routes (`/api/va/*`)
+# ---------------------------------------------------------------------------
+@api.get("/va/me")
+async def va_me(user: dict = Depends(require_va)):
+    return user
+
+
+@api.put("/va/me")
+async def va_update_me(payload: VARegisterDetailsIn, user: dict = Depends(require_va)):
+    updates = {}
+    if payload.va_phone is not None:
+        updates["va_phone"] = payload.va_phone.strip()
+    if payload.va_address is not None:
+        updates["va_address"] = payload.va_address.strip()
+    if updates:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
+    return await _get_user_by_id(user["user_id"])
+
+
+@api.get("/va/dashboard")
+async def va_dashboard(user: dict = Depends(require_va)):
+    va_id = user["user_id"]
+    # Active leads = pre-paid stages
+    active_stages = ["new_lead", "contacted", "quoted", "booked", "completed"]
+    active_count = await db.va_leads.count_documents({"va_user_id": va_id, "stage": {"$in": active_stages}})
+    pending = 0.0
+    approved = 0.0
+    paid = 0.0
+    async for c in db.commissions.find({"va_user_id": va_id}):
+        amt = float(c.get("amount") or 0)
+        s = c.get("status")
+        if s in ("calculating", "pending_approval", "pm_approved"):
+            pending += amt
+        elif s == "owner_approved":
+            approved += amt
+        elif s == "paid":
+            paid += amt
+    # Leaderboard: rank by # of leads in last 30 days (relative position, no $ data shown)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    pipeline = [
+        {"$match": {"created_at": {"$gte": cutoff}}},
+        {"$group": {"_id": "$va_user_id", "leads": {"$sum": 1}}},
+        {"$sort": {"leads": -1}},
+    ]
+    ranks = []
+    async for row in db.va_leads.aggregate(pipeline):
+        ranks.append(row["_id"])
+    rank = (ranks.index(va_id) + 1) if va_id in ranks else None
+    return {
+        "va_user_id": va_id,
+        "va_status": user.get("va_status"),
+        "active_leads": active_count,
+        "commissions_pending": round(pending, 2),
+        "commissions_approved": round(approved, 2),
+        "total_paid": round(paid, 2),
+        "leaderboard_rank": rank,
+        "leaderboard_total": len(ranks),
+    }
+
+
+@api.post("/va/leads")
+async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends(require_va_active)):
+    phone_norm = _normalize_phone(payload.prospect_phone)
+    email_norm = _normalize_email(payload.prospect_email)
+    if not phone_norm and not email_norm:
+        raise HTTPException(400, "Phone or email required")
+    addr_norm = _normalize_address(payload.prospect_address)
+
+    # Self-referral check: prospect address must not match VA's registered address
+    va_addr_norm = _normalize_address(user.get("va_address"))
+    if va_addr_norm and addr_norm and va_addr_norm == addr_norm:
+        await _log_violation(user["user_id"], "self_referral", {
+            "prospect_name": payload.prospect_name,
+            "address": payload.prospect_address,
+        }, flagged_by=user["user_id"])
+        raise HTTPException(400, "Self-referral blocked: this address matches your registered address.")
+
+    # Duplicate lead check
+    dupe = await _find_duplicate_lead(phone_norm, email_norm)
+    if dupe:
+        await _log_violation(user["user_id"], "duplicate_lead", {
+            "prospect_name": payload.prospect_name,
+            "phone": payload.prospect_phone,
+            "email": payload.prospect_email,
+            "original_lead_id": dupe.get("lead_id"),
+            "original_va_user_id": dupe.get("va_user_id"),
+            "original_stage": dupe.get("stage"),
+        }, flagged_by=user["user_id"])
+        original_va_name = dupe.get("va_name") or "another VA"
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "duplicate_lead",
+                "message": (
+                    f"This lead was already submitted by {original_va_name} "
+                    f"on {dupe.get('created_at', '')[:10]} (stage: {dupe.get('stage')}). "
+                    "No commission is awarded for duplicate submissions."
+                ),
+                "original_va_name": original_va_name,
+                "original_date": dupe.get("created_at"),
+                "original_stage": dupe.get("stage"),
+            },
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    lead_id = f"lead_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "lead_id": lead_id,
+        "va_user_id": user["user_id"],
+        "va_name": user.get("name"),
+        "prospect_name": payload.prospect_name.strip(),
+        "prospect_phone": payload.prospect_phone.strip(),
+        "prospect_phone_norm": phone_norm,
+        "prospect_email": (payload.prospect_email or "").strip(),
+        "prospect_email_norm": email_norm,
+        "prospect_address": (payload.prospect_address or "").strip(),
+        "prospect_address_norm": addr_norm,
+        "service_type": payload.service_type,
+        "property_size": payload.property_size,
+        "preferred_datetime": payload.preferred_datetime,
+        "source": payload.source,
+        "notes": (payload.notes or "").strip(),
+        "stage": "new_lead",
+        "stage_history": [{"stage": "new_lead", "at": now, "by": user["user_id"]}],
+        "stage_changed_at": now,
+        "job_value": None,
+        "ownership_locked_at": now,  # timestamp ownership lock
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.va_leads.insert_one(doc)
+    return _serialize_lead(doc)
+
+
+@api.get("/va/leads")
+async def va_list_leads(stage: Optional[str] = None, user: dict = Depends(require_va)):
+    q: dict = {"va_user_id": user["user_id"]}
+    if stage:
+        q["stage"] = stage
+    items = []
+    cur = db.va_leads.find(q).sort("created_at", -1)
+    async for d in cur:
+        items.append(_serialize_lead(d))
+    return {"items": items}
+
+
+@api.get("/va/earnings")
+async def va_earnings(
+    month: Optional[str] = None,  # "YYYY-MM"
+    status: Optional[str] = None,
+    service_type: Optional[str] = None,
+    user: dict = Depends(require_va),
+):
+    q: dict = {"va_user_id": user["user_id"]}
+    if status:
+        q["status"] = status
+    if service_type:
+        q["service_type"] = service_type
+    items = []
+    totals_month = 0.0
+    totals_all = 0.0
+    cur = db.commissions.find(q).sort("created_at", -1)
+    async for d in cur:
+        amt = float(d.get("amount") or 0)
+        totals_all += amt
+        created = d.get("created_at") or ""
+        if month and created[:7] != month:
+            continue
+        if not month or created[:7] == month:
+            totals_month += amt
+        items.append(_serialize_commission(d))
+    return {
+        "items": items,
+        "totals": {
+            "this_month": round(totals_month, 2),
+            "all_time": round(totals_all, 2),
+        },
+    }
+
+
+@api.get("/va/commercial-accounts")
+async def va_my_commercial_accounts(user: dict = Depends(require_va)):
+    items = []
+    cur = db.commercial_accounts.find({"va_user_id": user["user_id"]}).sort("created_at", -1)
+    async for d in cur:
+        items.append({k: v for k, v in d.items() if k != "_id"})
+    return {"items": items}
+
+
+# ---------------------------------------------------------------------------
+# Program Manager / Ops routes (`/api/pm/*`)
+# ---------------------------------------------------------------------------
+@api.get("/pm/leads")
+async def pm_list_leads(
+    va_user_id: Optional[str] = None,
+    stage: Optional[str] = None,
+    service_type: Optional[str] = None,
+    q: Optional[str] = None,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    query: dict = {}
+    if va_user_id:
+        query["va_user_id"] = va_user_id
+    if stage:
+        query["stage"] = stage
+    if service_type:
+        query["service_type"] = service_type
+    if q:
+        query["$or"] = [
+            {"prospect_name": {"$regex": re.escape(q), "$options": "i"}},
+            {"prospect_phone_norm": _normalize_phone(q)},
+            {"prospect_email_norm": _normalize_email(q)},
+        ]
+    items = []
+    cur = db.va_leads.find(query).sort("created_at", -1).limit(500)
+    async for d in cur:
+        items.append(_serialize_lead(d))
+    return {"items": items}
+
+
+@api.put("/pm/leads/{lead_id}/stage")
+async def pm_update_lead_stage(
+    lead_id: str,
+    payload: LeadStageIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    lead = await db.va_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    now = datetime.now(timezone.utc).isoformat()
+    history_entry = {"stage": payload.stage, "at": now, "by": admin["user_id"], "note": payload.note}
+    updates = {
+        "stage": payload.stage,
+        "stage_changed_at": now,
+        "updated_at": now,
+    }
+    if payload.job_value is not None:
+        updates["job_value"] = float(payload.job_value)
+    await db.va_leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": updates, "$push": {"stage_history": history_entry}},
+    )
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+
+    # Commission lifecycle hooks (per scoping: 3A — create on Booked as Calculating)
+    if payload.stage == "booked":
+        await _ensure_commission_for_lead(fresh, target_status="calculating")
+    elif payload.stage == "paid":
+        # Both Completed + Paid satisfied → surface in approval queue
+        await _ensure_commission_for_lead(fresh, target_status="pending_approval")
+        # In-app notification to VA
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+            "user_id": fresh["va_user_id"],
+            "kind": "va_commission_pending",
+            "title": "Commission earned",
+            "body": f"Lead '{fresh.get('prospect_name')}' is paid — commission pending approval.",
+            "created_at": now,
+            "read": False,
+        })
+    elif payload.stage in ("completed",):
+        # Update existing commission notes (still calculating)
+        existing = await db.commissions.find_one({"lead_id": lead_id})
+        if existing and existing.get("status") in ("calculating",):
+            await db.commissions.update_one(
+                {"commission_id": existing["commission_id"]},
+                {"$set": {"status": "calculating", "updated_at": now}},
+            )
+    elif payload.stage == "lost":
+        # Cancel any pending commission
+        existing = await db.commissions.find_one({"lead_id": lead_id})
+        if existing and existing.get("status") in ("calculating", "pending_approval"):
+            await db.commissions.update_one(
+                {"commission_id": existing["commission_id"]},
+                {"$set": {"status": "rejected", "calc_notes": "Lead marked lost", "updated_at": now}},
+            )
+    return _serialize_lead(fresh)
+
+
+@api.get("/pm/commissions")
+async def pm_list_commissions(
+    status: Optional[str] = None,
+    va_user_id: Optional[str] = None,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    q: dict = {}
+    if status:
+        q["status"] = status
+    else:
+        # Default to the approval queue: pending_approval + flagged
+        q["status"] = {"$in": ["pending_approval", "flagged"]}
+    if va_user_id:
+        q["va_user_id"] = va_user_id
+    items = []
+    cur = db.commissions.find(q).sort("created_at", 1)  # oldest first for FIFO review
+    async for d in cur:
+        items.append(_serialize_commission(d))
+    return {"items": items}
+
+
+@api.post("/pm/commissions/{commission_id}/approve")
+async def pm_approve_commission(
+    commission_id: str,
+    payload: CommissionActionIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    c = await db.commissions.find_one({"commission_id": commission_id})
+    if not c:
+        raise HTTPException(404, "Commission not found")
+    if c["status"] not in ("pending_approval", "flagged"):
+        raise HTTPException(400, f"Cannot approve — current status is {c['status']}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.commissions.update_one(
+        {"commission_id": commission_id},
+        {"$set": {
+            "status": "pm_approved",
+            "pm_action_at": now,
+            "pm_action_note": payload.note,
+            "pm_action_by": admin["user_id"],
+            "updated_at": now,
+        }},
+    )
+    return _serialize_commission(await db.commissions.find_one({"commission_id": commission_id}))
+
+
+@api.post("/pm/commissions/{commission_id}/flag")
+async def pm_flag_commission(
+    commission_id: str,
+    payload: CommissionActionIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    if not (payload.note and payload.note.strip()):
+        raise HTTPException(400, "Note required when flagging a commission")
+    c = await db.commissions.find_one({"commission_id": commission_id})
+    if not c:
+        raise HTTPException(404, "Commission not found")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.commissions.update_one(
+        {"commission_id": commission_id},
+        {"$set": {
+            "status": "flagged",
+            "pm_action_at": now,
+            "pm_action_note": payload.note,
+            "pm_action_by": admin["user_id"],
+            "updated_at": now,
+        }},
+    )
+    await _log_violation(c.get("va_user_id"), "commission_flagged", {
+        "commission_id": commission_id,
+        "note": payload.note,
+    }, flagged_by=admin["user_id"])
+    return _serialize_commission(await db.commissions.find_one({"commission_id": commission_id}))
+
+
+@api.post("/pm/commissions/{commission_id}/reject")
+async def pm_reject_commission(
+    commission_id: str,
+    payload: CommissionActionIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    c = await db.commissions.find_one({"commission_id": commission_id})
+    if not c:
+        raise HTTPException(404, "Commission not found")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.commissions.update_one(
+        {"commission_id": commission_id},
+        {"$set": {
+            "status": "rejected",
+            "pm_action_at": now,
+            "pm_action_note": payload.note,
+            "pm_action_by": admin["user_id"],
+            "updated_at": now,
+        }},
+    )
+    return _serialize_commission(await db.commissions.find_one({"commission_id": commission_id}))
+
+
+@api.get("/pm/vas")
+async def pm_list_vas(admin: dict = Depends(require_program_manager_or_owner)):
+    items = []
+    cur = db.users.find({"role": "va"}, {"_id": 0, "password_hash": 0}).sort("created_at", -1)
+    async for u in cur:
+        va_id = u.get("user_id")
+        # Aggregate stats
+        leads_count = await db.va_leads.count_documents({"va_user_id": va_id})
+        booked_count = await db.va_leads.count_documents({
+            "va_user_id": va_id, "stage": {"$in": ["booked", "completed", "paid"]}
+        })
+        earnings_pipeline = [
+            {"$match": {"va_user_id": va_id}},
+            {"$group": {"_id": "$status", "total": {"$sum": "$amount"}}},
+        ]
+        by_status = {}
+        async for row in db.commissions.aggregate(earnings_pipeline):
+            by_status[row["_id"]] = round(row["total"], 2)
+        conversion = round((booked_count / leads_count) * 100, 1) if leads_count else 0
+        u["lead_count"] = leads_count
+        u["booked_count"] = booked_count
+        u["conversion_rate"] = conversion
+        u["earnings_by_status"] = by_status
+        items.append(u)
+    return {"items": items}
+
+
+@api.post("/pm/vas")
+async def pm_create_va(payload: VAAccountAdminIn, admin: dict = Depends(require_program_manager_or_owner)):
+    email = payload.email.lower().strip()
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(400, "Email already registered")
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "user_id": user_id,
+        "email": email,
+        "password_hash": hash_password(payload.password),
+        "name": payload.name,
+        "role": "va",
+        "va_status": "approved" if payload.auto_approve else "pending",
+        "va_phone": (payload.va_phone or "").strip(),
+        "va_address": (payload.va_address or "").strip(),
+        "must_change_password": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "auth_provider": "local",
+        "created_by": admin["user_id"],
+    }
+    await db.users.insert_one(doc)
+    return await _get_user_by_id(user_id)
+
+
+@api.post("/pm/vas/{va_user_id}/approve")
+async def pm_approve_va(va_user_id: str, payload: VAStatusActionIn,
+                         admin: dict = Depends(require_program_manager_or_owner)):
+    u = await db.users.find_one({"user_id": va_user_id, "role": "va"})
+    if not u:
+        raise HTTPException(404, "VA not found")
+    await db.users.update_one({"user_id": va_user_id}, {"$set": {"va_status": "approved"}})
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+        "user_id": va_user_id,
+        "kind": "va_approved",
+        "title": "Account approved",
+        "body": "Welcome to the HCOB VA Commission Program! Start submitting leads.",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "read": False,
+    })
+    return await _get_user_by_id(va_user_id)
+
+
+@api.post("/pm/vas/{va_user_id}/suspend")
+async def pm_suspend_va(va_user_id: str, payload: VAStatusActionIn,
+                         admin: dict = Depends(require_program_manager_or_owner)):
+    u = await db.users.find_one({"user_id": va_user_id, "role": "va"})
+    if not u:
+        raise HTTPException(404, "VA not found")
+    await db.users.update_one({"user_id": va_user_id}, {"$set": {"va_status": "suspended"}})
+    await db.sessions.delete_many({"user_id": va_user_id})  # force logout
+    await _log_violation(va_user_id, "account_suspended", {"note": payload.note}, flagged_by=admin["user_id"])
+    return await _get_user_by_id(va_user_id)
+
+
+@api.delete("/pm/vas/{va_user_id}")
+async def pm_remove_va(va_user_id: str, admin: dict = Depends(require_program_manager_or_owner)):
+    u = await db.users.find_one({"user_id": va_user_id, "role": "va"})
+    if not u:
+        raise HTTPException(404, "VA not found")
+    await db.users.update_one({"user_id": va_user_id}, {"$set": {"va_status": "removed"}})
+    await db.sessions.delete_many({"user_id": va_user_id})
+    await _log_violation(va_user_id, "account_removed", {"removed_by": admin["user_id"]}, flagged_by=admin["user_id"])
+    return {"ok": True, "user_id": va_user_id}
+
+
+@api.get("/pm/violations")
+async def pm_list_violations(admin: dict = Depends(require_program_manager_or_owner)):
+    items = []
+    cur = db.va_violations.find().sort("created_at", -1).limit(500)
+    async for v in cur:
+        items.append({k: val for k, val in v.items() if k != "_id"})
+    return {"items": items}
+
+
+@api.get("/pm/commercial-accounts")
+async def pm_list_commercial(admin: dict = Depends(require_program_manager_or_owner)):
+    items = []
+    cur = db.commercial_accounts.find().sort("created_at", -1)
+    async for a in cur:
+        items.append({k: v for k, v in a.items() if k != "_id"})
+    return {"items": items}
+
+
+@api.post("/pm/commercial-accounts")
+async def pm_create_commercial(payload: CommercialAccountIn, admin: dict = Depends(require_program_manager_or_owner)):
+    va = await db.users.find_one({"user_id": payload.va_user_id, "role": "va"})
+    if not va:
+        raise HTTPException(400, "VA not found")
+    doc = {
+        "account_id": f"comm_acct_{uuid.uuid4().hex[:10]}",
+        "account_name": payload.account_name.strip(),
+        "va_user_id": payload.va_user_id,
+        "va_name": va.get("name"),
+        "monthly_revenue": float(payload.monthly_revenue),
+        "start_date": payload.start_date or datetime.now(timezone.utc).date().isoformat(),
+        "active": True,
+        "notes": payload.notes,
+        "last_revenue_at": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": admin["user_id"],
+    }
+    await db.commercial_accounts.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@api.put("/pm/commercial-accounts/{account_id}")
+async def pm_patch_commercial(
+    account_id: str,
+    payload: CommercialAccountPatch,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    acct = await db.commercial_accounts.find_one({"account_id": account_id})
+    if not acct:
+        raise HTTPException(404, "Account not found")
+    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    if updates:
+        await db.commercial_accounts.update_one({"account_id": account_id}, {"$set": updates})
+    fresh = await db.commercial_accounts.find_one({"account_id": account_id})
+    return {k: v for k, v in fresh.items() if k != "_id"}
+
+
+@api.post("/pm/commercial-accounts/{account_id}/log-revenue")
+async def pm_log_commercial_revenue(
+    account_id: str,
+    payload: dict = Body(...),
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Log a month's revenue against a commercial account — triggers a 5% commission record."""
+    acct = await db.commercial_accounts.find_one({"account_id": account_id})
+    if not acct:
+        raise HTTPException(404, "Account not found")
+    if not acct.get("active"):
+        raise HTTPException(400, "Account is inactive")
+    revenue = float(payload.get("revenue") or 0)
+    period = (payload.get("period") or datetime.now(timezone.utc).strftime("%Y-%m"))
+    if revenue <= 0:
+        raise HTTPException(400, "Revenue must be > 0")
+    amount = round(revenue * 0.05, 2)
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+        "lead_id": None,
+        "commercial_account_id": account_id,
+        "va_user_id": acct["va_user_id"],
+        "va_name": acct.get("va_name"),
+        "prospect_name": acct.get("account_name"),
+        "service_type": "commercial",
+        "amount": amount,
+        "kind": "commercial_recurring",
+        "visit_number": None,
+        "calc_notes": f"5% of ${revenue:.2f} for {period}",
+        "period": period,
+        "status": "pending_approval",
+        "job_value": revenue,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.commissions.insert_one(doc)
+    await db.commercial_accounts.update_one(
+        {"account_id": account_id},
+        {"$set": {"last_revenue_at": now}},
+    )
+    return _serialize_commission(doc)
+
+
+@api.get("/pm/weekly-report")
+async def pm_weekly_report(admin: dict = Depends(require_program_manager_or_owner)):
+    """Auto-generated weekly snapshot — Mon..Sun UTC of current week."""
+    today = datetime.now(timezone.utc).date()
+    week_start_dt = today - timedelta(days=today.weekday())
+    week_start = week_start_dt.isoformat()
+    week_end = (week_start_dt + timedelta(days=6)).isoformat() + "T23:59:59"
+    start_iso = week_start + "T00:00:00"
+    leads_q = {"created_at": {"$gte": start_iso, "$lte": week_end}}
+    leads_total = await db.va_leads.count_documents(leads_q)
+    bookings_total = await db.va_leads.count_documents({
+        **leads_q,
+        "stage": {"$in": ["booked", "completed", "paid"]},
+    })
+    revenue = 0.0
+    commission_owed = 0.0
+    async for c in db.commissions.find({"created_at": {"$gte": start_iso, "$lte": week_end}}):
+        if c.get("status") not in ("rejected",):
+            commission_owed += float(c.get("amount") or 0)
+        if c.get("status") in ("pm_approved", "owner_approved", "paid"):
+            revenue += float(c.get("job_value") or 0)
+    # By-VA breakdown
+    by_va_pipe = [
+        {"$match": leads_q},
+        {"$group": {"_id": "$va_user_id", "leads": {"$sum": 1}, "va_name": {"$first": "$va_name"}}},
+        {"$sort": {"leads": -1}},
+        {"$limit": 10},
+    ]
+    by_va = []
+    async for row in db.va_leads.aggregate(by_va_pipe):
+        by_va.append({"va_user_id": row["_id"], "va_name": row["va_name"], "leads": row["leads"]})
+    # Active commercial
+    active_commercial = await db.commercial_accounts.count_documents({"active": True})
+    monthly_revenue_total = 0.0
+    async for a in db.commercial_accounts.find({"active": True}):
+        monthly_revenue_total += float(a.get("monthly_revenue") or 0)
+    # Flags this week
+    flags = []
+    async for v in db.va_violations.find({"created_at": {"$gte": start_iso, "$lte": week_end}}).sort("created_at", -1):
+        flags.append({k: val for k, val in v.items() if k != "_id"})
+    return {
+        "week_start": week_start,
+        "week_end": week_end[:10],
+        "total_leads": leads_total,
+        "total_bookings": bookings_total,
+        "total_revenue": round(revenue, 2),
+        "commission_owed": round(commission_owed, 2),
+        "active_commercial_accounts": active_commercial,
+        "commercial_monthly_revenue_total": round(monthly_revenue_total, 2),
+        "top_vas": by_va,
+        "flags": flags,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Owner routes (`/api/owner/*`)
+# ---------------------------------------------------------------------------
+@api.get("/owner/dashboard")
+async def owner_dashboard(admin: dict = Depends(require_owner)):
+    # Payout queue size + amount
+    queue_count = 0
+    queue_amount = 0.0
+    async for c in db.commissions.find({"status": "pm_approved"}):
+        queue_count += 1
+        queue_amount += float(c.get("amount") or 0)
+    # This month
+    month_str = datetime.now(timezone.utc).strftime("%Y-%m")
+    month_total = 0.0
+    async for c in db.commissions.find({"created_at": {"$regex": f"^{month_str}"}}):
+        if c.get("status") not in ("rejected",):
+            month_total += float(c.get("amount") or 0)
+    # Active commercial revenue
+    active_commercial = await db.commercial_accounts.count_documents({"active": True})
+    commercial_monthly = 0.0
+    async for a in db.commercial_accounts.find({"active": True}):
+        commercial_monthly += float(a.get("monthly_revenue") or 0)
+    # Top VA performers — last 30 days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    pipe = [
+        {"$match": {"created_at": {"$gte": cutoff}}},
+        {"$group": {
+            "_id": "$va_user_id",
+            "leads": {"$sum": 1},
+            "va_name": {"$first": "$va_name"},
+            "booked": {"$sum": {"$cond": [{"$in": ["$stage", ["booked", "completed", "paid"]]}, 1, 0]}},
+        }},
+    ]
+    rows = []
+    async for r in db.va_leads.aggregate(pipe):
+        leads = r["leads"]
+        booked = r["booked"]
+        rows.append({
+            "va_user_id": r["_id"],
+            "va_name": r["va_name"],
+            "leads": leads,
+            "booked": booked,
+            "conversion": round((booked / leads) * 100, 1) if leads else 0,
+        })
+    top_by_volume = sorted(rows, key=lambda x: x["leads"], reverse=True)[:3]
+    top_by_conversion = sorted(rows, key=lambda x: x["conversion"], reverse=True)[:3]
+    # Alert feed — recent violations + flagged commissions
+    alerts = []
+    async for v in db.va_violations.find().sort("created_at", -1).limit(10):
+        alerts.append({"type": "violation", **{k: val for k, val in v.items() if k != "_id"}})
+    async for c in db.commissions.find({"status": "flagged"}).sort("pm_action_at", -1).limit(10):
+        alerts.append({"type": "flagged_commission", **_serialize_commission(c)})
+    alerts.sort(key=lambda a: a.get("created_at") or a.get("pm_action_at") or "", reverse=True)
+    return {
+        "payout_queue_count": queue_count,
+        "payout_queue_amount": round(queue_amount, 2),
+        "month_total_commissions": round(month_total, 2),
+        "active_commercial_accounts": active_commercial,
+        "commercial_monthly_revenue_total": round(commercial_monthly, 2),
+        "top_by_volume": top_by_volume,
+        "top_by_conversion": top_by_conversion,
+        "alerts": alerts[:20],
+    }
+
+
+@api.get("/owner/payouts/queue")
+async def owner_payout_queue(admin: dict = Depends(require_owner)):
+    items = []
+    cur = db.commissions.find({"status": "pm_approved"}).sort("pm_action_at", 1)
+    async for c in cur:
+        items.append(_serialize_commission(c))
+    # Also group by VA for the bulk-approve UI
+    groups: Dict[str, dict] = {}
+    for c in items:
+        va_id = c.get("va_user_id")
+        if va_id not in groups:
+            groups[va_id] = {
+                "va_user_id": va_id,
+                "va_name": c.get("va_name"),
+                "items": [],
+                "total": 0.0,
+            }
+        groups[va_id]["items"].append(c)
+        groups[va_id]["total"] += float(c.get("amount") or 0)
+    grouped = list(groups.values())
+    for g in grouped:
+        g["total"] = round(g["total"], 2)
+    return {"items": items, "by_va": grouped}
+
+
+@api.post("/owner/payouts/{commission_id}/approve")
+async def owner_approve_payout(
+    commission_id: str,
+    admin: dict = Depends(require_owner),
+):
+    c = await db.commissions.find_one({"commission_id": commission_id})
+    if not c:
+        raise HTTPException(404, "Commission not found")
+    if c["status"] != "pm_approved":
+        raise HTTPException(400, f"Cannot sign off — current status is {c['status']}. Must be pm_approved.")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.commissions.update_one(
+        {"commission_id": commission_id},
+        {"$set": {
+            "status": "owner_approved",
+            "owner_action_at": now,
+            "owner_action_by": admin["user_id"],
+            "updated_at": now,
+        }},
+    )
+    return _serialize_commission(await db.commissions.find_one({"commission_id": commission_id}))
+
+
+@api.post("/owner/payouts/bulk-approve")
+async def owner_bulk_approve(
+    payload: OwnerBulkApproveIn,
+    admin: dict = Depends(require_owner),
+):
+    """One-click sign-off on all PM-approved commissions for a VA within a date window.
+    Default window: current ISO week (Mon..Sun UTC)."""
+    today = datetime.now(timezone.utc).date()
+    default_start = today - timedelta(days=today.weekday())
+    default_end = default_start + timedelta(days=6)
+    week_start = payload.week_start or default_start.isoformat()
+    week_end = (payload.week_end or default_end.isoformat()) + "T23:59:59"
+    start_iso = week_start + ("T00:00:00" if "T" not in week_start else "")
+    q = {
+        "va_user_id": payload.va_user_id,
+        "status": "pm_approved",
+        "pm_action_at": {"$gte": start_iso, "$lte": week_end},
+    }
+    now = datetime.now(timezone.utc).isoformat()
+    ids = []
+    total = 0.0
+    async for c in db.commissions.find(q):
+        ids.append(c["commission_id"])
+        total += float(c.get("amount") or 0)
+    if not ids:
+        return {"ok": True, "approved_count": 0, "total": 0.0}
+    await db.commissions.update_many(
+        {"commission_id": {"$in": ids}},
+        {"$set": {
+            "status": "owner_approved",
+            "owner_action_at": now,
+            "owner_action_by": admin["user_id"],
+            "owner_bulk_approved": True,
+            "updated_at": now,
+        }},
+    )
+    return {"ok": True, "approved_count": len(ids), "total": round(total, 2),
+            "commission_ids": ids, "week_start": week_start, "week_end": week_end[:10]}
+
+
+@api.post("/owner/payouts/{commission_id}/mark-paid")
+async def owner_mark_paid(
+    commission_id: str,
+    payload: CommissionMarkPaidIn,
+    admin: dict = Depends(require_owner),
+):
+    c = await db.commissions.find_one({"commission_id": commission_id})
+    if not c:
+        raise HTTPException(404, "Commission not found")
+    if c["status"] == "paid":
+        # Hard guard — double-payment prevention
+        raise HTTPException(400, "Commission already marked Paid — double-payment prevented")
+    if c["status"] != "owner_approved":
+        raise HTTPException(400, f"Cannot mark paid — current status is {c['status']}. Must be owner_approved first.")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.commissions.update_one(
+        {"commission_id": commission_id},
+        {"$set": {
+            "status": "paid",
+            "paid_at": now,
+            "payout_reference": payload.payout_reference,
+            "payout_method": payload.payout_method,
+            "updated_at": now,
+        }},
+    )
+    # Notify VA
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+        "user_id": c["va_user_id"],
+        "kind": "va_commission_paid",
+        "title": "Commission paid",
+        "body": f"${c.get('amount', 0):.2f} has been paid for your lead.",
+        "created_at": now,
+        "read": False,
+    })
+    return _serialize_commission(await db.commissions.find_one({"commission_id": commission_id}))
+
+
+
+
 app.include_router(api)
 
 app.add_middleware(
@@ -6085,6 +7310,21 @@ async def on_startup():
     await db.projects.create_index([("archived", 1), ("created_at", -1)])
     await db.gigs.create_index("project_id")
 
+    # VA Commission Program indices
+    await db.va_leads.create_index("lead_id", unique=True)
+    await db.va_leads.create_index("va_user_id")
+    await db.va_leads.create_index("prospect_phone_norm")
+    await db.va_leads.create_index("prospect_email_norm")
+    await db.va_leads.create_index([("created_at", -1)])
+    await db.commissions.create_index("commission_id", unique=True)
+    await db.commissions.create_index("lead_id")
+    await db.commissions.create_index("va_user_id")
+    await db.commissions.create_index("status")
+    await db.commercial_accounts.create_index("account_id", unique=True)
+    await db.commercial_accounts.create_index("va_user_id")
+    await db.va_violations.create_index("va_user_id")
+    await db.va_violations.create_index([("created_at", -1)])
+
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gigblast.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "GigBlast2026!")
@@ -6113,6 +7353,46 @@ async def on_startup():
         await db.users.update_one(
             {"email": admin_email},
             {"$set": {"password_hash": hash_password(admin_password)}},
+        )
+
+    # Mark the HCOB admin as Owner for VA Commission final payout sign-off.
+    await db.users.update_one(
+        {"email": "admin@hcobcleaners.com"},
+        {"$set": {"is_owner": True}},
+    )
+
+    # Seed Mechie (Program Manager) — Mechiebadlong77@gmail.com
+    mechie_email = "mechiebadlong77@gmail.com"
+    mechie_password = "Mechie2026!"
+    mechie = await db.users.find_one({"email": mechie_email})
+    if not mechie:
+        await db.users.insert_one(
+            {
+                "user_id": f"user_{uuid.uuid4().hex[:12]}",
+                "email": mechie_email,
+                "password_hash": hash_password(mechie_password),
+                "name": "Mechie (Program Manager)",
+                "role": "admin",
+                "is_program_manager": True,
+                "is_owner": False,
+                "must_change_password": True,
+                "phone": "",
+                "address": "",
+                "bio": "",
+                "skills": [],
+                "avatar_path": None,
+                "id_image_path": None,
+                "id_verified": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "auth_provider": "local",
+            }
+        )
+        logger.info(f"Seeded Program Manager {mechie_email}")
+    else:
+        # Ensure the program_manager flag is set on every boot (idempotent)
+        await db.users.update_one(
+            {"email": mechie_email},
+            {"$set": {"is_program_manager": True}},
         )
 
     init_storage()

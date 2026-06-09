@@ -21,6 +21,17 @@ import AdminReports from "@/pages/admin/AdminReports";
 import AdminProjects from "@/pages/admin/AdminProjects";
 import AdminProjectDetail from "@/pages/admin/AdminProjectDetail";
 import AdminQuotes from "@/pages/admin/AdminQuotes";
+import AdminVAOverview from "@/pages/admin/AdminVAOverview";
+import AdminVAPipeline from "@/pages/admin/AdminVAPipeline";
+import AdminVACommissions from "@/pages/admin/AdminVACommissions";
+import AdminVAs from "@/pages/admin/AdminVAs";
+import AdminCommercialAccounts from "@/pages/admin/AdminCommercialAccounts";
+import AdminOwnerPayouts from "@/pages/admin/AdminOwnerPayouts";
+import VALayout from "@/components/va/VALayout";
+import VADashboard from "@/pages/va/VADashboard";
+import VASubmitLead from "@/pages/va/VASubmitLead";
+import VAMyLeads from "@/pages/va/VAMyLeads";
+import VAEarnings from "@/pages/va/VAEarnings";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import RatePage from "@/pages/RatePage";
 import PublicGigPage from "@/pages/PublicGigPage";
@@ -90,6 +101,13 @@ function RouterShell() {
         <Route path="quotes" element={<AdminQuotes />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="settings" element={<AdminSettings />} />
+        {/* VA Commission Program — admin / Program Manager / Owner */}
+        <Route path="va-program" element={<AdminVAOverview />} />
+        <Route path="va-program/pipeline" element={<AdminVAPipeline />} />
+        <Route path="va-program/commissions" element={<AdminVACommissions />} />
+        <Route path="va-program/vas" element={<AdminVAs />} />
+        <Route path="va-program/commercial" element={<AdminCommercialAccounts />} />
+        <Route path="payouts" element={<AdminOwnerPayouts />} />
       </Route>
 
       {/* Legacy /admin/* — redirect to /ops/* so old bookmarks/emails still work */}
@@ -117,6 +135,21 @@ function RouterShell() {
         <Route path="projects/:projectId" element={<WorkerProjectPage />} />
         <Route path="my-gigs" element={<WorkerAccepted />} />
         <Route path="me" element={<WorkerProfile />} />
+      </Route>
+
+      {/* VA Commission Program */}
+      <Route
+        path="/va"
+        element={
+          <ProtectedRoute role="va">
+            <VALayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<VADashboard />} />
+        <Route path="submit" element={<VASubmitLead />} />
+        <Route path="leads" element={<VAMyLeads />} />
+        <Route path="earnings" element={<VAEarnings />} />
       </Route>
 
       {/* Legacy /app/* — redirect to /crew/* */}

@@ -14,6 +14,11 @@ import {
   EnvelopeOpen,
   List,
   X,
+  Handshake,
+  CurrencyDollar,
+  Buildings,
+  Kanban,
+  Receipt,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -30,12 +35,26 @@ const nav = [
   { to: "/ops/settings", label: "Settings", icon: Gear, end: false },
 ];
 
+const vaNav = [
+  { to: "/ops/va-program", label: "VA Overview", icon: Handshake, end: true },
+  { to: "/ops/va-program/pipeline", label: "Lead Pipeline", icon: Kanban, end: false },
+  { to: "/ops/va-program/commissions", label: "Commissions", icon: CurrencyDollar, end: false, badge: "va_queue" },
+  { to: "/ops/va-program/vas", label: "VA Accounts", icon: UsersThree, end: false },
+  { to: "/ops/va-program/commercial", label: "Commercial", icon: Buildings, end: false },
+];
+
+const ownerNav = [
+  { to: "/ops/payouts", label: "Payouts (Owner)", icon: Receipt, end: false, badge: "payouts" },
+];
+
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [pendingCount, setPendingCount] = useState(null);
   const [quotesCount, setQuotesCount] = useState(null);
+  const [vaQueueCount, setVaQueueCount] = useState(0);
+  const [payoutsCount, setPayoutsCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const refreshPending = async () => {
@@ -56,20 +75,49 @@ export default function AdminLayout() {
     }
   };
 
+  const refreshVAQueue = async () => {
+    try {
+      const { data } = await api.get("/pm/commissions");
+      setVaQueueCount(data?.items?.length ?? 0);
+    } catch {
+      setVaQueueCount(0);
+    }
+  };
+
+  const refreshPayouts = async () => {
+    if (!user?.is_owner) return;
+    try {
+      const { data } = await api.get("/owner/payouts/queue");
+      setPayoutsCount(data?.items?.length ?? 0);
+    } catch {
+      setPayoutsCount(0);
+    }
+  };
+
   useEffect(() => {
+    /* eslint-disable */
     refreshPending();
     refreshQuotes();
+    refreshVAQueue();
+    refreshPayouts();
+    /* eslint-enable */
     const onChange = () => {
       refreshPending();
       refreshQuotes();
+      refreshVAQueue();
+      refreshPayouts();
     };
     window.addEventListener("hcob:requests-changed", onChange);
-    return () => window.removeEventListener("hcob:requests-changed", onChange);
-  }, [location.pathname]);
+    window.addEventListener("hcob:va-changed", onChange);
+    return () => {
+      window.removeEventListener("hcob:requests-changed", onChange);
+      window.removeEventListener("hcob:va-changed", onChange);
+    };
+  }, [location.pathname, user?.is_owner]);
 
   // Close the mobile drawer whenever the route changes
   useEffect(() => {
-    setMobileOpen(false);
+    setMobileOpen(false); // eslint-disable-line
   }, [location.pathname]);
 
   // ESC closes drawer + body scroll-lock while drawer is open
@@ -93,7 +141,8 @@ export default function AdminLayout() {
   };
 
   // Friendly section name for the mobile header — derived from the active nav.
-  const activeItem = [...nav]
+  const allNav = [...nav, ...vaNav, ...ownerNav];
+  const activeItem = [...allNav]
     .sort((a, b) => b.to.length - a.to.length)
     .find((n) =>
       n.end ? location.pathname === n.to : location.pathname.startsWith(n.to)
@@ -111,7 +160,7 @@ export default function AdminLayout() {
             <div className="font-mono-label text-[10px]">Operations Console</div>
           </div>
         </div>
-        <nav className="flex-1 px-3 py-6">
+        <nav className="flex-1 overflow-y-auto px-3 py-6">
           <div className="font-mono-label mb-3 px-3">Manage</div>
           <div className="space-y-1">
             {nav.map((n) => (
@@ -149,6 +198,72 @@ export default function AdminLayout() {
               </NavLink>
             ))}
           </div>
+
+          {/* VA Commission Program — Mechie + any admin */}
+          <div className="font-mono-label mb-3 mt-6 px-3">VA Commission</div>
+          <div className="space-y-1">
+            {vaNav.map((n) => (
+              <NavLink
+                key={n.to}
+                to={n.to}
+                end={n.end}
+                data-testid={`nav-${n.label.toLowerCase().replace(/ /g, "-")}`}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 border-l-2 px-3 py-2.5 text-sm transition-colors ${
+                    isActive
+                      ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
+                      : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+                  }`
+                }
+              >
+                <n.icon size={18} weight="duotone" />
+                <span className="flex-1">{n.label}</span>
+                {n.badge === "va_queue" && vaQueueCount > 0 && (
+                  <span
+                    data-testid="nav-va-queue-count"
+                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                  >
+                    {vaQueueCount > 99 ? "99+" : vaQueueCount}
+                  </span>
+                )}
+              </NavLink>
+            ))}
+          </div>
+
+          {/* Owner-only — final payout sign-off */}
+          {user?.is_owner && (
+            <>
+              <div className="font-mono-label mb-3 mt-6 px-3">Owner</div>
+              <div className="space-y-1">
+                {ownerNav.map((n) => (
+                  <NavLink
+                    key={n.to}
+                    to={n.to}
+                    end={n.end}
+                    data-testid={`nav-${n.label.toLowerCase().replace(/[ ()]/g, "-")}`}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 border-l-2 px-3 py-2.5 text-sm transition-colors ${
+                        isActive
+                          ? "border-violet-600 bg-violet-50 font-semibold text-[#030712]"
+                          : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+                      }`
+                    }
+                  >
+                    <n.icon size={18} weight="duotone" />
+                    <span className="flex-1">{n.label}</span>
+                    {n.badge === "payouts" && payoutsCount > 0 && (
+                      <span
+                        data-testid="nav-payouts-count"
+                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-violet-600 px-1.5 text-[10px] font-bold tracking-widest text-white"
+                      >
+                        {payoutsCount > 99 ? "99+" : payoutsCount}
+                      </span>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </>
+          )}
         </nav>
         <div className="border-t border-[#E5E7EB] p-4">
           <div className="text-xs text-[#4B5563]">Signed in as</div>
@@ -293,6 +408,66 @@ export default function AdminLayout() {
                   </NavLink>
                 ))}
               </div>
+
+              <div className="font-mono-label mb-3 mt-6 px-3">VA Commission</div>
+              <div className="space-y-1">
+                {vaNav.map((n) => (
+                  <NavLink
+                    key={n.to}
+                    to={n.to}
+                    end={n.end}
+                    onClick={() => setMobileOpen(false)}
+                    data-testid={`mobile-nav-${n.label.toLowerCase().replace(/ /g, "-")}`}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 border-l-2 px-3 py-3 text-sm transition-colors ${
+                        isActive
+                          ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
+                          : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+                      }`
+                    }
+                  >
+                    <n.icon size={20} weight="duotone" />
+                    <span className="flex-1">{n.label}</span>
+                    {n.badge === "va_queue" && vaQueueCount > 0 && (
+                      <span className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white">
+                        {vaQueueCount > 99 ? "99+" : vaQueueCount}
+                      </span>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+
+              {user?.is_owner && (
+                <>
+                  <div className="font-mono-label mb-3 mt-6 px-3">Owner</div>
+                  <div className="space-y-1">
+                    {ownerNav.map((n) => (
+                      <NavLink
+                        key={n.to}
+                        to={n.to}
+                        end={n.end}
+                        onClick={() => setMobileOpen(false)}
+                        data-testid={`mobile-nav-${n.label.toLowerCase().replace(/[ ()]/g, "-")}`}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 border-l-2 px-3 py-3 text-sm transition-colors ${
+                            isActive
+                              ? "border-violet-600 bg-violet-50 font-semibold text-[#030712]"
+                              : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+                          }`
+                        }
+                      >
+                        <n.icon size={20} weight="duotone" />
+                        <span className="flex-1">{n.label}</span>
+                        {n.badge === "payouts" && payoutsCount > 0 && (
+                          <span className="inline-flex h-5 min-w-[20px] items-center justify-center bg-violet-600 px-1.5 text-[10px] font-bold tracking-widest text-white">
+                            {payoutsCount > 99 ? "99+" : payoutsCount}
+                          </span>
+                        )}
+                      </NavLink>
+                    ))}
+                  </div>
+                </>
+              )}
             </nav>
             <div className="border-t border-[#E5E7EB] p-4">
               <div className="text-xs text-[#4B5563]">Signed in as</div>
