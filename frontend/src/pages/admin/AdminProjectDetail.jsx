@@ -71,21 +71,11 @@ export default function AdminProjectDetail() {
   };
 
   const blastProject = async () => {
-    const blastableCount = (project?.linked_gigs || []).filter(
-      (g) =>
-        ["open", "coming_soon"].includes(g.status) &&
-        (g.slots || 0) - (g.slots_filled || 0) > 0
-    ).length;
-    if (blastableCount === 0) {
-      toast.error(
-        "No gigs with open slots in this project. Add a gig or free up a slot first."
-      );
-      return;
-    }
-    const msg =
-      `Blast this project to ALL workers via SMS, email, and in-app?\n\n` +
-      `${blastableCount} gig${blastableCount === 1 ? "" : "s"} will be auto-pinned as RUSH at the top of the feed.`;
-    if (!window.confirm(msg)) return;
+    if (
+      !window.confirm(
+        "Blast this project to ALL workers via SMS, email, push, and in-app?"
+      )
+    ) return;
     setBlasting(true);
     try {
       const { data } = await api.post(`/projects/${projectId}/blast`, {

@@ -3891,21 +3891,46 @@ async def blast_project(
     if project.get("archived"):
         raise HTTPException(400, "Cannot blast an archived project")
 
-    # Blast any non-closed gig with available slots — both "open" and
-    # "coming_soon" (future-scheduled) gigs are visible in the worker feed,
-    # so blasting them gets workers ready to claim the moment they go live.
-    linked_gigs = await db.gigs.find(
-        {"project_id": project_id, "status": {"$in": ["open", "coming_soon"]}},
-        {"_id": 0},
-    ).to_list(200)
-    blastable_gigs = [
-        g for g in linked_gigs
-        if (g.get("slots") or 0) - (g.get("slots_filled") or 0) > 0
-    ]
+    # Be permissive about what counts as blastable — we want any non-terminal
+    # gig that still has at least one available slot to count. Legacy gigs
+    # that predate the status field have `status` missing/None, so we exclude
+    # by terminal statuses rather than including by an allow-list.
+    TERMINAL_STATUSES = {"closed", "cancelled", "completed", "archived", "draft"}
+    all_linked = await db.gigs.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).to_list(500)
+    blastable_gigs = []
+    excluded = {"terminal_status": 0, "no_slots": 0}
+    for g in all_linked:
+        st = (g.get("status") or "").strip().lower()
+        if st in TERMINAL_STATUSES:
+            excluded["terminal_status"] += 1
+            continue
+        slots = g.get("slots") or 0
+        filled = g.get("slots_filled") or 0
+        if slots > 0 and (slots - filled) <= 0:
+            excluded["no_slots"] += 1
+            continue
+        blastable_gigs.append(g)
+
     if not blastable_gigs:
+        # Surface diagnostic info — helps the admin understand WHY no gigs
+        # qualified instead of staring at a generic error.
+        total = len(all_linked)
+        bits = []
+        if excluded["terminal_status"]:
+            bits.append(
+                f"{excluded['terminal_status']} gig(s) are closed/cancelled/completed"
+            )
+        if excluded["no_slots"]:
+            bits.append(
+                f"{excluded['no_slots']} gig(s) have no available slots"
+            )
+        why = " · ".join(bits) if bits else "the project has no linked gigs yet"
         raise HTTPException(
             400,
-            "This project has no gigs with open slots to blast. Add a gig or free up a slot first.",
+            f"Nothing to blast — {why}. (Linked gigs: {total}.) "
+            f"Add a gig or reopen an existing one.",
         )
 
     workers = await db.users.find(
