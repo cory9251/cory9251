@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
@@ -11,19 +11,133 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import CreateGigDialog from "@/components/admin/CreateGigDialog";
-import { Plus, Megaphone, Broom, Wrench, Car, FolderSimple } from "@phosphor-icons/react";
+import {
+  Plus,
+  Megaphone,
+  Broom,
+  Wrench,
+  Car,
+  FolderSimple,
+  ArrowUp,
+  ArrowDown,
+  ArrowsDownUp,
+} from "@phosphor-icons/react";
 import { TAG_CONFIG, getOrderedTags } from "@/lib/gigTags";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
+
+// Sortable column definitions. `getValue(g)` returns the comparable value.
+const SORT_COLS = {
+  title: {
+    label: "Title",
+    getValue: (g) => (g.title || "").toLowerCase(),
+  },
+  category: {
+    label: "Category",
+    getValue: (g) => g.category || "",
+  },
+  scheduled: {
+    label: "When",
+    // scheduled_at is a real ISO datetime when present, scheduled_date is
+    // free-text fallback. Sort by ISO when we have it.
+    getValue: (g) => g.scheduled_at || g.scheduled_date || "",
+  },
+  pay: {
+    label: "Pay",
+    getValue: (g) => Number(g.pay_rate || 0),
+  },
+  slots: {
+    label: "Slots",
+    // Composite sort: filled-ratio descending makes "fullest first" useful,
+    // but raw open-slots gives "needs-staffing first". Default to open slots
+    // remaining (slots - filled) ascending so empty/at-risk gigs surface.
+    getValue: (g) => Math.max(0, Number(g.slots || 0) - Number(g.slots_filled || 0)),
+  },
+  workers: {
+    label: "Workers",
+    getValue: (g) => Number(g.slots || 0),
+  },
+  status: {
+    label: "Status",
+    getValue: (g) => g.status || "",
+  },
+  blasts: {
+    label: "Blasts",
+    getValue: (g) => Number(g.blast_count || 0),
+  },
+  created: {
+    label: "Posted",
+    getValue: (g) => g.created_at || "",
+  },
+};
+
+function compareValues(a, b) {
+  if (a === b) return 0;
+  if (a === null || a === undefined || a === "") return 1;
+  if (b === null || b === undefined || b === "") return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b));
+}
+
+function SortHeader({ k, align = "left", sortBy, sortDir, onSort }) {
+  const col = SORT_COLS[k];
+  const active = sortBy === k;
+  const Icon = !active ? ArrowsDownUp : sortDir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      scope="col"
+      className={`whitespace-nowrap border-b border-[#E5E7EB] px-4 py-3 font-mono-label ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+    >
+      <button
+        type="button"
+        data-testid={`sort-${k}`}
+        onClick={() => onSort(k)}
+        className={`inline-flex items-center gap-1 hover:text-[#030712] ${
+          active ? "text-[#030712]" : ""
+        }`}
+      >
+        <span>{col.label}</span>
+        <Icon
+          size={12}
+          weight={active ? "bold" : "regular"}
+          className={active ? "text-[#0044FF]" : "text-[#9CA3AF]"}
+        />
+      </button>
+    </th>
+  );
+}
 
 export default function AdminGigs() {
   const [gigs, setGigs] = useState([]);
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
   const [open, setOpen] = useState(false);
+  const [sortBy, setSortBy] = useState("created");
+  const [sortDir, setSortDir] = useState("desc");
   const nav = useNavigate();
 
-  const load = async () => {
+  useEffect(() => {
+    const ctrl = { cancelled: false };
+    (async () => {
+      try {
+        const params = {};
+        if (category !== "all") params.category = category;
+        if (status !== "all") params.status = status;
+        const { data } = await api.get("/gigs", { params });
+        if (!ctrl.cancelled) setGigs(data);
+      } catch (e) {
+        if (!ctrl.cancelled) toast.error(getErr(e));
+      }
+    })();
+    return () => {
+      ctrl.cancelled = true;
+    };
+  }, [category, status]);
+
+  // Reload after the create-gig dialog reports success.
+  const refresh = async () => {
     try {
       const params = {};
       if (category !== "all") params.category = category;
@@ -35,10 +149,32 @@ export default function AdminGigs() {
     }
   };
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line
-  }, [category, status]);
+  const sortedGigs = useMemo(() => {
+    const col = SORT_COLS[sortBy];
+    if (!col) return gigs;
+    const copy = [...gigs];
+    copy.sort((a, b) => {
+      const av = col.getValue(a);
+      const bv = col.getValue(b);
+      const cmp = compareValues(av, bv);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [gigs, sortBy, sortDir]);
+
+  // Click a header → toggle direction (or pick that column with default desc)
+  const onSort = (key) => {
+    if (sortBy === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(key);
+      // Sensible default direction per column
+      const numericDefaults = new Set(["pay", "blasts", "workers", "scheduled", "created"]);
+      setSortDir(numericDefaults.has(key) ? "desc" : "asc");
+    }
+  };
+
+  const headerProps = { sortBy, sortDir, onSort };
 
   return (
     <div data-testid="admin-gigs">
@@ -81,10 +217,44 @@ export default function AdminGigs() {
             <SelectItem value="filled">Filled</SelectItem>
           </SelectContent>
         </Select>
+
+        {/* Sort dropdown — alternative to clicking column headers */}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="font-mono-label text-[#4B5563]">Sort by</span>
+          <Select
+            value={sortBy}
+            onValueChange={(v) => {
+              setSortBy(v);
+              const numericDefaults = new Set(["pay", "blasts", "workers", "scheduled", "created"]);
+              setSortDir(numericDefaults.has(v) ? "desc" : "asc");
+            }}
+          >
+            <SelectTrigger className="h-9 w-44 rounded-none border-[#030712]" data-testid="sort-by-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(SORT_COLS).map(([k, c]) => (
+                <SelectItem key={k} value={k}>
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <button
+            type="button"
+            data-testid="sort-direction-toggle"
+            onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            className="inline-flex h-9 items-center gap-1.5 border border-[#030712] bg-white px-3 text-xs font-bold uppercase tracking-widest hover:bg-[#030712] hover:text-white"
+            title={sortDir === "asc" ? "Ascending — click to flip" : "Descending — click to flip"}
+          >
+            {sortDir === "asc" ? <ArrowUp size={12} weight="bold" /> : <ArrowDown size={12} weight="bold" />}
+            {sortDir === "asc" ? "Asc" : "Desc"}
+          </button>
+        </div>
       </div>
 
       <div className="px-6 md:px-10 py-6">
-        {gigs.length === 0 ? (
+        {sortedGigs.length === 0 ? (
           <div className="border border-dashed border-[#E5E7EB] p-12 text-center text-sm text-[#4B5563]">
             No gigs match. Try a different filter or post a new gig.
           </div>
@@ -92,19 +262,19 @@ export default function AdminGigs() {
           <div className="overflow-x-auto border border-[#E5E7EB]">
             <table className="w-full text-sm">
               <thead className="bg-[#F9FAFB]">
-                <tr className="text-left">
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Title</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Category</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">When</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Pay</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Slots</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Status</th>
-                  <th className="border-b border-[#E5E7EB] px-4 py-3 font-mono-label">Blasts</th>
+                <tr>
+                  <SortHeader k="title" {...headerProps} />
+                  <SortHeader k="category" {...headerProps} />
+                  <SortHeader k="scheduled" {...headerProps} />
+                  <SortHeader k="pay" {...headerProps} />
+                  <SortHeader k="slots" {...headerProps} />
+                  <SortHeader k="status" {...headerProps} />
+                  <SortHeader k="blasts" {...headerProps} />
                   <th className="border-b border-[#E5E7EB] px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
-                {gigs.map((g) => {
+                {sortedGigs.map((g) => {
                   const Icon = CAT_ICON[g.category];
                   return (
                     <tr
@@ -153,7 +323,7 @@ export default function AdminGigs() {
                       </td>
                       <td className="border-b border-[#E5E7EB] px-4 py-3">
                         <span className="inline-flex items-center gap-2">
-                          <Icon size={16} weight="duotone" />
+                          {Icon && <Icon size={16} weight="duotone" />}
                           <span className="text-xs uppercase tracking-wider">{g.category}</span>
                         </span>
                       </td>
@@ -172,7 +342,7 @@ export default function AdminGigs() {
                               : "bg-[#030712] text-white"
                           }`}
                         >
-                          {g.status.toUpperCase()}
+                          {(g.status || "").toUpperCase()}
                         </span>
                       </td>
                       <td className="border-b border-[#E5E7EB] px-4 py-3 text-xs">
@@ -198,7 +368,7 @@ export default function AdminGigs() {
         )}
       </div>
 
-      <CreateGigDialog open={open} onOpenChange={setOpen} onCreated={load} />
+      <CreateGigDialog open={open} onOpenChange={setOpen} onCreated={refresh} />
     </div>
   );
 }

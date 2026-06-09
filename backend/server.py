@@ -2168,6 +2168,20 @@ async def blast_gig(
         },
     )
 
+    # Persistent blast log — surfaces in Admin → Reports → Blasts.
+    await _log_blast(
+        kind="gig",
+        gig_id=gig_id,
+        gig_title=gig.get("title"),
+        project_id=gig.get("project_id"),
+        project_title=None,
+        channels=payload.channels,
+        counts=counts,
+        workers_targeted=len(workers),
+        sent_by_id=admin["user_id"],
+        sent_by_name=admin.get("name") or admin.get("email"),
+    )
+
     return {"ok": True, "counts": counts, "workers_targeted": len(workers), "is_rush": True, "tags": existing_tags}
 
 
@@ -4071,6 +4085,21 @@ async def blast_project(
         },
     )
 
+    # Persistent blast log — surfaces in Admin → Reports → Blasts.
+    await _log_blast(
+        kind="project",
+        gig_id=None,
+        gig_title=None,
+        project_id=project_id,
+        project_title=project.get("title"),
+        channels=payload.channels,
+        counts=counts,
+        workers_targeted=len(workers),
+        sent_by_id=admin["user_id"],
+        sent_by_name=admin.get("name") or admin.get("email"),
+        extra={"gigs_blasted": len(blastable_gigs)},
+    )
+
     return {
         "ok": True,
         "counts": counts,
@@ -5536,6 +5565,103 @@ async def admin_reports_timesheets_csv(
 # ----------------------------------------------------------------------------
 # Generic report dispatcher — workers / gigs / activity / earnings
 # ----------------------------------------------------------------------------
+async def _log_blast(
+    *,
+    kind: str,                       # "gig" | "project"
+    gig_id: Optional[str],
+    gig_title: Optional[str],
+    project_id: Optional[str],
+    project_title: Optional[str],
+    channels: list,
+    counts: dict,
+    workers_targeted: int,
+    sent_by_id: str,
+    sent_by_name: Optional[str] = None,
+    extra: Optional[dict] = None,
+) -> None:
+    """Append a single send event to `blast_logs`. Powers the Blasts report."""
+    doc = {
+        "blast_id": f"blast_{uuid.uuid4().hex[:12]}",
+        "kind": kind,
+        "gig_id": gig_id,
+        "gig_title": gig_title,
+        "project_id": project_id,
+        "project_title": project_title,
+        "channels": list(channels or []),
+        "in_app": int(counts.get("in_app") or 0),
+        "email": int(counts.get("email") or 0),
+        "sms": int(counts.get("sms") or 0),
+        "push": int(counts.get("push") or 0),
+        "email_failed": int(counts.get("email_failed") or 0),
+        "sms_failed": int(counts.get("sms_failed") or 0),
+        "workers_targeted": int(workers_targeted or 0),
+        "sent_by_id": sent_by_id,
+        "sent_by_name": sent_by_name,
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        doc["extra"] = extra
+    try:
+        await db.blast_logs.insert_one(doc)
+    except Exception as e:
+        logger.error(f"Failed to log blast: {e}")
+
+
+async def _build_blasts_report(
+    *,
+    start: Optional[str],
+    end: Optional[str],
+    channel: Optional[str] = None,
+    kind: Optional[str] = None,
+) -> tuple[List[dict], List[dict]]:
+    q: dict = {}
+    if start or end:
+        rng: dict = {}
+        if start:
+            rng["$gte"] = start
+        if end:
+            rng["$lte"] = end
+        q["sent_at"] = rng
+    if channel:
+        q["channels"] = channel
+    if kind:
+        q["kind"] = kind
+    rows = []
+    async for d in db.blast_logs.find(q).sort("sent_at", -1).limit(2000):
+        rows.append({
+            "blast_id": d.get("blast_id"),
+            "sent_at": d.get("sent_at"),
+            "kind": d.get("kind"),
+            "target_title": d.get("gig_title") or d.get("project_title") or "—",
+            "target_id": d.get("gig_id") or d.get("project_id") or "",
+            "channels": ", ".join(d.get("channels") or []) or "—",
+            "channels_raw": d.get("channels") or [],
+            "in_app": d.get("in_app", 0),
+            "email": d.get("email", 0),
+            "sms": d.get("sms", 0),
+            "push": d.get("push", 0),
+            "email_failed": d.get("email_failed", 0),
+            "sms_failed": d.get("sms_failed", 0),
+            "workers_targeted": d.get("workers_targeted", 0),
+            "sent_by_name": d.get("sent_by_name") or "—",
+        })
+    cols = [
+        {"key": "sent_at", "label": "Sent", "fmt": "dt"},
+        {"key": "kind", "label": "Type"},
+        {"key": "target_title", "label": "Gig / Project"},
+        {"key": "channels", "label": "Channels"},
+        {"key": "workers_targeted", "label": "Targeted"},
+        {"key": "in_app", "label": "In-app"},
+        {"key": "email", "label": "Email"},
+        {"key": "sms", "label": "SMS"},
+        {"key": "push", "label": "Push"},
+        {"key": "email_failed", "label": "Email fail"},
+        {"key": "sms_failed", "label": "SMS fail"},
+        {"key": "sent_by_name", "label": "Sent by"},
+    ]
+    return rows, cols
+
+
 async def _dispatch_report(report_type: str, params: dict) -> tuple[List[dict], List[dict], dict]:
     """Returns (rows, columns, totals) for the requested report type. Each
     report's totals dict has a `rows` count plus any meaningful sums."""
@@ -5597,15 +5723,36 @@ async def _dispatch_report(report_type: str, params: dict) -> tuple[List[dict], 
             "total_hours": round(sum(r.get("total_hours", 0) for r in rows), 2),
         }
         return rows, cols, totals
+    if report_type == "blasts":
+        rows, cols = await _build_blasts_report(
+            start=params.get("start"),
+            end=params.get("end"),
+            channel=params.get("channel"),
+            kind=params.get("kind"),
+        )
+        totals = {
+            "rows": len(rows),
+            "workers_targeted": sum(r.get("workers_targeted", 0) for r in rows),
+            "in_app": sum(r.get("in_app", 0) for r in rows),
+            "email": sum(r.get("email", 0) for r in rows),
+            "sms": sum(r.get("sms", 0) for r in rows),
+            "push": sum(r.get("push", 0) for r in rows),
+            "email_failed": sum(r.get("email_failed", 0) for r in rows),
+            "sms_failed": sum(r.get("sms_failed", 0) for r in rows),
+            "gig_blasts": sum(1 for r in rows if r.get("kind") == "gig"),
+            "project_blasts": sum(1 for r in rows if r.get("kind") == "project"),
+        }
+        return rows, cols, totals
     raise HTTPException(400, f"Unknown report_type: {report_type}")
 
 
-REPORT_TYPES = {"workers", "gigs", "activity", "earnings"}
+REPORT_TYPES = {"workers", "gigs", "activity", "earnings", "blasts"}
 REPORT_TITLES = {
     "workers": "HCOB Workers",
     "gigs": "HCOB Gigs",
     "activity": "HCOB Worker Activity",
     "earnings": "HCOB Earnings",
+    "blasts": "HCOB Gig Blasts",
 }
 
 
@@ -5622,6 +5769,8 @@ def _params_from_query(
     category: Optional[str],
     only_approved: bool,
     include_pii: bool,
+    channel: Optional[str] = None,
+    kind: Optional[str] = None,
 ) -> dict:
     return {
         "start": start, "end": end,
@@ -5630,6 +5779,7 @@ def _params_from_query(
         "status": status, "profile_status": profile_status,
         "category": category, "only_approved": only_approved,
         "include_pii": include_pii,
+        "channel": channel, "kind": kind,
     }
 
 
@@ -5648,6 +5798,8 @@ async def admin_reports_generic_csv(
     category: Optional[str] = Query(None),
     only_approved: bool = Query(False),
     include_pii: bool = Query(False),
+    channel: Optional[str] = Query(None),
+    kind: Optional[str] = Query(None),
     admin: dict = Depends(require_admin),
 ):
     """Download any of the new report types as CSV."""
@@ -5660,7 +5812,7 @@ async def admin_reports_generic_csv(
         raise HTTPException(404, f"Unknown report_type: {report_type}")
     params = _params_from_query(
         start, end, worker_id, gig_id, skills, zip_code, zip_prefix, status,
-        profile_status, category, only_approved, include_pii,
+        profile_status, category, only_approved, include_pii, channel, kind,
     )
     rows, cols, _totals = await _dispatch_report(report_type, params)
     header = ",".join(_csv_escape(c["label"]) for c in cols)
@@ -5691,9 +5843,11 @@ async def admin_reports_generic(
     category: Optional[str] = Query(None),
     only_approved: bool = Query(False),
     include_pii: bool = Query(False),
+    channel: Optional[str] = Query(None),
+    kind: Optional[str] = Query(None),
     admin: dict = Depends(require_admin),
 ):
-    """Generic JSON report. report_type ∈ {workers, gigs, activity, earnings}."""
+    """Generic JSON report. report_type ∈ {workers, gigs, activity, earnings, blasts}."""
     if report_type == "timesheets":
         raise HTTPException(
             400,
@@ -5703,7 +5857,7 @@ async def admin_reports_generic(
         raise HTTPException(404, f"Unknown report_type: {report_type}")
     params = _params_from_query(
         start, end, worker_id, gig_id, skills, zip_code, zip_prefix, status,
-        profile_status, category, only_approved, include_pii,
+        profile_status, category, only_approved, include_pii, channel, kind,
     )
     rows, cols, totals = await _dispatch_report(report_type, params)
     return {"rows": rows, "columns": cols, "totals": totals, "filter": params}
@@ -7309,6 +7463,11 @@ async def on_startup():
     await db.projects.create_index("project_id", unique=True)
     await db.projects.create_index([("archived", 1), ("created_at", -1)])
     await db.gigs.create_index("project_id")
+
+    # Blast logs — Reports → Blasts
+    await db.blast_logs.create_index([("sent_at", -1)])
+    await db.blast_logs.create_index("gig_id")
+    await db.blast_logs.create_index("project_id")
 
     # VA Commission Program indices
     await db.va_leads.create_index("lead_id", unique=True)

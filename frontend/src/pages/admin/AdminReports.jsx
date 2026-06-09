@@ -18,6 +18,7 @@ import {
   ChartLineUp,
   Wallet,
   ClockCounterClockwise,
+  Megaphone,
 } from "@phosphor-icons/react";
 
 // First day of the current month (local). Returns YYYY-MM-DD.
@@ -101,6 +102,19 @@ const REPORTS = {
       { label: "Total $", value: t ? `$${(t.total_earned ?? 0).toFixed(2)}` : "—" },
     ],
   },
+  blasts: {
+    label: "Blasts",
+    icon: Megaphone,
+    filters: ["start", "end", "channel", "blast_kind"],
+    blurb:
+      "Every gig & project blast — when, to which gig/project, how many workers, on which channels, and who sent it.",
+    kpis: (t) => [
+      { label: "Total blasts", value: t?.rows ?? "—" },
+      { label: "Workers targeted", value: t?.workers_targeted ?? "—" },
+      { label: "Email sent", value: t?.email ?? "—" },
+      { label: "SMS sent", value: t?.sms ?? "—" },
+    ],
+  },
 };
 
 const SKILL_OPTIONS = [
@@ -140,6 +154,8 @@ export default function AdminReports() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [profileStatus, setProfileStatus] = useState("");
   const [includePii, setIncludePii] = useState(false);
+  const [channelFilter, setChannelFilter] = useState("");
+  const [blastKindFilter, setBlastKindFilter] = useState("");
   const [workers, setWorkers] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -177,6 +193,8 @@ export default function AdminReports() {
     if (showFilter("gig_status") && gigStatusFilter) p.status = gigStatusFilter;
     if (showFilter("category") && categoryFilter) p.category = categoryFilter;
     if (showFilter("include_pii")) p.include_pii = includePii;
+    if (showFilter("channel") && channelFilter) p.channel = channelFilter;
+    if (showFilter("blast_kind") && blastKindFilter) p.kind = blastKindFilter;
     return p;
   };
 
@@ -232,7 +250,7 @@ export default function AdminReports() {
   }, [
     type, start, end, onlyApproved, workerFilter, skills, zipCode,
     zipPrefix, statusFilter, gigStatusFilter, categoryFilter,
-    profileStatus, includePii,
+    profileStatus, includePii, channelFilter, blastKindFilter,
   ]);
 
   const downloadCsv = () => {
@@ -401,6 +419,36 @@ export default function AdminReports() {
               <option value="filled">Filled</option>
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
+            </select>
+          </FilterCell>
+        )}
+        {showFilter("channel") && (
+          <FilterCell label="Channel">
+            <select
+              data-testid="report-channel-filter"
+              value={channelFilter}
+              onChange={(e) => setChannelFilter(e.target.value)}
+              className="h-11 w-full border border-[#030712] bg-white px-2"
+            >
+              <option value="">All channels</option>
+              <option value="in_app">In-app</option>
+              <option value="email">Email</option>
+              <option value="sms">SMS</option>
+              <option value="push">Push</option>
+            </select>
+          </FilterCell>
+        )}
+        {showFilter("blast_kind") && (
+          <FilterCell label="Blast type">
+            <select
+              data-testid="report-blast-kind-filter"
+              value={blastKindFilter}
+              onChange={(e) => setBlastKindFilter(e.target.value)}
+              className="h-11 w-full border border-[#030712] bg-white px-2"
+            >
+              <option value="">Gigs + Projects</option>
+              <option value="gig">Gig only</option>
+              <option value="project">Project only</option>
             </select>
           </FilterCell>
         )}
@@ -714,8 +762,8 @@ function DataTable({ rows, columns }) {
         <tbody>
           {rows.map((r, i) => (
             <tr
-              key={r.user_id || r.gig_id || i}
-              data-testid={`report-row-${r.user_id || r.gig_id || i}`}
+              key={r.blast_id || r.user_id || r.gig_id || i}
+              data-testid={`report-row-${r.blast_id || r.user_id || r.gig_id || i}`}
               className="hover:bg-[#F9FAFB]"
             >
               {cols.map((c) => (
@@ -723,7 +771,7 @@ function DataTable({ rows, columns }) {
                   key={c.key}
                   className="whitespace-nowrap border-b border-[#E5E7EB] px-3 py-2"
                 >
-                  {formatCell(r[c.key], c.key)}
+                  {formatCell(r[c.key], c.key, c.fmt)}
                 </td>
               ))}
             </tr>
@@ -734,8 +782,23 @@ function DataTable({ rows, columns }) {
   );
 }
 
-function formatCell(v, key) {
+function formatCell(v, key, fmt) {
   if (v === null || v === undefined || v === "") return "—";
+  if (fmt === "dt" || key === "sent_at" || key === "clock_in_at" || key === "clock_out_at") {
+    try {
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v);
+      return d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    } catch {
+      return String(v);
+    }
+  }
   if (
     key === "total_earned" ||
     key === "approved_earned" ||
@@ -747,6 +810,9 @@ function formatCell(v, key) {
   }
   if (key === "total_hours" || key === "duration_hours") {
     return `${Number(v).toFixed(2)}h`;
+  }
+  if (key === "kind") {
+    return String(v).charAt(0).toUpperCase() + String(v).slice(1);
   }
   return String(v);
 }
