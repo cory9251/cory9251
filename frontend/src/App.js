@@ -5,6 +5,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute, PublicOnly } from "@/components/ProtectedRoute";
 import Landing from "@/pages/Landing";
 import CustomersPage from "@/pages/Customers";
+import VAsLanding from "@/pages/VAsLanding";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import AuthCallback from "@/pages/AuthCallback";
@@ -79,6 +80,9 @@ function RouterShell() {
       <Route path="/gigs/:gigId" element={<PublicGigPage />} />
       <Route path="/customers" element={<CustomersPage />} />
       <Route path="/services" element={<CustomersPage />} />
+      <Route path="/vas" element={<VAsLanding />} />
+      <Route path="/earn" element={<VAsLanding />} />
+      <Route path="/work-with-us" element={<VAsLanding />} />
 
       {/* Admin / Ops */}
       <Route
