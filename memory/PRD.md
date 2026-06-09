@@ -347,6 +347,25 @@
 - [ ] Phase 2: Stripe ACH auto-payouts (deferred per user choice), email/SMS triggers on stage update.
 - [ ] Phase 3: Advanced leaderboard intelligence, automated reactivation outreach.
 
+## Latest additions (Feb 2026)
+
+### VA recruitment landing page (`/vas`, `/earn`, `/work-with-us`)
+- Community-first hero: *"Join HCOB's VA crew. Real leads, real payouts, every week."*
+- 4-step "How it works" · Transparent rate table (caps hidden) · Dedicated payout-schedule timeline
+- Earnings examples (Casual / Active / Power VA) · 6-question FAQ · Final dark CTA
+- "Become a VA →" entry points added to the main `/` landing (header + slim callout under hero)
+
+### Sortable gigs list (`/ops/gigs`)
+- Clickable column headers with active arrow indicators — Title, Category, When (real `scheduled_at` timestamp), Pay, Slots (open-remaining), Status, Blasts
+- Toolbar "Sort by" dropdown + explicit Asc/Desc toggle
+- Default = newest posted first
+
+### Gig Blast Reports (`/ops/reports` → Blasts tab)
+- New persistent `blast_logs` collection — every gig/project blast captured
+- Backend route `/api/admin/reports/blasts` with date / channel / kind filters
+- 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
+- CSV download + Google Sheets export inherited from existing Reports plumbing
+
 ## Next steps
 1. Wire real Resend + Twilio keys (admin to provide), then enable per-blast email/SMS
 2. Add worker mobile-app PWA install prompt OR convert via Emergent Mobile Agent (Expo/React Native)
