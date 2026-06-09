@@ -3891,9 +3891,12 @@ async def blast_project(
     if project.get("archived"):
         raise HTTPException(400, "Cannot blast an archived project")
 
-    # Only blast OPEN gigs with at least one remaining slot.
+    # Blast any non-closed gig with available slots — both "open" and
+    # "coming_soon" (future-scheduled) gigs are visible in the worker feed,
+    # so blasting them gets workers ready to claim the moment they go live.
     linked_gigs = await db.gigs.find(
-        {"project_id": project_id, "status": "open"}, {"_id": 0}
+        {"project_id": project_id, "status": {"$in": ["open", "coming_soon"]}},
+        {"_id": 0},
     ).to_list(200)
     blastable_gigs = [
         g for g in linked_gigs
@@ -3902,7 +3905,7 @@ async def blast_project(
     if not blastable_gigs:
         raise HTTPException(
             400,
-            "This project has no open gigs with available slots to blast. Add a gig or reopen one first.",
+            "This project has no gigs with open slots to blast. Add a gig or free up a slot first.",
         )
 
     workers = await db.users.find(

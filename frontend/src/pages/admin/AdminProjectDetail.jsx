@@ -72,10 +72,14 @@ export default function AdminProjectDetail() {
 
   const blastProject = async () => {
     const blastableCount = (project?.linked_gigs || []).filter(
-      (g) => g.status === "open" && (g.slots || 0) - (g.slots_filled || 0) > 0
+      (g) =>
+        ["open", "coming_soon"].includes(g.status) &&
+        (g.slots || 0) - (g.slots_filled || 0) > 0
     ).length;
     if (blastableCount === 0) {
-      toast.error("Add an open gig with available slots before blasting.");
+      toast.error(
+        "No gigs with open slots in this project. Add a gig or free up a slot first."
+      );
       return;
     }
     const msg =
