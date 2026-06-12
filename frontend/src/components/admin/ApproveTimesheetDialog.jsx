@@ -13,6 +13,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { CheckCircle } from "@phosphor-icons/react";
+import WorkerLink from "@/components/admin/WorkerLink";
 
 /**
  * Approve a worker's clocked-out timesheet. Optionally lets the admin tweak
@@ -98,7 +99,9 @@ export default function ApproveTimesheetDialog({
           </DialogTitle>
           <DialogDescription>
             Release earnings to{" "}
-            <span className="font-semibold">{acceptance.worker_name}</span>.
+            <span className="font-semibold">
+              <WorkerLink workerId={acceptance.worker_id} name={acceptance.worker_name} />
+            </span>.
             Edit hours or earnings below if you need to correct them.
           </DialogDescription>
         </DialogHeader>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import WorkerLink from "@/components/admin/WorkerLink";
 import {
   Dialog,
   DialogContent,
@@ -241,7 +242,9 @@ export default function RatingDialog({
             Rate worker
           </DialogTitle>
           <DialogDescription>
-            <span className="font-semibold">{acceptance.worker_name}</span> for
+            <span className="font-semibold">
+              <WorkerLink workerId={acceptance.worker_id} name={acceptance.worker_name} />
+            </span> for
             this gig. The admin rating is private. The client link is shareable.
           </DialogDescription>
         </DialogHeader>
@@ -412,8 +415,9 @@ export default function RatingDialog({
             <ChatTeardropDots size={11} weight="duotone" /> Message the worker
           </div>
           <p className="text-[10px] text-[#4B5563]">
-            One-way message to {acceptance.worker_name}. Lands in their app
-            notifications — they CAN see this one.
+            One-way message to{" "}
+            <WorkerLink workerId={acceptance.worker_id} name={acceptance.worker_name} />.
+            Lands in their app notifications — they CAN see this one.
           </p>
           <Textarea
             data-testid="worker-message-body"

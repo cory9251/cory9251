@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import WorkerLink from "@/components/admin/WorkerLink";
 import {
   ChartBar,
   Download,
@@ -875,7 +876,7 @@ function TimesheetTable({ rows }) {
                     className="hover:bg-[#F9FAFB]"
                   >
                     <td className="border-b border-[#E5E7EB] px-3 py-2 font-semibold">
-                      {r.worker_name || "—"}
+                      <WorkerLink workerId={r.worker_id} name={r.worker_name || "—"} />
                       <div className="text-[10px] font-normal text-[#4B5563]">
                         {r.worker_email}
                       </div>

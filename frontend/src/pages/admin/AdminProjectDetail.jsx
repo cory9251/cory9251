@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import WorkerLink from "@/components/admin/WorkerLink";
 import {
   ArrowLeft,
   Plus,
@@ -312,7 +313,7 @@ export default function AdminProjectDetail() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-display text-sm font-bold">
-                            {m.worker_name || "(no name)"}
+                            <WorkerLink workerId={m.worker_id} name={m.worker_name || "(no name)"} />
                           </span>
                           <span className="font-mono-label rounded bg-[#F3F4F6] px-1.5 py-0.5 text-[9px]">
                             {m.gig_role}

@@ -12,6 +12,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Clock, Warning, ArrowClockwise } from "@phosphor-icons/react";
+import WorkerLink from "@/components/admin/WorkerLink";
 
 /**
  * Convert an ISO datetime (with tz) → value for <input type="datetime-local">
@@ -159,7 +160,9 @@ export default function EditTimesheetDialog({
           </DialogTitle>
           <DialogDescription>
             Correcting clock-in / clock-out for{" "}
-            <span className="font-semibold">{acceptance.worker_name}</span>.
+            <span className="font-semibold">
+              <WorkerLink workerId={acceptance.worker_id} name={acceptance.worker_name} />
+            </span>.
             Hours &amp; earnings auto-recompute and the timesheet will need
             re-approval.
           </DialogDescription>

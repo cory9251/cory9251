@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import WorkerLink from "@/components/admin/WorkerLink";
 
 /**
  * Per-gig pay override dialog. Lets the admin set a custom rate/type for a
@@ -108,7 +109,9 @@ export default function PayOverrideDialog({
           </DialogTitle>
           <DialogDescription>
             Set a custom rate for{" "}
-            <span className="font-semibold">{acceptance.worker_name}</span> on
+            <span className="font-semibold">
+              <WorkerLink workerId={acceptance.worker_id} name={acceptance.worker_name} />
+            </span> on
             this gig only. Leave blank to use the fallback rate.
           </DialogDescription>
         </DialogHeader>

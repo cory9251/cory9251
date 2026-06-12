@@ -4,6 +4,7 @@ import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import WorkerLink from "@/components/admin/WorkerLink";
 import {
   ClockCounterClockwise,
   CheckCircle,
@@ -185,7 +186,7 @@ export default function AdminRequests() {
                   <div className="lg:col-span-4">
                     <div className="font-mono-label">Worker</div>
                     <div className="mt-1 font-display text-xl font-bold leading-tight">
-                      {r.worker_name || r.worker_id}
+                      <WorkerLink workerId={r.worker_id} name={r.worker_name || r.worker_id} />
                     </div>
                     <div className="mt-2 space-y-1 text-xs text-[#4B5563]">
                       <div className="flex items-center gap-1.5">

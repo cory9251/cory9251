@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import WorkerLink from "@/components/admin/WorkerLink";
 import {
   Dialog,
   DialogContent,
@@ -528,7 +529,9 @@ export default function GigDetail() {
                 <tbody>
                   {gig.pending_requests.map((r) => (
                     <tr key={r.acceptance_id} data-testid={`request-row-${r.acceptance_id}`} className="hover:bg-[#FFFBEB]/50">
-                      <td className="border-b border-[#F59E0B]/30 px-4 py-3 font-semibold">{r.worker_name || r.worker_id}</td>
+                      <td className="border-b border-[#F59E0B]/30 px-4 py-3 font-semibold">
+                        <WorkerLink workerId={r.worker_id} name={r.worker_name || r.worker_id} />
+                      </td>
                       <td className="border-b border-[#F59E0B]/30 px-4 py-3 text-xs">
                         <div>{r.worker_email}</div>
                         {r.worker_phone && <div className="text-[#4B5563]">{r.worker_phone}</div>}
@@ -650,7 +653,7 @@ export default function GigDetail() {
                           #{b.backup_order || "?"}
                         </td>
                         <td className="border-b border-[#0044FF]/30 px-4 py-3 font-semibold">
-                          {b.worker_name || b.worker_id}
+                          <WorkerLink workerId={b.worker_id} name={b.worker_name || b.worker_id} />
                         </td>
                         <td className="border-b border-[#0044FF]/30 px-4 py-3 text-xs">
                           <div>{b.worker_email}</div>
@@ -801,7 +804,7 @@ export default function GigDetail() {
                   return (
                   <tr key={a.acceptance_id} className="hover:bg-[#F9FAFB]">
                     <td className="border-b border-[#E5E7EB] px-3 py-3 font-semibold">
-                      {a.worker_name || a.worker_id}
+                      <WorkerLink workerId={a.worker_id} name={a.worker_name || a.worker_id} />
                       <div className="text-[10px] font-normal text-[#4B5563]">{a.worker_email}</div>
                     </td>
                     <td className="border-b border-[#E5E7EB] px-3 py-3">
