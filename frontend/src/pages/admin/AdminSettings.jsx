@@ -197,6 +197,8 @@ export default function AdminSettings() {
         />
       </div>
 
+      <ChangeMyPasswordPanel />
+
       <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
         {/* ---- Email / Resend ---- */}
         <form
@@ -588,6 +590,145 @@ function StatusCard({ ready, icon: Icon, channel, provider }) {
 
 
 /**
+ * Change-my-password panel — self-service. Requires current password.
+ * Always visible at the top of Settings; works for any logged-in admin.
+ */
+function ChangeMyPasswordPanel() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (next.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    if (next !== confirm) {
+      toast.error("Passwords don't match");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post("/auth/change-password", {
+        current_password: current,
+        new_password: next,
+      });
+      toast.success("Password updated");
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setOpen(false);
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      data-testid="change-my-password-panel"
+      className="border-b border-[#E5E7EB] p-6 md:p-10"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-mono-label">Security</div>
+          <h2 className="mt-2 font-display text-2xl font-black flex items-center gap-2">
+            <Lock size={20} weight="duotone" /> Change my password
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
+            Update your own login password. Requires your current password. Forgot it?
+            Sign out and use the &ldquo;Forgot password&rdquo; link on the login screen.
+          </p>
+        </div>
+        {!open && (
+          <Button
+            data-testid="open-change-pw-btn"
+            onClick={() => setOpen(true)}
+            className="h-10 rounded-none bg-[#030712] text-white hover:bg-[#1f2937]"
+          >
+            Change my password
+          </Button>
+        )}
+      </div>
+
+      {open && (
+        <form
+          onSubmit={submit}
+          className="mt-5 grid grid-cols-1 gap-3 border border-[#030712] bg-[#F9FAFB] p-4 md:max-w-xl"
+        >
+          <div>
+            <Label className="font-mono-label">Current password</Label>
+            <Input
+              data-testid="change-pw-current"
+              type="password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              required
+              className="mt-2 h-11 rounded-none border-[#030712]"
+              autoComplete="current-password"
+            />
+          </div>
+          <div>
+            <Label className="font-mono-label">New password (6+ chars)</Label>
+            <Input
+              data-testid="change-pw-new"
+              type="password"
+              minLength={6}
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              required
+              className="mt-2 h-11 rounded-none border-[#030712]"
+              autoComplete="new-password"
+            />
+          </div>
+          <div>
+            <Label className="font-mono-label">Confirm new password</Label>
+            <Input
+              data-testid="change-pw-confirm"
+              type="password"
+              minLength={6}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              className="mt-2 h-11 rounded-none border-[#030712]"
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+                setCurrent("");
+                setNext("");
+                setConfirm("");
+              }}
+              className="h-10 rounded-none border-[#030712]"
+            >
+              Cancel
+            </Button>
+            <Button
+              data-testid="change-pw-submit"
+              type="submit"
+              disabled={busy || !current || !next || !confirm}
+              className="h-10 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
+            >
+              {busy ? "Updating…" : "Update password"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+
+/**
  * Admin users management — lists all admin accounts, allows creating new
  * ones (full-access or read-only), and toggling/demoting/deleting existing
  * ones. Lives inline at the bottom of Settings.
@@ -597,6 +738,7 @@ function AdminUsersPanel() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resetInfo, setResetInfo] = useState(null);
   // New-admin form state
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -679,6 +821,16 @@ function AdminUsersPanel() {
       await api.delete(`/admin/admins/${a.user_id}`);
       toast.success(`Deleted ${a.name}`);
       load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
+  const resetPw = async (a) => {
+    if (!window.confirm(`Force-reset password for ${a.name}? All their sessions will end immediately.`)) return;
+    try {
+      const { data } = await api.post(`/admin/users/${a.user_id}/reset-password`, {});
+      setResetInfo({ email: data.email, name: data.name, password: data.new_password });
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -858,6 +1010,14 @@ function AdminUsersPanel() {
                     {!a.is_self && (
                       <div className="flex flex-wrap justify-end gap-1.5">
                         <Button
+                          data-testid={`reset-pw-admin-${a.user_id}`}
+                          onClick={() => resetPw(a)}
+                          variant="outline"
+                          className="h-7 rounded-none border-[#0044FF] px-2 text-[10px] text-[#0044FF] hover:bg-[#0044FF] hover:text-white"
+                        >
+                          Reset PW
+                        </Button>
+                        <Button
                           data-testid={`toggle-readonly-${a.user_id}`}
                           onClick={() => toggleReadOnly(a)}
                           variant="outline"
@@ -890,6 +1050,53 @@ function AdminUsersPanel() {
           </tbody>
         </table>
       </div>
+
+      {resetInfo && (
+        <div
+          data-testid="reset-pw-modal"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+          onClick={() => setResetInfo(null)}
+        >
+          <div
+            className="w-full max-w-md border-2 border-[#0044FF] bg-white p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-mono-label text-[#0044FF]">Password reset</div>
+            <h3 className="mt-1 font-display text-2xl font-black">Share these credentials</h3>
+            <p className="mt-2 text-sm text-[#4B5563]">
+              {resetInfo.name}&apos;s sessions have been terminated. They&apos;ll be prompted to change
+              this temporary password on their next login.
+            </p>
+            <div className="mt-4 border border-[#E5E7EB] bg-[#F9FAFB] p-3">
+              <div className="text-xs text-[#4B5563]">Email</div>
+              <div className="font-mono">{resetInfo.email}</div>
+            </div>
+            <div className="mt-2 border border-[#E5E7EB] bg-[#F9FAFB] p-3">
+              <div className="text-xs text-[#4B5563]">Temporary password</div>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="font-mono text-lg">{resetInfo.password}</span>
+                <button
+                  data-testid="copy-reset-pw"
+                  onClick={() => {
+                    navigator.clipboard.writeText(resetInfo.password);
+                    toast.success("Copied to clipboard");
+                  }}
+                  className="border border-[#030712] px-3 py-1 text-xs hover:bg-[#030712] hover:text-white"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+            <Button
+              data-testid="close-reset-pw-modal"
+              onClick={() => setResetInfo(null)}
+              className="mt-5 h-10 w-full rounded-none bg-[#030712] text-white hover:bg-[#1f2937]"
+            >
+              Done
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

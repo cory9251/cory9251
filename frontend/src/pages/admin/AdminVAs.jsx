@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Check, Pause, Trash, UserPlus, Copy } from "@phosphor-icons/react";
+import { Check, Pause, Trash, UserPlus, Copy, Key } from "@phosphor-icons/react";
 import {
   Dialog,
   DialogContent,
@@ -215,16 +215,33 @@ export default function AdminVAs() {
                           </button>
                         )}
                         {u.va_status !== "removed" && (
-                          <button
-                            data-testid={`va-remove-${u.user_id}`}
-                            onClick={() => {
-                              if (!window.confirm(`Remove ${u.name}? They lose access immediately.`)) return;
-                              action(u, "remove");
-                            }}
-                            className="inline-flex items-center gap-1 border border-red-700 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-700 hover:text-white"
-                          >
-                            <Trash size={11} weight="bold" /> Remove
-                          </button>
+                          <>
+                            <button
+                              data-testid={`va-reset-pw-${u.user_id}`}
+                              onClick={async () => {
+                                if (!window.confirm(`Reset password for ${u.name}? All their sessions will be terminated.`)) return;
+                                try {
+                                  const { data } = await api.post(`/admin/users/${u.user_id}/reset-password`, {});
+                                  setCreatedInfo({ email: data.email, password: data.new_password });
+                                } catch (e) {
+                                  toast.error(getErr(e));
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 border border-[#0044FF] bg-white px-2 py-1 text-xs text-[#0044FF] hover:bg-[#0044FF] hover:text-white"
+                            >
+                              <Key size={11} weight="bold" /> Reset PW
+                            </button>
+                            <button
+                              data-testid={`va-remove-${u.user_id}`}
+                              onClick={() => {
+                                if (!window.confirm(`Remove ${u.name}? They lose access immediately.`)) return;
+                                action(u, "remove");
+                              }}
+                              className="inline-flex items-center gap-1 border border-red-700 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-700 hover:text-white"
+                            >
+                              <Trash size={11} weight="bold" /> Remove
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>

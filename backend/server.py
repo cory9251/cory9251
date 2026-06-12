@@ -541,6 +541,15 @@ class AdminResetPasswordIn(BaseModel):
     new_password: Optional[str] = None  # If None/blank, server generates a temp password
 
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=10)
+    new_password: str = Field(min_length=6)
+
+
 class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=6)
@@ -2920,7 +2929,10 @@ async def admin_reset_password(
     if not user:
         raise HTTPException(404, "Worker not found")
     if user.get("role") == "admin":
-        raise HTTPException(400, "Admins must use the self-service change-password flow")
+        raise HTTPException(
+            400,
+            "To reset an admin password, use POST /admin/users/{id}/reset-password (Owner only)",
+        )
 
     new_password = (payload.new_password or "").strip()
     if not new_password:
@@ -2937,6 +2949,166 @@ async def admin_reset_password(
     await db.sessions.delete_many({"user_id": user_id})
     logger.info(f"Admin {admin['email']} reset password for {user.get('email')}")
     return {"ok": True, "new_password": new_password}
+
+
+# ---- Owner-only global user reset (works for admins, VAs, anyone) -----------
+@api.post("/admin/users/{user_id}/reset-password")
+async def owner_reset_any_password(
+    user_id: str,
+    payload: AdminResetPasswordIn,
+    admin: dict = Depends(require_admin),
+):
+    """Reset ANY user's password — including other admins/VAs. Owner-only when target is admin."""
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # Only the Owner can force-reset other admin accounts. Workers/VAs are fine
+    # for any admin to reset.
+    if user.get("role") == "admin" and not admin.get("is_owner"):
+        raise HTTPException(403, "Owner sign-off required to reset another admin's password")
+
+    # Owners CAN reset their own password through this endpoint, but a self-reset
+    # without the current password should go through /auth/change-password. Block
+    # self-resets here to avoid foot-guns.
+    if user_id == admin["user_id"]:
+        raise HTTPException(
+            400,
+            "Use /auth/change-password to change your own password (requires current password)",
+        )
+
+    new_password = (payload.new_password or "").strip()
+    if not new_password:
+        new_password = secrets.token_urlsafe(8).replace("-", "").replace("_", "")[:10]
+    elif len(new_password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "password_hash": hash_password(new_password),
+            "must_change_password": True,  # force them to change on next login
+        }},
+    )
+    await db.sessions.delete_many({"user_id": user_id})
+    logger.info(
+        f"Owner {admin['email']} (is_owner={admin.get('is_owner')}) force-reset password for "
+        f"{user.get('email')} (role={user.get('role')})"
+    )
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "email": user.get("email"),
+        "name": user.get("name"),
+        "new_password": new_password,
+    }
+
+
+# ---- Public forgot-password / reset-password flow ---------------------------
+@api.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordIn):
+    """Public — issue a reset token and email it. Always returns OK to prevent
+    user enumeration."""
+    email = payload.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    # Always behave the same regardless of whether user exists.
+    if user and user.get("password_hash"):
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        # 60-minute window. Single use.
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "user_id": user["user_id"],
+            "email": email,
+            "created_at": now.isoformat(),
+            "expires_at": (now + timedelta(minutes=60)).isoformat(),
+            "used": False,
+        })
+        # Build the reset link
+        base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+        if not base:
+            base = "https://hcobnetwork.com"  # production fallback
+        link = f"{base}/reset-password?token={token}"
+        # Send email (best-effort)
+        try:
+            creds = await _resolve_email_creds()
+            if creds.get("api_key") and creds.get("sender"):
+                html = f"""
+                <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px">
+                  <div style="background:#030712;color:#fff;padding:18px 22px;font-weight:900;letter-spacing:-0.02em;font-size:22px">HCOB Network</div>
+                  <div style="padding:24px 22px;border:1px solid #E5E7EB;border-top:0">
+                    <h2 style="margin:0 0 12px 0;font-size:20px">Password reset requested</h2>
+                    <p style="color:#4B5563;line-height:1.5">Someone (hopefully you) asked to reset the password for <strong>{email}</strong>.</p>
+                    <p style="margin:24px 0">
+                      <a href="{link}" style="background:#0044FF;color:#fff;text-decoration:none;padding:14px 22px;font-weight:700">Reset my password</a>
+                    </p>
+                    <p style="color:#4B5563;font-size:12px">Or paste this link into your browser:</p>
+                    <p style="color:#0044FF;font-size:12px;word-break:break-all">{link}</p>
+                    <p style="color:#9CA3AF;font-size:12px;margin-top:32px;border-top:1px solid #E5E7EB;padding-top:16px">
+                      This link expires in 60 minutes and can only be used once. If you didn't request this, ignore this email.
+                    </p>
+                  </div>
+                </div>
+                """
+                await asyncio.to_thread(
+                    _send_email_sync,
+                    creds["api_key"], creds["sender"], email,
+                    "Reset your HCOB Network password",
+                    html,
+                )
+                logger.info(f"Sent password reset email to {email}")
+            else:
+                # Log the link prominently so a server admin can recover the user manually
+                logger.warning(
+                    f"[PASSWORD RESET] No Resend creds configured — manual reset link for "
+                    f"{email}: {link}"
+                )
+        except Exception as e:
+            logger.exception(f"Failed to send password reset email to {email}: {e}")
+    return {"ok": True, "message": "If that email is registered, a reset link has been sent."}
+
+
+@api.post("/auth/reset-password")
+async def reset_password_with_token(payload: ResetPasswordIn):
+    """Public — consume a single-use reset token."""
+    record = await db.password_reset_tokens.find_one({"token": payload.token})
+    if not record:
+        raise HTTPException(400, "Invalid or expired reset link")
+    if record.get("used"):
+        raise HTTPException(400, "This reset link has already been used")
+    try:
+        exp = datetime.fromisoformat(record["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc):
+            raise HTTPException(400, "This reset link has expired")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Invalid reset link")
+
+    user = await db.users.find_one({"user_id": record["user_id"]})
+    if not user:
+        raise HTTPException(400, "Account no longer exists")
+
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "password_hash": hash_password(payload.new_password),
+            "must_change_password": False,
+        }},
+    )
+    # Burn the token + kill all other sessions
+    await db.password_reset_tokens.update_one(
+        {"token": payload.token},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.sessions.delete_many({"user_id": user["user_id"]})
+    logger.info(f"Password reset via token for {user.get('email')}")
+    return {"ok": True, "email": user.get("email")}
+
+
+# ---- Self-service password change ------------------------------------------
 
 
 @api.delete("/admin/workers/{user_id}")
@@ -7469,6 +7641,11 @@ async def on_startup():
     await db.blast_logs.create_index("gig_id")
     await db.blast_logs.create_index("project_id")
 
+    # Password reset tokens — public forgot/reset flow
+    await db.password_reset_tokens.create_index("token", unique=True)
+    await db.password_reset_tokens.create_index("user_id")
+    await db.password_reset_tokens.create_index("expires_at")
+
     # VA Commission Program indices
     await db.va_leads.create_index("lead_id", unique=True)
     await db.va_leads.create_index("va_user_id")
@@ -7513,6 +7690,27 @@ async def on_startup():
             {"email": admin_email},
             {"$set": {"password_hash": hash_password(admin_password)}},
         )
+
+    # Production unlock failsafe — if OWNER_RESET_EMAIL + OWNER_RESET_PASSWORD
+    # are BOTH set in the environment, forcibly reset that user's password on
+    # boot. Designed for emergency lockout recovery in production. Remove the
+    # env vars after using.
+    reset_email = (os.environ.get("OWNER_RESET_EMAIL") or "").strip().lower()
+    reset_pwd = (os.environ.get("OWNER_RESET_PASSWORD") or "").strip()
+    if reset_email and reset_pwd:
+        target = await db.users.find_one({"email": reset_email})
+        if target:
+            await db.users.update_one(
+                {"email": reset_email},
+                {"$set": {"password_hash": hash_password(reset_pwd)}},
+            )
+            await db.sessions.delete_many({"user_id": target.get("user_id")})
+            logger.warning(
+                f"[OWNER_RESET] Forcibly reset password for {reset_email} on startup. "
+                f"REMOVE OWNER_RESET_EMAIL and OWNER_RESET_PASSWORD env vars now."
+            )
+        else:
+            logger.error(f"[OWNER_RESET] Email {reset_email} not found in users.")
 
     # Mark the HCOB admin as Owner for VA Commission final payout sign-off.
     await db.users.update_one(

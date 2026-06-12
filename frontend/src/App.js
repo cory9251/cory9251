@@ -6,6 +6,8 @@ import { ProtectedRoute, PublicOnly } from "@/components/ProtectedRoute";
 import Landing from "@/pages/Landing";
 import CustomersPage from "@/pages/Customers";
 import VAsLanding from "@/pages/VAsLanding";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import AuthCallback from "@/pages/AuthCallback";
@@ -83,6 +85,8 @@ function RouterShell() {
       <Route path="/vas" element={<VAsLanding />} />
       <Route path="/earn" element={<VAsLanding />} />
       <Route path="/work-with-us" element={<VAsLanding />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       {/* Admin / Ops */}
       <Route
