@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
 import MarkdownView from "@/components/MarkdownView";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Broom,
@@ -84,11 +85,47 @@ export default function WorkerGigDetail() {
     }
   };
 
-  const withdraw = async () => {
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelNote, setCancelNote] = useState("");
+
+  const withdrawRequest = async () => {
+    // Cancel an unapproved request — quick, no reason needed
+    if (!window.confirm("Cancel your pending request for this gig?")) return;
     setBusy(true);
     try {
-      await api.post(`/gigs/${gigId}/withdraw`);
-      toast.success("Withdrew from gig");
+      await api.post(`/gigs/${gigId}/cancel-shift`, { reason: "other", note: "Withdrew before approval" });
+      toast.success("Request cancelled");
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitCancel = async () => {
+    if (!cancelReason) {
+      toast.error("Please pick a reason");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.post(`/gigs/${gigId}/cancel-shift`, {
+        reason: cancelReason,
+        note: cancelNote || undefined,
+      });
+      if (data.is_late) {
+        toast.warning("Shift cancelled — flagged as late (<24hr notice). HCOB has been notified.");
+      } else {
+        toast.success("Shift cancelled — HCOB notified");
+      }
+      if (data.backup_promoted) {
+        toast.info("A backup worker has been auto-promoted.");
+      }
+      setCancelOpen(false);
+      setCancelReason("");
+      setCancelNote("");
       load();
     } catch (e) {
       toast.error(getErr(e));
@@ -129,6 +166,7 @@ export default function WorkerGigDetail() {
   const acc = gig.my_acceptance;
   const hasAcceptance = !!acc;
   const isRequested = acc?.status === "requested";
+  const isBackup = acc?.status === "backup";
   const isApproved =
     acc?.status === "accepted" || acc?.status === "on_the_clock" || acc?.status === "completed";
   const onClock = !!acc?.clock_in_at && !acc?.clock_out_at;
@@ -496,7 +534,7 @@ export default function WorkerGigDetail() {
               </p>
               <Button
                 data-testid="withdraw-btn"
-                onClick={withdraw}
+                onClick={withdrawRequest}
                 disabled={busy}
                 variant="outline"
                 className="mt-4 h-11 w-full rounded-2xl border-[#92400E]/50 text-[#92400E] hover:bg-[#92400E] hover:text-white"
@@ -506,13 +544,13 @@ export default function WorkerGigDetail() {
             </div>
           ) : onClock ? null : (
             <Button
-              data-testid="withdraw-btn"
-              onClick={withdraw}
+              data-testid="cancel-shift-btn"
+              onClick={() => setCancelOpen(true)}
               disabled={busy}
               variant="outline"
               className="h-12 w-full rounded-2xl border-[#EF4444] text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
             >
-              Withdraw from gig
+              Cancel my shift
             </Button>
           )
         ) : full ? (
@@ -584,6 +622,85 @@ export default function WorkerGigDetail() {
           </Button>
         )}
       </div>
+
+      {/* Cancel-shift modal */}
+      {cancelOpen && (
+        <div
+          data-testid="cancel-shift-modal"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+          onClick={() => !busy && setCancelOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl bg-white p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-mono-label text-[#EF4444]">Cancel shift</div>
+            <h3 className="mt-1 font-display text-2xl font-black">
+              Why are you cancelling?
+            </h3>
+            <p className="mt-2 text-xs text-[#4B5563]">
+              Cancellations less than 24 hours before the gig are flagged for HCOB. If
+              there&apos;s a backup worker, they&apos;ll be auto-promoted.
+            </p>
+            <div className="mt-4 space-y-2">
+              {[
+                { v: "sick", l: "Sick / not feeling well" },
+                { v: "conflict", l: "Schedule conflict" },
+                { v: "transportation", l: "Transportation issue" },
+                { v: "other", l: "Other reason" },
+              ].map((opt) => (
+                <button
+                  key={opt.v}
+                  data-testid={`cancel-reason-${opt.v}`}
+                  type="button"
+                  onClick={() => setCancelReason(opt.v)}
+                  className={`flex w-full items-center justify-between rounded-2xl border-2 px-4 py-3 text-left ${
+                    cancelReason === opt.v
+                      ? "border-[#0044FF] bg-[#F0F4FF]"
+                      : "border-[#E5E7EB] hover:border-[#030712]"
+                  }`}
+                >
+                  <span className="font-semibold">{opt.l}</span>
+                  {cancelReason === opt.v && (
+                    <span className="font-mono text-xs text-[#0044FF]">✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="mt-4">
+              <Label className="font-mono-label">
+                Anything else? <span className="text-[#9CA3AF]">(optional)</span>
+              </Label>
+              <textarea
+                data-testid="cancel-note"
+                value={cancelNote}
+                onChange={(e) => setCancelNote(e.target.value)}
+                rows={3}
+                className="mt-2 w-full rounded-2xl border border-[#030712] bg-white p-3 text-sm"
+                placeholder="e.g. Family emergency, will reach out…"
+              />
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button
+                onClick={() => setCancelOpen(false)}
+                variant="outline"
+                disabled={busy}
+                className="h-12 flex-1 rounded-2xl border-[#030712]"
+              >
+                Never mind
+              </Button>
+              <Button
+                data-testid="cancel-shift-confirm"
+                onClick={submitCancel}
+                disabled={busy || !cancelReason}
+                className="h-12 flex-1 rounded-2xl bg-[#EF4444] text-white hover:bg-[#dc2626]"
+              >
+                {busy ? "Cancelling…" : "Cancel my shift"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

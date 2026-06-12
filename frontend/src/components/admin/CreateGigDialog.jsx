@@ -82,6 +82,7 @@ export default function CreateGigDialog({
     pay_rate: "",
     pay_type: "hourly",
     slots: 1,
+    backup_slots: 0,
     duration_hours: "",
     break_minutes: 0,
     payment_timeline: "2_3_days",
@@ -179,6 +180,7 @@ export default function CreateGigDialog({
         scheduled_at: iso,
         pay_rate: parseFloat(form.pay_rate || 0),
         slots: parseInt(form.slots || 1),
+        backup_slots: parseInt(form.backup_slots || 0),
         duration_hours: form.duration_hours
           ? parseFloat(form.duration_hours)
           : null,
@@ -202,6 +204,7 @@ export default function CreateGigDialog({
         pay_rate: "",
         pay_type: "hourly",
         slots: 1,
+        backup_slots: 0,
         duration_hours: "",
         break_minutes: 0,
         payment_timeline: "2_3_days",
@@ -485,6 +488,24 @@ export default function CreateGigDialog({
               onChange={(e) => set("slots", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
             />
+          </div>
+
+          <div>
+            <Label className="font-mono-label">
+              Backup slots <span className="text-[#9CA3AF]">(optional)</span>
+            </Label>
+            <Input
+              data-testid="gig-backup-slots"
+              type="number"
+              min={0}
+              value={form.backup_slots}
+              onChange={(e) => set("backup_slots", e.target.value)}
+              className="mt-2 h-11 rounded-none border-[#030712]"
+              placeholder="0"
+            />
+            <p className="mt-1 text-[10px] text-[#4B5563]">
+              Auto-promoted to primary if a worker cancels. 0 = no backups.
+            </p>
           </div>
 
           <div className="md:col-span-2">

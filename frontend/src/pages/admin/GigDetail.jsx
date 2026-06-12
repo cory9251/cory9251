@@ -528,7 +528,7 @@ export default function GigDetail() {
                         {r.requested_at ? new Date(r.requested_at).toLocaleString() : "—"}
                       </td>
                       <td className="border-b border-[#F59E0B]/30 px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex flex-wrap justify-end gap-2">
                           <Button
                             data-testid={`approve-request-${r.acceptance_id}`}
                             onClick={async () => {
@@ -544,6 +544,24 @@ export default function GigDetail() {
                           >
                             Approve
                           </Button>
+                          {(gig.backup_slots || 0) > 0 && (gig.backups_filled || 0) < (gig.backup_slots || 0) && (
+                            <Button
+                              data-testid={`approve-backup-${r.acceptance_id}`}
+                              onClick={async () => {
+                                try {
+                                  await api.post(`/gigs/${gigId}/requests/${r.acceptance_id}/approve-backup`);
+                                  toast.success(`${r.worker_name || "Worker"} added as backup`);
+                                  load();
+                                } catch (e) {
+                                  toast.error(getErr(e));
+                                }
+                              }}
+                              variant="outline"
+                              className="h-9 rounded-none border-[#0044FF] px-3 text-[#0044FF] hover:bg-[#0044FF] hover:text-white"
+                            >
+                              Approve as backup
+                            </Button>
+                          )}
                           <Button
                             data-testid={`reject-request-${r.acceptance_id}`}
                             onClick={async () => {
@@ -567,6 +585,109 @@ export default function GigDetail() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Backup pool */}
+        {((gig.backup_slots || 0) > 0 || (gig.backups || []).length > 0) && (
+          <div
+            data-testid="backups-section"
+            className="mb-6 border border-[#0044FF] bg-[#F0F4FF]"
+          >
+            <div className="border-b border-[#0044FF] bg-[#0044FF] px-4 py-3 text-white">
+              <div className="font-mono-label text-white/80">Backup pool</div>
+              <div className="font-display text-xl font-black">
+                {(gig.backups || []).length}/{gig.backup_slots || 0} backups · 
+                {" "}{(gig.slots_filled || 0) >= (gig.slots || 1) && (gig.backups || []).length > 0
+                  ? " ready to promote on cancel"
+                  : " awaiting primary cancellations"}
+              </div>
+            </div>
+            {(gig.backups || []).length === 0 ? (
+              <div className="px-4 py-4 text-sm text-[#4B5563]">
+                Approve incoming requests as a backup using the &ldquo;Approve as backup&rdquo;
+                button above to populate this pool.
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left">
+                    <th className="border-b border-[#0044FF]/30 px-4 py-3 font-mono-label">#</th>
+                    <th className="border-b border-[#0044FF]/30 px-4 py-3 font-mono-label">Worker</th>
+                    <th className="border-b border-[#0044FF]/30 px-4 py-3 font-mono-label">Contact</th>
+                    <th className="border-b border-[#0044FF]/30 px-4 py-3 font-mono-label">Approved at</th>
+                    <th className="border-b border-[#0044FF]/30 px-4 py-3 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gig.backups.map((b) => {
+                    const canPromote = (gig.slots_filled || 0) < (gig.slots || 1);
+                    return (
+                      <tr
+                        key={b.acceptance_id}
+                        data-testid={`backup-row-${b.acceptance_id}`}
+                        className="hover:bg-white"
+                      >
+                        <td className="border-b border-[#0044FF]/30 px-4 py-3 font-mono font-bold">
+                          #{b.backup_order || "?"}
+                        </td>
+                        <td className="border-b border-[#0044FF]/30 px-4 py-3 font-semibold">
+                          {b.worker_name || b.worker_id}
+                        </td>
+                        <td className="border-b border-[#0044FF]/30 px-4 py-3 text-xs">
+                          <div>{b.worker_email}</div>
+                          {b.worker_phone && (
+                            <div className="text-[#4B5563]">{b.worker_phone}</div>
+                          )}
+                        </td>
+                        <td className="border-b border-[#0044FF]/30 px-4 py-3 text-xs text-[#4B5563]">
+                          {b.accepted_at ? new Date(b.accepted_at).toLocaleString() : "—"}
+                        </td>
+                        <td className="border-b border-[#0044FF]/30 px-4 py-3 text-right">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              data-testid={`promote-backup-${b.acceptance_id}`}
+                              disabled={!canPromote}
+                              title={!canPromote ? "All primary slots are full" : "Promote to primary"}
+                              onClick={async () => {
+                                if (!window.confirm(`Promote ${b.worker_name || "this worker"} to primary?`)) return;
+                                try {
+                                  await api.post(`/gigs/${gigId}/acceptances/${b.acceptance_id}/promote`);
+                                  toast.success("Promoted to primary");
+                                  load();
+                                } catch (e) {
+                                  toast.error(getErr(e));
+                                }
+                              }}
+                              className="h-9 rounded-none bg-[#0044FF] px-3 text-white hover:bg-[#0036cc] disabled:opacity-50"
+                            >
+                              Promote
+                            </Button>
+                            <Button
+                              data-testid={`remove-backup-${b.acceptance_id}`}
+                              variant="outline"
+                              onClick={async () => {
+                                if (!window.confirm(`Remove ${b.worker_name || "this backup"} from the backup pool?`)) return;
+                                try {
+                                  await api.delete(`/gigs/${gigId}/acceptances/${b.acceptance_id}`);
+                                  toast.success("Backup removed");
+                                  load();
+                                } catch (e) {
+                                  toast.error(getErr(e));
+                                }
+                              }}
+                              className="h-9 rounded-none border-[#EF4444] px-3 text-[#EF4444] hover:bg-[#EF4444] hover:text-white"
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
 

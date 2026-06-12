@@ -311,6 +311,9 @@ class GigIn(BaseModel):
     pay_rate: float
     pay_type: PayType
     slots: int = 1
+    # Optional backup pool. Workers approved as backups get auto-promoted to
+    # primary when an approved worker cancels (or admin manually promotes).
+    backup_slots: int = 0
     duration_hours: Optional[float] = None
     # Unpaid break minutes deducted from each worker's clocked time. Default
     # is 0 — admin sets it per-gig in the Create/Edit dialog. Per-worker
@@ -347,6 +350,7 @@ class GigPatch(BaseModel):
     pay_rate: Optional[float] = None
     pay_type: Optional[PayType] = None
     slots: Optional[int] = None
+    backup_slots: Optional[int] = None
     duration_hours: Optional[float] = None
     break_minutes: Optional[int] = None
     payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = None
@@ -991,6 +995,8 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "pay_type": payload.pay_type,
         "slots": payload.slots,
         "slots_filled": 0,
+        "backup_slots": int(payload.backup_slots or 0),
+        "backups_filled": 0,
         "duration_hours": payload.duration_hours,
         "break_minutes": int(payload.break_minutes or 0),
         "payment_timeline": payload.payment_timeline or "2_3_days",
@@ -1214,7 +1220,11 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
                     a["break_minutes_effective"] = br
                     a["paid_hours"] = _compute_paid_hours(a.get("hours_worked"), br)
         gig["pending_requests"] = [a for a in all_rows if a.get("status") == "requested"]
-        gig["acceptances"] = [a for a in all_rows if a.get("status") != "requested"]
+        gig["backups"] = sorted(
+            [a for a in all_rows if a.get("status") == "backup"],
+            key=lambda a: a.get("backup_order") or 999,
+        )
+        gig["acceptances"] = [a for a in all_rows if a.get("status") not in ("requested", "backup")]
 
         # Project context for admins — surface the project title so the gig
         # detail page can show a "Part of project: …" banner with a deep link.
@@ -1368,13 +1378,69 @@ async def update_gig(
         elif gig.get("status") == "filled" and filled < new_slots:
             updates["status"] = "open"
 
+    if "backup_slots" in updates:
+        new_backup = int(updates["backup_slots"] or 0)
+        backups_filled = int(gig.get("backups_filled") or 0)
+        if new_backup < backups_filled:
+            raise HTTPException(
+                400,
+                f"Cannot reduce backup slots below current backups ({backups_filled} backups already approved)",
+            )
+
     if not updates:
-        return {**gig, "_id": None} if False else {k: v for k, v in gig.items() if k != "_id"}
+        return {k: v for k, v in gig.items() if k != "_id"}
 
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     updates["updated_by"] = admin["email"]
     await db.gigs.update_one({"gig_id": gig_id}, {"$set": updates})
     fresh = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
+
+    # ---- Email notifications to currently-accepted workers if material change ----
+    changed_fields: List[str] = []
+    if "scheduled_date" in updates and updates["scheduled_date"] != gig.get("scheduled_date"):
+        changed_fields.append(f"new date/time: <strong>{updates['scheduled_date']}</strong>")
+    if "scheduled_at" in updates and updates["scheduled_at"] != gig.get("scheduled_at"):
+        changed_fields.append("schedule timestamp updated")
+    if "pay_rate" in updates and float(updates["pay_rate"]) != float(gig.get("pay_rate") or 0):
+        changed_fields.append(f"new pay rate: <strong>${float(updates['pay_rate']):.2f}{'/hr' if (updates.get('pay_type') or gig.get('pay_type')) == 'hourly' else ' flat'}</strong>")
+    if "pay_type" in updates and updates["pay_type"] != gig.get("pay_type"):
+        changed_fields.append(f"pay type changed to <strong>{updates['pay_type']}</strong>")
+    if "location" in updates and updates["location"] != gig.get("location"):
+        changed_fields.append("location updated")
+    if "status" in updates and updates["status"] == "cancelled" and gig.get("status") != "cancelled":
+        # Special path — fire a dedicated "gig cancelled" email instead
+        cancelled_acceptances = await db.gig_acceptances.find(
+            {"gig_id": gig_id, "status": {"$in": ["accepted", "backup", "on_the_clock"]}}
+        ).to_list(500)
+        for a in cancelled_acceptances:
+            body_html = (
+                f"<p><strong>Heads up — this gig was cancelled by HCOB.</strong></p>"
+                f"<p><strong>{gig.get('title')}</strong> on {gig.get('scheduled_date') or ''} is no longer happening.</p>"
+                f"<p>Check the app for other open gigs in your feed.</p>"
+            )
+            await _send_gig_event_email(
+                a["worker_id"], kind="gig_cancelled_by_admin",
+                subject=f"Gig cancelled: {gig.get('title')}",
+                body_html=body_html, gig_id=gig_id,
+            )
+        changed_fields = []  # don't double-fire the generic "updated" email
+    if changed_fields:
+        affected = await db.gig_acceptances.find(
+            {"gig_id": gig_id, "status": {"$in": ["accepted", "backup", "on_the_clock"]}}
+        ).to_list(500)
+        change_html = "<ul>" + "".join(f"<li>{c}</li>" for c in changed_fields) + "</ul>"
+        for a in affected:
+            body_html = (
+                f"<p>HCOB updated the details for <strong>{fresh.get('title')}</strong>:</p>"
+                f"{change_html}"
+                f"<p>Open the app to see the latest info.</p>"
+            )
+            await _send_gig_event_email(
+                a["worker_id"], kind="gig_updated",
+                subject=f"Gig updated: {fresh.get('title')}",
+                body_html=body_html, gig_id=gig_id,
+            )
+
     return fresh
 
 
@@ -1400,6 +1466,8 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "pay_type": src.get("pay_type"),
         "slots": src.get("slots") or 1,
         "slots_filled": 0,
+        "backup_slots": int(src.get("backup_slots") or 0),
+        "backups_filled": 0,
         "duration_hours": src.get("duration_hours"),
         "break_minutes": int(src.get("break_minutes") or 0),
         "payment_timeline": src.get("payment_timeline") or "2_3_days",
@@ -1590,7 +1658,7 @@ async def approve_request(
         raise HTTPException(404, "Gig not found")
     filled = int(gig.get("slots_filled") or 0)
     if filled >= int(gig.get("slots", 1)):
-        raise HTTPException(400, "All slots are already filled")
+        raise HTTPException(400, "All slots are already filled — use /approve-backup instead")
 
     now = datetime.now(timezone.utc).isoformat()
     await db.gig_acceptances.update_one(
@@ -1600,6 +1668,8 @@ async def approve_request(
                 "status": "accepted",
                 "accepted_at": now,
                 "approved_by": admin["email"],
+                "is_backup": False,
+                "backup_order": None,
             }
         },
     )
@@ -1609,7 +1679,7 @@ async def approve_request(
         gig_update["status"] = "filled"
     await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
 
-    # Notify the worker that their request was approved
+    # In-app notification
     await db.notifications.insert_one(
         {
             "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
@@ -1621,8 +1691,240 @@ async def approve_request(
             "created_at": now,
         }
     )
+    # Email notification
+    body_html = (
+        f"<p>Great news — you're approved for <strong>{gig.get('title')}</strong>.</p>"
+        f"<p><strong>When:</strong> {gig.get('scheduled_date') or 'See gig'}<br/>"
+        f"<strong>Where:</strong> {gig.get('location') or 'TBD'}<br/>"
+        f"<strong>Pay:</strong> ${gig.get('pay_rate'):.2f}{'/hr' if gig.get('pay_type') == 'hourly' else ' flat'}</p>"
+        f"<p>Open the app to see the full address and clock in when you arrive.</p>"
+    )
+    await _send_gig_event_email(
+        acceptance["worker_id"], kind="gig_approved",
+        subject=f"You're approved — {gig.get('title')}",
+        body_html=body_html, gig_id=gig_id,
+    )
     logger.info(f"Admin {admin['email']} approved request {acceptance_id} on gig {gig_id}")
     return {"ok": True, "slots_filled": new_filled, "gig_status": gig_update.get("status", gig["status"])}
+
+
+@api.post("/gigs/{gig_id}/requests/{acceptance_id}/approve-backup")
+async def approve_request_as_backup(
+    gig_id: str,
+    acceptance_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Admin approves a worker as a BACKUP — counts against backup_slots, not slots."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Request not found")
+    if acceptance.get("status") != "requested":
+        raise HTTPException(400, "Request is not pending approval")
+
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    backup_slots = int(gig.get("backup_slots") or 0)
+    backups_filled = int(gig.get("backups_filled") or 0)
+    if backup_slots <= 0:
+        raise HTTPException(400, "This gig has no backup slots configured")
+    if backups_filled >= backup_slots:
+        raise HTTPException(400, "All backup slots are already filled")
+
+    now = datetime.now(timezone.utc).isoformat()
+    backup_order = backups_filled + 1
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id},
+        {"$set": {
+            "status": "backup",
+            "accepted_at": now,
+            "approved_by": admin["email"],
+            "is_backup": True,
+            "backup_order": backup_order,
+        }},
+    )
+    await db.gigs.update_one(
+        {"gig_id": gig_id},
+        {"$set": {"backups_filled": backups_filled + 1}},
+    )
+    await db.notifications.insert_one({
+        "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+        "user_id": acceptance["worker_id"],
+        "gig_id": gig_id,
+        "title": f"You're a backup for: {gig.get('title')}",
+        "body": f"You're backup #{backup_order}. We'll promote you if a primary worker drops out.",
+        "read": False,
+        "created_at": now,
+    })
+    body_html = (
+        f"<p>You've been approved as a <strong>backup worker</strong> (#{backup_order}) for "
+        f"<strong>{gig.get('title')}</strong>.</p>"
+        f"<p><strong>When:</strong> {gig.get('scheduled_date') or 'See gig'}<br/>"
+        f"<strong>Where:</strong> {gig.get('location') or 'TBD'}</p>"
+        f"<p>If a primary worker cancels, you'll automatically be promoted and notified immediately. "
+        f"Keep the date open!</p>"
+    )
+    await _send_gig_event_email(
+        acceptance["worker_id"], kind="gig_backup_approved",
+        subject=f"You're a backup — {gig.get('title')}",
+        body_html=body_html, gig_id=gig_id,
+    )
+    logger.info(f"Admin {admin['email']} approved request {acceptance_id} as BACKUP #{backup_order} on gig {gig_id}")
+    return {"ok": True, "backup_order": backup_order, "backups_filled": backups_filled + 1}
+
+
+async def _promote_first_backup(gig_id: str, *, reason: str = "auto") -> Optional[dict]:
+    """Promote the lowest-numbered backup to primary on a gig. Returns the
+    promoted acceptance doc, or None if no backup exists."""
+    backup = await db.gig_acceptances.find_one(
+        {"gig_id": gig_id, "is_backup": True, "status": "backup"},
+        sort=[("backup_order", 1)],
+    )
+    if not backup:
+        return None
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        return None
+    filled = int(gig.get("slots_filled") or 0)
+    if filled >= int(gig.get("slots", 1)):
+        return None  # no primary spot to promote into
+    now = datetime.now(timezone.utc).isoformat()
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": backup["acceptance_id"]},
+        {"$set": {
+            "status": "accepted",
+            "is_backup": False,
+            "backup_order": None,
+            "promoted_at": now,
+            "promoted_reason": reason,
+        }},
+    )
+    new_filled = filled + 1
+    gig_update = {
+        "slots_filled": new_filled,
+        "backups_filled": max(0, int(gig.get("backups_filled") or 0) - 1),
+    }
+    if new_filled >= int(gig.get("slots", 1)):
+        gig_update["status"] = "filled"
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+
+    # Notify the promoted worker
+    await db.notifications.insert_one({
+        "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+        "user_id": backup["worker_id"],
+        "gig_id": gig_id,
+        "title": f"You're up! Promoted to primary: {gig.get('title')}",
+        "body": "A backup spot opened — you're now a primary worker on this gig.",
+        "read": False,
+        "created_at": now,
+    })
+    body_html = (
+        f"<p><strong>You've been promoted to primary</strong> on <strong>{gig.get('title')}</strong>!</p>"
+        f"<p>A primary worker dropped out, so your backup slot just became real.</p>"
+        f"<p><strong>When:</strong> {gig.get('scheduled_date') or 'See gig'}<br/>"
+        f"<strong>Where:</strong> {gig.get('location') or 'TBD'}<br/>"
+        f"<strong>Pay:</strong> ${gig.get('pay_rate'):.2f}{'/hr' if gig.get('pay_type') == 'hourly' else ' flat'}</p>"
+        f"<p>Open the app to see the full address and clock in when you arrive.</p>"
+    )
+    await _send_gig_event_email(
+        backup["worker_id"], kind="gig_backup_promoted",
+        subject=f"Promoted to primary — {gig.get('title')}",
+        body_html=body_html, gig_id=gig_id,
+    )
+    # Best-effort push notification
+    try:
+        await _send_push_to_user(
+            backup["worker_id"],
+            {
+                "title": f"You're up on {gig.get('title')}",
+                "body": "A backup slot opened — you're now primary. Open the app.",
+                "tag": f"gig-promoted-{gig_id}",
+                "url": f"/gigs/{gig_id}",
+                "kind": "gig_promoted",
+            },
+        )
+    except Exception:
+        pass
+    logger.info(f"Promoted backup {backup['acceptance_id']} → primary on gig {gig_id} ({reason})")
+    return {k: v for k, v in backup.items() if k != "_id"}
+
+
+@api.post("/gigs/{gig_id}/acceptances/{acceptance_id}/promote")
+async def admin_promote_backup(
+    gig_id: str,
+    acceptance_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Manual promote — admin button on the gig detail page."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+    if not acceptance.get("is_backup"):
+        raise HTTPException(400, "This worker is not a backup")
+
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+    filled = int(gig.get("slots_filled") or 0)
+    if filled >= int(gig.get("slots", 1)):
+        raise HTTPException(400, "No open primary slot to promote into")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id},
+        {"$set": {
+            "status": "accepted",
+            "is_backup": False,
+            "backup_order": None,
+            "promoted_at": now,
+            "promoted_reason": "admin_manual",
+            "promoted_by": admin["email"],
+        }},
+    )
+    new_filled = filled + 1
+    gig_update = {
+        "slots_filled": new_filled,
+        "backups_filled": max(0, int(gig.get("backups_filled") or 0) - 1),
+    }
+    if new_filled >= int(gig.get("slots", 1)):
+        gig_update["status"] = "filled"
+    await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+
+    await db.notifications.insert_one({
+        "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+        "user_id": acceptance["worker_id"],
+        "gig_id": gig_id,
+        "title": f"You're up! Promoted to primary: {gig.get('title')}",
+        "body": "Admin just promoted you to a primary slot on this gig.",
+        "read": False,
+        "created_at": now,
+    })
+    body_html = (
+        f"<p><strong>You've been promoted to primary</strong> on <strong>{gig.get('title')}</strong>!</p>"
+        f"<p>Admin manually promoted you from backup. Open the app to see the address and clock in.</p>"
+    )
+    await _send_gig_event_email(
+        acceptance["worker_id"], kind="gig_backup_promoted",
+        subject=f"Promoted to primary — {gig.get('title')}",
+        body_html=body_html, gig_id=gig_id,
+    )
+    try:
+        await _send_push_to_user(
+            acceptance["worker_id"],
+            {
+                "title": f"You're up on {gig.get('title')}",
+                "body": "Admin promoted you to primary.",
+                "tag": f"gig-promoted-{gig_id}",
+                "url": f"/gigs/{gig_id}",
+            },
+        )
+    except Exception:
+        pass
+    return {"ok": True, "slots_filled": new_filled}
 
 
 @api.post("/gigs/{gig_id}/requests/{acceptance_id}/reject")
@@ -1638,20 +1940,28 @@ async def reject_request(
     if not acceptance:
         raise HTTPException(404, "Request not found")
     if acceptance.get("status") != "requested":
-        raise HTTPException(400, "Only pending requests can be rejected")
-
-    gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0, "title": 1})
+        raise HTTPException(400, "Request is no longer pending")
+    gig = await db.gigs.find_one({"gig_id": gig_id})
     await db.gig_acceptances.delete_one({"acceptance_id": acceptance_id})
-    await db.notifications.insert_one(
-        {
-            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
-            "user_id": acceptance["worker_id"],
-            "gig_id": gig_id,
-            "title": f"Not selected: {gig.get('title') if gig else 'gig'}",
-            "body": "Your gig request was not approved this time.",
-            "read": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    # Notify the worker
+    await db.notifications.insert_one({
+        "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+        "user_id": acceptance["worker_id"],
+        "gig_id": gig_id,
+        "title": f"Request declined: {gig.get('title') if gig else 'gig'}",
+        "body": "Your request wasn't approved this time. Plenty of other gigs are open.",
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    body_html = (
+        f"<p>Your request for <strong>{gig.get('title') if gig else 'this gig'}</strong> "
+        f"wasn't approved this time.</p>"
+        f"<p>No worries — plenty of other gigs are open in your feed. Keep an eye on the app for new postings.</p>"
+    )
+    await _send_gig_event_email(
+        acceptance["worker_id"], kind="gig_rejected",
+        subject="Request not approved this time",
+        body_html=body_html, gig_id=gig_id,
     )
     logger.info(f"Admin {admin['email']} rejected request {acceptance_id} on gig {gig_id}")
     return {"ok": True}
@@ -1739,27 +2049,34 @@ async def remove_worker_from_gig(
     acceptance_id: str,
     admin: dict = Depends(require_admin),
 ):
-    """Admin removes a worker from a gig. Releases the slot if it was reserved."""
+    """Admin removes a worker from a gig. Releases the slot if it was reserved.
+    If the removed worker was primary, automatically promotes the first backup."""
     acceptance = await db.gig_acceptances.find_one(
         {"acceptance_id": acceptance_id, "gig_id": gig_id}
     )
     if not acceptance:
         raise HTTPException(404, "Acceptance not found")
 
-    was_reserved = acceptance.get("status") in (
+    was_primary = acceptance.get("status") in (
         "accepted",
         "on_the_clock",
         "completed",
     )
+    was_backup = acceptance.get("is_backup") and acceptance.get("status") == "backup"
     await db.gig_acceptances.delete_one({"acceptance_id": acceptance_id})
 
     gig = await db.gigs.find_one({"gig_id": gig_id})
-    if gig and was_reserved:
-        new_filled = max(0, int(gig.get("slots_filled") or 0) - 1)
-        gig_update = {"slots_filled": new_filled}
-        if gig.get("status") == "filled" and new_filled < int(gig.get("slots", 1)):
-            gig_update["status"] = "open"
-        await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+    if gig:
+        gig_update = {}
+        if was_primary:
+            new_filled = max(0, int(gig.get("slots_filled") or 0) - 1)
+            gig_update["slots_filled"] = new_filled
+            if gig.get("status") == "filled" and new_filled < int(gig.get("slots", 1)):
+                gig_update["status"] = "open"
+        if was_backup:
+            gig_update["backups_filled"] = max(0, int(gig.get("backups_filled") or 0) - 1)
+        if gig_update:
+            await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
 
     await db.notifications.insert_one(
         {
@@ -1772,32 +2089,149 @@ async def remove_worker_from_gig(
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
     )
+    body_html = (
+        f"<p>You've been removed from <strong>{gig.get('title') if gig else 'this gig'}</strong>.</p>"
+        f"<p>If this was a mistake or you have questions, reach out to HCOB Ops.</p>"
+    )
+    await _send_gig_event_email(
+        acceptance["worker_id"], kind="gig_removed",
+        subject=f"Removed from: {gig.get('title') if gig else 'gig'}",
+        body_html=body_html, gig_id=gig_id,
+    )
+
+    # Auto-promote a backup if a primary slot just opened up
+    if was_primary and gig:
+        await _promote_first_backup(gig_id, reason="admin_removed")
+
     logger.info(f"Admin {admin['email']} removed worker {acceptance['worker_id']} from gig {gig_id}")
     return {"ok": True}
 
 
+class CancelShiftIn(BaseModel):
+    reason: Literal["sick", "conflict", "transportation", "other"]
+    note: Optional[str] = None
+
+
+@api.post("/gigs/{gig_id}/cancel-shift")
+async def cancel_shift(
+    gig_id: str,
+    payload: CancelShiftIn,
+    user: dict = Depends(get_current_user),
+):
+    """Worker cancels a shift they were approved for. Auto-promotes the first
+    backup if available. Flags late cancellations (< 24h before scheduled_at)."""
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Only workers can cancel their shift")
+
+    acceptance = await db.gig_acceptances.find_one(
+        {"gig_id": gig_id, "worker_id": user["user_id"]}
+    )
+    if not acceptance:
+        raise HTTPException(404, "You're not on this gig")
+
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+
+    was_primary = acceptance.get("status") in ("accepted", "on_the_clock")
+    was_backup = acceptance.get("is_backup") and acceptance.get("status") == "backup"
+    was_requested = acceptance.get("status") == "requested"
+
+    if not (was_primary or was_backup or was_requested):
+        raise HTTPException(400, f"Cannot cancel — current status is {acceptance.get('status')}")
+
+    # Detect late cancellation (< 24 hours before scheduled_at)
+    is_late = False
+    if was_primary:
+        sched = gig.get("scheduled_at")
+        if sched:
+            try:
+                sdt = datetime.fromisoformat(sched.replace("Z", "+00:00") if isinstance(sched, str) else sched)
+                if sdt.tzinfo is None:
+                    sdt = sdt.replace(tzinfo=timezone.utc)
+                if sdt - datetime.now(timezone.utc) < timedelta(hours=24):
+                    is_late = True
+            except Exception:
+                pass
+
+    now = datetime.now(timezone.utc).isoformat()
+    # Delete the acceptance so the slot frees up
+    await db.gig_acceptances.delete_one({"acceptance_id": acceptance["acceptance_id"]})
+    # Update the gig's filled counts
+    gig_update = {}
+    if was_primary:
+        new_filled = max(0, int(gig.get("slots_filled") or 0) - 1)
+        gig_update["slots_filled"] = new_filled
+        if gig.get("status") == "filled" and new_filled < int(gig.get("slots", 1)):
+            gig_update["status"] = "open"
+    if was_backup:
+        gig_update["backups_filled"] = max(0, int(gig.get("backups_filled") or 0) - 1)
+    if gig_update:
+        await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+
+    # Audit log
+    await db.gig_cancellations.insert_one({
+        "cancellation_id": f"can_{uuid.uuid4().hex[:12]}",
+        "gig_id": gig_id,
+        "worker_id": user["user_id"],
+        "worker_name": user.get("name"),
+        "reason": payload.reason,
+        "note": (payload.note or "").strip() or None,
+        "was_primary": was_primary,
+        "was_backup": was_backup,
+        "was_requested": was_requested,
+        "is_late": is_late,
+        "cancelled_at": now,
+        "gig_title": gig.get("title"),
+        "scheduled_at": gig.get("scheduled_at"),
+    })
+
+    # Notify the worker (confirmation) — small, in-app only
+    await db.notifications.insert_one({
+        "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "gig_id": gig_id,
+        "title": f"Cancelled: {gig.get('title')}",
+        "body": "Your shift has been cancelled. Reason: " + payload.reason,
+        "read": False,
+        "created_at": now,
+    })
+    # Notify admins (in-app) so they see the cancellation in the requests/admin surface
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "user_id": 1}).to_list(50)
+    for a in admins:
+        await db.notifications.insert_one({
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": a["user_id"],
+            "gig_id": gig_id,
+            "title": ("⚠ LATE cancel: " if is_late else "Cancelled: ") + (gig.get("title") or "gig"),
+            "body": f"{user.get('name') or 'A worker'} cancelled their shift. Reason: {payload.reason}.",
+            "read": False,
+            "created_at": now,
+        })
+
+    # Auto-promote a backup if a primary slot just opened
+    promoted = None
+    if was_primary:
+        promoted = await _promote_first_backup(gig_id, reason="worker_cancelled")
+
+    return {
+        "ok": True,
+        "is_late": is_late,
+        "backup_promoted": bool(promoted),
+        "promoted_worker_id": (promoted or {}).get("worker_id"),
+    }
+
+
+# Legacy alias — keep the old endpoint name working so older clients/CSVs that
+# called /withdraw don't 404. Internally just forwards to cancel-shift with a
+# default reason.
 @api.post("/gigs/{gig_id}/withdraw")
 async def withdraw_gig(gig_id: str, user: dict = Depends(get_current_user)):
-    if user.get("role") != "worker":
-        raise HTTPException(403, "Only workers can withdraw")
-    existing = await db.gig_acceptances.find_one(
-        {"gig_id": gig_id, "worker_id": user["user_id"]}
+    return await cancel_shift(
+        gig_id=gig_id,
+        payload=CancelShiftIn(reason="other", note="legacy withdraw"),
+        user=user,
     )
-    if not existing:
-        raise HTTPException(404, "Not requested")
-    was_approved = existing.get("status") in ("accepted", "on_the_clock", "completed")
-    await db.gig_acceptances.delete_one(
-        {"gig_id": gig_id, "worker_id": user["user_id"]}
-    )
-    if was_approved:
-        gig = await db.gigs.find_one({"gig_id": gig_id})
-        if gig:
-            new_filled = max(0, (gig.get("slots_filled") or 0) - 1)
-            await db.gigs.update_one(
-                {"gig_id": gig_id},
-                {"$set": {"slots_filled": new_filled, "status": "open"}},
-            )
-    return {"ok": True}
 
 
 # ---- Web Push (PWA notifications) -----------------------------------------
@@ -2055,6 +2489,96 @@ def _send_email_sync(api_key: str, sender: str, to: str, subject: str, html: str
     resend.api_key = api_key
     return resend.Emails.send(
         {"from": sender, "to": [to], "subject": subject, "html": html}
+    )
+
+
+def _public_base() -> str:
+    """Background-task safe — no Request object available."""
+    return _resolve_public_base(None)
+
+
+def _email_layout(title: str, body_html: str, cta_label: Optional[str] = None, cta_url: Optional[str] = None) -> str:
+    """Wrap notification HTML in the standard HCOB email shell."""
+    cta_block = ""
+    if cta_label and cta_url:
+        cta_block = (
+            f'<p style="margin:24px 0"><a href="{cta_url}" '
+            f'style="background:#0044FF;color:#fff;text-decoration:none;padding:14px 22px;'
+            f'font-weight:700;display:inline-block">{cta_label}</a></p>'
+        )
+    return f"""
+    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px">
+      <div style="background:#030712;color:#fff;padding:18px 22px;font-weight:900;letter-spacing:-0.02em;font-size:22px">HCOB Network</div>
+      <div style="padding:24px 22px;border:1px solid #E5E7EB;border-top:0">
+        <h2 style="margin:0 0 12px 0;font-size:20px;color:#030712">{title}</h2>
+        <div style="color:#4B5563;line-height:1.55;font-size:14px">{body_html}</div>
+        {cta_block}
+        <p style="color:#9CA3AF;font-size:11px;margin-top:32px;border-top:1px solid #E5E7EB;padding-top:16px">
+          Sent automatically by HCOB Network · Baltimore, MD ·
+          <a href="https://hcobnetwork.com" style="color:#0044FF;text-decoration:none">hcobnetwork.com</a>
+        </p>
+      </div>
+    </div>
+    """
+
+
+async def _send_user_email(
+    user: dict,
+    *,
+    kind: str,
+    subject: str,
+    body_html: str,
+    cta_label: Optional[str] = None,
+    cta_url: Optional[str] = None,
+) -> bool:
+    """Fire-and-forget transactional email to a user. Logs failures, never raises.
+    Always sends (no preference toggle per product decision)."""
+    email = (user or {}).get("email")
+    if not email:
+        return False
+    try:
+        creds = await _resolve_email_creds()
+        if not creds.get("api_key") or not creds.get("sender"):
+            logger.warning(f"[email/{kind}] no Resend creds — skipped for {email}")
+            return False
+        html = _email_layout(subject, body_html, cta_label=cta_label, cta_url=cta_url)
+        await asyncio.to_thread(
+            _send_email_sync,
+            creds["api_key"], creds["sender"], email, subject, html,
+        )
+        try:
+            await db.email_logs.insert_one({
+                "log_id": f"em_{uuid.uuid4().hex[:12]}",
+                "user_id": user.get("user_id"),
+                "email": email,
+                "kind": kind,
+                "subject": subject,
+                "sent_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        logger.exception(f"[email/{kind}] failed for {email}: {e}")
+        return False
+
+
+async def _send_gig_event_email(
+    worker_id: str,
+    *,
+    kind: str,
+    subject: str,
+    body_html: str,
+    gig_id: Optional[str] = None,
+) -> bool:
+    """Convenience wrapper — look up worker by id and send a gig-related email."""
+    worker = await db.users.find_one({"user_id": worker_id})
+    if not worker:
+        return False
+    cta_url = f"{_public_base()}/crew" + (f"/gigs/{gig_id}" if gig_id else "")
+    return await _send_user_email(
+        worker, kind=kind, subject=subject, body_html=body_html,
+        cta_label="Open in HCOB Network", cta_url=cta_url,
     )
 
 
@@ -2994,6 +3518,20 @@ async def owner_reset_any_password(
     logger.info(
         f"Owner {admin['email']} (is_owner={admin.get('is_owner')}) force-reset password for "
         f"{user.get('email')} (role={user.get('role')})"
+    )
+    # Email the user their new credentials
+    await _send_user_email(
+        user, kind="password_reset_by_admin",
+        subject="Your HCOB password was reset",
+        body_html=(
+            "<p>HCOB Operations just <strong>reset your password</strong>.</p>"
+            "<p>Your new temporary password is:</p>"
+            f"<p style='background:#F9FAFB;padding:14px;font-family:monospace;font-size:18px;border:1px solid #E5E7EB'>{new_password}</p>"
+            "<p>You'll be prompted to change this on your next login. If you didn't expect this email, "
+            "reply immediately so we can investigate.</p>"
+        ),
+        cta_label="Sign in now",
+        cta_url=f"{_public_base()}/login",
     )
     return {
         "ok": True,
@@ -7206,6 +7744,18 @@ async def pm_approve_va(va_user_id: str, payload: VAStatusActionIn,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "read": False,
     })
+    await _send_user_email(
+        u, kind="va_approved",
+        subject="Welcome aboard — your HCOB VA account is approved",
+        body_html=(
+            "<p><strong>You're approved!</strong> Your VA account is active and you can start "
+            "submitting leads right now.</p>"
+            "<p>Open your dashboard to submit your first lead — every lead is locked to you with a "
+            "timestamp the moment you hit submit.</p>"
+        ),
+        cta_label="Open VA dashboard",
+        cta_url=f"{_public_base()}/va",
+    )
     return await _get_user_by_id(va_user_id)
 
 
@@ -7218,6 +7768,16 @@ async def pm_suspend_va(va_user_id: str, payload: VAStatusActionIn,
     await db.users.update_one({"user_id": va_user_id}, {"$set": {"va_status": "suspended"}})
     await db.sessions.delete_many({"user_id": va_user_id})  # force logout
     await _log_violation(va_user_id, "account_suspended", {"note": payload.note}, flagged_by=admin["user_id"])
+    note_html = f"<p><strong>Reason from Ops:</strong> {payload.note}</p>" if payload.note else ""
+    await _send_user_email(
+        u, kind="va_suspended",
+        subject="Your HCOB VA account has been suspended",
+        body_html=(
+            "<p>Your VA account has been temporarily <strong>suspended</strong> by the Program Manager.</p>"
+            f"{note_html}"
+            "<p>If you have questions or want to appeal, reply to this email and we'll get back to you.</p>"
+        ),
+    )
     return await _get_user_by_id(va_user_id)
 
 
@@ -7229,6 +7789,16 @@ async def pm_remove_va(va_user_id: str, admin: dict = Depends(require_program_ma
     await db.users.update_one({"user_id": va_user_id}, {"$set": {"va_status": "removed"}})
     await db.sessions.delete_many({"user_id": va_user_id})
     await _log_violation(va_user_id, "account_removed", {"removed_by": admin["user_id"]}, flagged_by=admin["user_id"])
+    await _send_user_email(
+        u, kind="va_removed",
+        subject="Your HCOB VA account has been removed",
+        body_html=(
+            "<p>Your VA account has been <strong>removed</strong> from the HCOB Commission Program.</p>"
+            "<p>You'll no longer be able to sign in or submit new leads. If you have a balance of "
+            "approved commissions pending payout, those will still be processed.</p>"
+            "<p>If this was unexpected, reply to this email.</p>"
+        ),
+    )
     return {"ok": True, "user_id": va_user_id}
 
 
@@ -7574,6 +8144,22 @@ async def owner_mark_paid(
         "created_at": now,
         "read": False,
     })
+    va_user = await db.users.find_one({"user_id": c["va_user_id"]})
+    if va_user:
+        await _send_user_email(
+            va_user, kind="va_commission_paid",
+            subject=f"Commission paid — ${c.get('amount', 0):.2f}",
+            body_html=(
+                f"<p><strong>You've been paid!</strong> Your commission for "
+                f"<strong>{c.get('prospect_name')}</strong> is in.</p>"
+                f"<p><strong>Amount:</strong> ${c.get('amount', 0):.2f}<br/>"
+                f"<strong>Method:</strong> {payload.payout_method or 'N/A'}<br/>"
+                f"<strong>Reference:</strong> {payload.payout_reference or 'N/A'}</p>"
+                f"<p>Keep submitting leads — your earnings dashboard always shows the live total.</p>"
+            ),
+            cta_label="Open earnings dashboard",
+            cta_url=f"{_public_base()}/va/earnings",
+        )
     return _serialize_commission(await db.commissions.find_one({"commission_id": commission_id}))
 
 
