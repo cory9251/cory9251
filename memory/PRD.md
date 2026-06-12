@@ -366,10 +366,20 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 23: Backup Workers + Shift Cancellation + Email Notifications) — VERIFIED
+- **Backup workers**: Gigs gain `backup_slots` (CreateGigDialog field `gig-backup-slots`) and `backups_filled` counter. Approve-as-backup button next to Approve on pending requests. New Backups section on admin GigDetail with Promote and Remove actions.
+- **Backend endpoints**: `POST /api/gigs/{id}/requests/{aid}/approve-backup`, `POST /api/gigs/{id}/acceptances/{aid}/promote`. Slot accounting (`slots_filled`/`backups_filled`/`status`) updates correctly.
+- **Worker shift cancellation**: New `POST /api/gigs/{id}/cancel-shift` body `{reason, note}`. Replaces silent withdraw for accepted workers. WorkerGigDetail shows a Cancel Shift modal with reason radios + optional note. If `scheduled_at < 24h` away the cancellation is flagged `is_late=true` and the worker sees a late-cancel toast. If a backup is queued they're auto-promoted in the same response (`backup_promoted=true`, `promoted_worker_id`).
+- **Pending withdraw retained**: Workers who are still pending (not approved) see a Withdraw button that cancels their request before the slot is reserved.
+- **Resend email notifications**: Hooked into approve / reject / remove / suspend / gig-update flows. Graceful degradation when Resend isn't configured (admin action still succeeds).
+- **Testing**: 12/12 backend pytests pass (`test_backups_and_cancel.py` + `test_iter23_e2e_setup.py`). Full Playwright E2E coverage for Admin GigDetail backup flow and Worker GigDetail cancel-shift modal (iter23 report).
+
 ## Next steps
-1. Wire real Resend + Twilio keys (admin to provide), then enable per-blast email/SMS
-2. Add worker mobile-app PWA install prompt OR convert via Emergent Mobile Agent (Expo/React Native)
-3. Google Auth (optional social login)
-4. Worker reliability/rating system (auto-compute from punctuality, completion, no-shows)
-5. **Backend modularization** — `server.py` is at ~7400 lines. Split into `routes/auth.py`, `routes/gigs.py`, `routes/projects.py`, `routes/va_commission.py`, `routes/owner.py`.
-6. **VA Commission Phase 2** — Stripe ACH auto-payouts, stage-update email/SMS triggers, cleaner referral tracking.
+1. **Backend modularization (P1)** — `server.py` is now ~8,346 lines. Split into `routes/auth.py`, `routes/gigs.py`, `routes/projects.py`, `routes/va_commission.py`, `routes/owner.py`, `routes/backups_cancel.py`.
+2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).
+3. **Stripe auto-payouts (P2)** — VA commissions + worker payouts.
+4. **Auto-blast on gig create (P3)** — hook blast system to gig creation.
+5. **Automated review/rating collection (P3)** — post-gig SMS/email blast for worker ratings.
+6. **VA Commission Phase 2** — stage-update email/SMS triggers, cleaner referral tracking.
+7. **Security**: Resend API key currently committed to `backend/.env` — rotate + move to secret manager.
+8. **Observability**: Add `logger.info` around `_send_email_sync` invocations (success/failure currently silent).
