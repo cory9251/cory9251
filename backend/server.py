@@ -8198,6 +8198,49 @@ async def owner_mark_paid(
 # messages older than MESSAGE_DIGEST_DELAY_MIN.
 
 
+# Statuses that count as "this worker is/was on the roster" for permission
+# checks. Includes historical (completed) and backup so that a worker who
+# shared a gig in the past can still DM their old coworker.
+WORKER_ON_GIG_STATUSES = ["accepted", "on_the_clock", "completed", "backup"]
+
+
+async def _workers_share_a_gig(user_a_id: str, user_b_id: str) -> bool:
+    """True if user_a and user_b have both ever been approved on the same gig."""
+    if user_a_id == user_b_id:
+        return False
+    my_gigs = await db.gig_acceptances.distinct(
+        "gig_id",
+        {"worker_id": user_a_id, "status": {"$in": WORKER_ON_GIG_STATUSES}},
+    )
+    if not my_gigs:
+        return False
+    shared = await db.gig_acceptances.count_documents({
+        "gig_id": {"$in": my_gigs},
+        "worker_id": user_b_id,
+        "status": {"$in": WORKER_ON_GIG_STATUSES},
+    })
+    return shared > 0
+
+
+async def _coworker_ids(user_id: str) -> list:
+    """All worker_ids who share at least one ever-approved gig with this user."""
+    my_gigs = await db.gig_acceptances.distinct(
+        "gig_id",
+        {"worker_id": user_id, "status": {"$in": WORKER_ON_GIG_STATUSES}},
+    )
+    if not my_gigs:
+        return []
+    ids = await db.gig_acceptances.distinct(
+        "worker_id",
+        {
+            "gig_id": {"$in": my_gigs},
+            "worker_id": {"$ne": user_id},
+            "status": {"$in": WORKER_ON_GIG_STATUSES},
+        },
+    )
+    return list(ids)
+
+
 def _dm_thread_id(user_a_id: str, user_b_id: str) -> str:
     """Deterministic ID for a 1:1 DM — same regardless of who opens it."""
     a, b = sorted([user_a_id, user_b_id])
@@ -8417,18 +8460,30 @@ async def messages_unread_count(user: dict = Depends(get_current_user)):
 async def open_dm(payload: OpenDMIn, user: dict = Depends(get_current_user)):
     """Open or create a DM with another user.
     Role gating:
-      - Workers can DM admins or other approved workers
-      - VAs can DM admins only
       - Admins can DM anyone
+      - Workers can DM admins, OR other workers they've shared a gig with
+        (any gig where both have ever been approved)
+      - VAs can DM admins only
     """
     target = await db.users.find_one({"user_id": payload.user_id}, {"_id": 0})
     if not target:
         raise HTTPException(404, "User not found")
     if user.get("role") == "worker":
-        if target.get("role") not in ("admin", "worker"):
-            raise HTTPException(403, "Workers can only DM admins or other workers")
-        if target.get("role") == "worker" and target.get("worker_status") != "approved":
-            raise HTTPException(403, "That worker is not active")
+        if target.get("role") == "admin":
+            pass  # workers can always DM admins
+        elif target.get("role") == "worker":
+            if target.get("worker_status") != "approved":
+                raise HTTPException(403, "That worker is not active")
+            shared = await _workers_share_a_gig(user["user_id"], target["user_id"])
+            if not shared:
+                raise HTTPException(
+                    403,
+                    "You can only DM workers you've shared a gig with",
+                )
+        else:
+            raise HTTPException(
+                403, "Workers can only DM admins or coworkers from a shared gig"
+            )
     elif user.get("role") == "va":
         if target.get("role") != "admin":
             raise HTTPException(403, "VAs can only DM admins")
@@ -8606,14 +8661,27 @@ async def messages_eligible_users(
     q: Optional[str] = Query(default=None),
     user: dict = Depends(get_current_user),
 ):
-    """Users I'm allowed to start a new DM with. Used by the New Message dialog."""
+    """Users I'm allowed to start a new DM with. Used by the New Message dialog.
+    Workers see: every admin + every coworker (someone they've shared a gig with).
+    """
     if user.get("role") == "admin":
-        match = {}
+        match: dict = {}
     elif user.get("role") == "worker":
-        match = {"$or": [
-            {"role": "admin"},
-            {"role": "worker", "worker_status": "approved"},
-        ]}
+        coworker_ids = await _coworker_ids(user["user_id"])
+        if coworker_ids:
+            match = {
+                "$or": [
+                    {"role": "admin"},
+                    {
+                        "role": "worker",
+                        "worker_status": "approved",
+                        "user_id": {"$in": coworker_ids},
+                    },
+                ]
+            }
+        else:
+            # No coworkers yet — only admins are reachable.
+            match = {"role": "admin"}
     elif user.get("role") == "va":
         match = {"role": "admin"}
     else:

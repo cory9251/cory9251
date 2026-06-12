@@ -288,7 +288,7 @@ def test_eligible_users_filters(owner, mechie):
     assert all(u["user_id"] != owner_id for u in data)
     assert len(data) > 0
 
-    # Worker can see only admins + other approved workers
+    # Worker with no coworkers can only see admins.
     wid, _ = _run(_seed_worker(approved=True))
     tok = _run(_inject_session(wid))
     s = requests.Session()
@@ -296,5 +296,137 @@ def test_eligible_users_filters(owner, mechie):
     r2 = s.get(f"{API}/messages/eligible-users", timeout=20)
     assert r2.status_code == 200
     roles = {u["role"] for u in r2.json()}
-    # Should only contain admin and/or worker
-    assert roles.issubset({"admin", "worker"})
+    assert roles == {"admin"}, f"Expected only admins, got {roles}"
+
+
+# --- New coworker-only DM rules (iter25) ----------------------------------
+
+def test_worker_cannot_dm_stranger_worker():
+    """Two workers with no shared gig should not be able to DM."""
+    w1, _ = _run(_seed_worker(approved=True))
+    w2, _ = _run(_seed_worker(approved=True))
+    tok = _run(_inject_session(w1))
+    s = requests.Session()
+    s.cookies.set("session_token", tok)
+    r = s.post(f"{API}/messages/threads/dm", json={"user_id": w2}, timeout=20)
+    assert r.status_code == 403, f"Expected 403, got {r.status_code}: {r.text}"
+    assert "shared" in r.text.lower() or "coworker" in r.text.lower()
+
+
+def test_worker_can_dm_coworker(owner):
+    """Two workers who shared a gig can DM each other."""
+    # Owner creates a gig
+    sched = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
+    g = owner.post(
+        f"{API}/gigs",
+        json={
+            "title": f"Coworker test {uuid.uuid4().hex[:6]}",
+            "description": "x",
+            "category": "cleaning",
+            "subcategory": "deep",
+            "location": "addr",
+            "scheduled_date": "Fri",
+            "scheduled_at": sched,
+            "pay_rate": 25.0,
+            "pay_type": "hourly",
+            "slots": 3,
+        },
+        timeout=20,
+    ).json()
+    gig_id = g["gig_id"]
+    # Seed two workers, both approved on this gig
+    w1, _ = _run(_seed_worker(approved=True))
+    w2, _ = _run(_seed_worker(approved=True))
+    _run(_seed_acceptance(gig_id, w1, status="accepted"))
+    _run(_seed_acceptance(gig_id, w2, status="accepted"))
+    # w1 DMs w2 — should work
+    tok = _run(_inject_session(w1))
+    s = requests.Session()
+    s.cookies.set("session_token", tok)
+    r = s.post(f"{API}/messages/threads/dm", json={"user_id": w2}, timeout=20)
+    assert r.status_code == 200, f"Expected coworker DM to succeed: {r.text}"
+    t = r.json()
+    assert sorted(t["participant_ids"]) == sorted([w1, w2])
+    owner.delete(f"{API}/gigs/{gig_id}", timeout=20)
+
+
+def test_worker_can_dm_past_coworker(owner):
+    """Completed gigs still count as 'shared' — workers stay connected."""
+    sched = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    g = owner.post(
+        f"{API}/gigs",
+        json={
+            "title": f"Past coworker test {uuid.uuid4().hex[:6]}",
+            "description": "x",
+            "category": "cleaning",
+            "subcategory": "deep",
+            "location": "addr",
+            "scheduled_date": "Fri",
+            "scheduled_at": sched,
+            "pay_rate": 25.0,
+            "pay_type": "hourly",
+            "slots": 3,
+        },
+        timeout=20,
+    ).json()
+    gig_id = g["gig_id"]
+    w1, _ = _run(_seed_worker(approved=True))
+    w2, _ = _run(_seed_worker(approved=True))
+    _run(_seed_acceptance(gig_id, w1, status="completed"))
+    _run(_seed_acceptance(gig_id, w2, status="completed"))
+    tok = _run(_inject_session(w1))
+    s = requests.Session()
+    s.cookies.set("session_token", tok)
+    r = s.post(f"{API}/messages/threads/dm", json={"user_id": w2}, timeout=20)
+    assert r.status_code == 200, r.text
+    owner.delete(f"{API}/gigs/{gig_id}", timeout=20)
+
+
+def test_worker_can_always_dm_admin(owner):
+    """Workers must always be able to reach an admin (the 'Message admin' button)."""
+    owner_id = _me(owner)["user_id"]
+    w1, _ = _run(_seed_worker(approved=True))
+    tok = _run(_inject_session(w1))
+    s = requests.Session()
+    s.cookies.set("session_token", tok)
+    r = s.post(f"{API}/messages/threads/dm", json={"user_id": owner_id}, timeout=20)
+    assert r.status_code == 200, r.text
+
+
+def test_eligible_users_worker_with_coworkers(owner):
+    """A worker with coworkers should see admins + those coworkers (not strangers)."""
+    sched = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
+    g = owner.post(
+        f"{API}/gigs",
+        json={
+            "title": f"Eligible-users coworker test {uuid.uuid4().hex[:6]}",
+            "description": "x",
+            "category": "cleaning",
+            "subcategory": "deep",
+            "location": "addr",
+            "scheduled_date": "Fri",
+            "scheduled_at": sched,
+            "pay_rate": 25.0,
+            "pay_type": "hourly",
+            "slots": 3,
+        },
+        timeout=20,
+    ).json()
+    gig_id = g["gig_id"]
+    w1, _ = _run(_seed_worker(approved=True))
+    w2, _ = _run(_seed_worker(approved=True))
+    w3_stranger, _ = _run(_seed_worker(approved=True))  # not on the gig
+    _run(_seed_acceptance(gig_id, w1, status="accepted"))
+    _run(_seed_acceptance(gig_id, w2, status="accepted"))
+    tok = _run(_inject_session(w1))
+    s = requests.Session()
+    s.cookies.set("session_token", tok)
+    r = s.get(f"{API}/messages/eligible-users", timeout=20)
+    assert r.status_code == 200
+    data = r.json()
+    user_ids = {u["user_id"] for u in data}
+    roles = {u["role"] for u in data}
+    assert "admin" in roles
+    assert w2 in user_ids, "Coworker should be visible"
+    assert w3_stranger not in user_ids, "Stranger worker must NOT be visible"
+    owner.delete(f"{API}/gigs/{gig_id}", timeout=20)

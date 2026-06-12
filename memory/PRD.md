@@ -366,6 +366,18 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 25: Tightened Messenger Permissions) — VERIFIED
+- **Workers can no longer freely DM other workers**. New rule:
+  - Workers can always DM any admin (preserves the "Message admin" button on gig pages).
+  - Workers can DM another worker **only if they've shared a gig** (both approved on the same gig at any point — historical completed gigs count).
+  - VAs unchanged (admins only).
+  - Admins unchanged (anyone).
+- **`/api/messages/eligible-users`** for workers now returns admins + their coworkers (workers they've shared a gig with). Strangers are hidden from the New Message dialog.
+- **Existing threads remain accessible** — the gate is at thread-creation only. Already-open conversations don't get cut off.
+- **Gig group chats unchanged** — approved workers + admins still see the per-gig group thread.
+- **Empty state copy** in the New Message dialog now explains the rule to workers ("You can DM HCOB admins anytime, and any worker after you've shared a gig with them.").
+- **Testing**: 13/13 messenger pytests pass (5 new coworker-rule tests added).
+
 ## Implemented — 2026-02 (Iter 24: In-App Messenger) — VERIFIED
 - **DMs + per-gig group chats**: Worker↔Admin, Worker↔Worker, VA↔Admin (role-gated). Deterministic thread IDs (`dm_{sortedA}__{sortedB}`, `gig_{gig_id}`) so opening is idempotent.
 - **General inbox + per-gig threads**: `/ops/messages`, `/crew/messages`, `/va/messages` all render the same `Messages.jsx` page inside their respective layouts. Thread list left, conversation right; mobile collapses with a back arrow.

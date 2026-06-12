@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 import { MagnifyingGlass, ShieldCheck, User as UserIcon } from "@phosphor-icons/react";
 
 /**
@@ -11,6 +12,7 @@ import { MagnifyingGlass, ShieldCheck, User as UserIcon } from "@phosphor-icons/
  * onOpened(thread) — called after thread is opened/created.
  */
 export default function NewMessageDialog({ open, onOpenChange, onOpened }) {
+  const { user } = useAuth();
   const [q, setQ] = useState("");
   const [users, setUsers] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -77,7 +79,17 @@ export default function NewMessageDialog({ open, onOpenChange, onOpened }) {
             <div className="p-6 text-center text-sm text-[#737373]">Loading…</div>
           ) : filtered.length === 0 ? (
             <div className="p-6 text-center text-sm text-[#737373]" data-testid="new-message-empty">
-              No matching users.
+              {users.length === 0 && user?.role === "worker" ? (
+                <>
+                  No one to message yet.
+                  <br />
+                  <span className="text-xs">
+                    You can DM HCOB admins anytime, and any worker after you've shared a gig with them.
+                  </span>
+                </>
+              ) : (
+                "No matching users."
+              )}
             </div>
           ) : (
             <ul className="divide-y divide-[#F3F4F6]">
