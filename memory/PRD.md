@@ -366,6 +366,15 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 24: In-App Messenger) — VERIFIED
+- **DMs + per-gig group chats**: Worker↔Admin, Worker↔Worker, VA↔Admin (role-gated). Deterministic thread IDs (`dm_{sortedA}__{sortedB}`, `gig_{gig_id}`) so opening is idempotent.
+- **General inbox + per-gig threads**: `/ops/messages`, `/crew/messages`, `/va/messages` all render the same `Messages.jsx` page inside their respective layouts. Thread list left, conversation right; mobile collapses with a back arrow.
+- **Polling delivery**: navbar badge polls `/api/messages/unread-count` every 10s; active thread polls `/api/messages/threads/{id}/messages` every 5s. Custom `hcob:messages-changed` event refreshes the badge instantly after send.
+- **Email digest**: background asyncio task runs every 5min, rolls up unread messages older than 15min into a single Resend email per user. Throttled by `message_digest_state` so each head message only emails once. Graceful degradation when Resend isn't configured.
+- **Text + image attachments**: paperclip → upload (10MB cap, image MIME only) → thumbnail preview → send → renders in bubble. Attachment ACL: any thread participant can fetch (extended `/api/files/{path}`).
+- **Quick CTAs**: Worker GigDetail shows 'Message HCOB admin' + 'Group chat' when approved. Admin GigDetail shows 'Open gig group chat'. Admin WorkerDetail shows 'Message worker'.
+- **Testing**: 8/8 backend pytests (`test_messenger.py`) + 28/28 regression. Full Playwright E2E on admin, worker, and VA portals — every flow verified.
+
 ## Implemented — 2026-02 (Iter 23: Backup Workers + Shift Cancellation + Email Notifications) — VERIFIED
 - **Backup workers**: Gigs gain `backup_slots` (CreateGigDialog field `gig-backup-slots`) and `backups_filled` counter. Approve-as-backup button next to Approve on pending requests. New Backups section on admin GigDetail with Promote and Remove actions.
 - **Backend endpoints**: `POST /api/gigs/{id}/requests/{aid}/approve-backup`, `POST /api/gigs/{id}/acceptances/{aid}/promote`. Slot accounting (`slots_filled`/`backups_filled`/`status`) updates correctly.
