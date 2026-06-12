@@ -15,6 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { api, API, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import NewMessageDialog from "@/components/messages/NewMessageDialog";
+import WorkerLink from "@/components/admin/WorkerLink";
 
 const MESSAGE_POLL_MS = 5000;
 const LIST_POLL_MS = 10000;
@@ -383,16 +384,10 @@ export default function Messages() {
                   {user?.role === "admin" &&
                   activeThread.type === "dm" &&
                   activeThread.other_user?.role === "worker" ? (
-                    <a
-                      href={`/ops/workers/${activeThread.other_user.user_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-testid={`worker-link-${activeThread.other_user.user_id}`}
-                      className="underline decoration-dotted underline-offset-4 hover:text-[#0044FF]"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ThreadTitle thread={activeThread} currentUserId={user?.user_id} />
-                    </a>
+                    <WorkerLink
+                      workerId={activeThread.other_user.user_id}
+                      name={<ThreadTitle thread={activeThread} currentUserId={user?.user_id} />}
+                    />
                   ) : (
                     <ThreadTitle thread={activeThread} currentUserId={user?.user_id} />
                   )}
@@ -465,16 +460,10 @@ export default function Messages() {
                           {!mine && (
                             <div className="mb-0.5 text-[10px] font-bold uppercase tracking-widest opacity-70">
                               {user?.role === "admin" && m.sender_role === "worker" ? (
-                                <a
-                                  href={`/ops/workers/${m.sender_id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  data-testid={`worker-link-${m.sender_id}`}
-                                  className="underline decoration-dotted underline-offset-4 hover:opacity-100"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {m.sender_name}
-                                </a>
+                                <WorkerLink
+                                  workerId={m.sender_id}
+                                  name={m.sender_name}
+                                />
                               ) : (
                                 m.sender_name
                               )}

@@ -366,6 +366,19 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 26: Clickable Worker Names Everywhere) — VERIFIED
+- New `<WorkerLink>` component at `/components/admin/WorkerLink.jsx` — renders a worker's name as a dotted-underline `<a target="_blank" href="/ops/workers/:id">` with `data-testid=worker-link-{worker_id}`. Falls back to plain `<span>` when worker_id is missing.
+- Applied across every admin surface that displays a worker name:
+  - **GigDetail** (3 spots): pending requests row, backups row, approved roster row
+  - **AdminRequests** global queue
+  - **AdminReports** timesheet/blast rows
+  - **AdminProjectDetail** crew list
+  - **Dialogs**: ApproveTimesheet, PayOverride, Rating (2 spots), EditTimesheet
+  - **Messages**: DM thread header (when admin→worker) + each non-mine message bubble sender label
+- New-tab behavior preserves admin context (don't lose the gig/project/report you were on)
+- Worker and VA portals intentionally unmodified (admin-only feature)
+- Testing: 100% pass on 5 live-verified surfaces, source-verified on the 4 dialogs (no seed data available to live-trigger them)
+
 ## Implemented — 2026-02 (Iter 25: Tightened Messenger Permissions) — VERIFIED
 - **Workers can no longer freely DM other workers**. New rule:
   - Workers can always DM any admin (preserves the "Message admin" button on gig pages).
