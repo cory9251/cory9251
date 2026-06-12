@@ -19,9 +19,11 @@ import {
   Buildings,
   Kanban,
   Receipt,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
+import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const nav = [
   { to: "/ops", label: "Dashboard", icon: House, end: true },
@@ -31,6 +33,7 @@ const nav = [
   { to: "/ops/gigs", label: "Gigs", icon: Briefcase, end: false },
   { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
   { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
+  { to: "/ops/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
   { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },
   { to: "/ops/settings", label: "Settings", icon: Gear, end: false },
 ];
@@ -56,6 +59,7 @@ export default function AdminLayout() {
   const [vaQueueCount, setVaQueueCount] = useState(0);
   const [payoutsCount, setPayoutsCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { count: messagesUnread } = useUnreadMessages();
 
   const refreshPending = async () => {
     try {
@@ -195,6 +199,14 @@ export default function AdminLayout() {
                     {quotesCount > 99 ? "99+" : quotesCount}
                   </span>
                 )}
+                {n.badge === "messages" && messagesUnread > 0 && (
+                  <span
+                    data-testid="nav-messages-count"
+                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                  >
+                    {messagesUnread > 99 ? "99+" : messagesUnread}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>
@@ -290,13 +302,13 @@ export default function AdminLayout() {
               className="-ml-2 grid h-10 w-10 place-items-center rounded-md text-[#030712] hover:bg-[#F3F4F6]"
             >
               <List size={22} weight="bold" />
-              {(pendingCount > 0 || quotesCount > 0) && (
+              {(pendingCount > 0 || quotesCount > 0 || messagesUnread > 0) && (
                 <span
                   data-testid="admin-mobile-menu-badge"
                   className="absolute mt-[-22px] ml-[18px] inline-flex h-4 min-w-[16px] items-center justify-center bg-[#F59E0B] px-1 text-[9px] font-bold tracking-widest text-white"
                 >
                   {(() => {
-                    const c = (pendingCount || 0) + (quotesCount || 0);
+                    const c = (pendingCount || 0) + (quotesCount || 0) + (messagesUnread || 0);
                     return c > 99 ? "99+" : c;
                   })()}
                 </span>
@@ -403,6 +415,14 @@ export default function AdminLayout() {
                         className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#0044FF] px-1.5 text-[10px] font-bold tracking-widest text-white"
                       >
                         {quotesCount > 99 ? "99+" : quotesCount}
+                      </span>
+                    )}
+                    {n.badge === "messages" && messagesUnread > 0 && (
+                      <span
+                        data-testid="mobile-nav-messages-count"
+                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                      >
+                        {messagesUnread > 99 ? "99+" : messagesUnread}
                       </span>
                     )}
                   </NavLink>

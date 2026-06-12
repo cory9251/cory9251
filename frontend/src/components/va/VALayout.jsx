@@ -10,14 +10,17 @@ import {
   List,
   X,
   WarningCircle,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
+import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const tabs = [
   { to: "/va", label: "Dashboard", icon: Gauge, end: true },
   { to: "/va/submit", label: "Submit Lead", icon: PlusCircle, end: false },
   { to: "/va/leads", label: "My Leads", icon: Kanban, end: false },
   { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false },
+  { to: "/va/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
 ];
 
 export default function VALayout() {
@@ -25,6 +28,7 @@ export default function VALayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { count: messagesUnread } = useUnreadMessages();
 
   useEffect(() => {
     setMobileOpen(false); // eslint-disable-line
@@ -70,6 +74,14 @@ export default function VALayout() {
               >
                 <t.icon size={18} weight="duotone" />
                 <span className="flex-1">{t.label}</span>
+                {t.badge === "messages" && messagesUnread > 0 && (
+                  <span
+                    data-testid="va-nav-messages-count"
+                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                  >
+                    {messagesUnread > 99 ? "99+" : messagesUnread}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>
@@ -170,6 +182,14 @@ export default function VALayout() {
                   >
                     <t.icon size={20} weight="duotone" />
                     <span className="flex-1">{t.label}</span>
+                    {t.badge === "messages" && messagesUnread > 0 && (
+                      <span
+                        data-testid="va-mobile-nav-messages-count"
+                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                      >
+                        {messagesUnread > 99 ? "99+" : messagesUnread}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </div>

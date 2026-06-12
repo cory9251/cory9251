@@ -417,6 +417,24 @@ export default function GigDetail() {
           </Button>
 
           <Button
+            data-testid="open-gig-chat-btn"
+            onClick={async () => {
+              try {
+                const { data } = await api.get(
+                  `/messages/threads/gig/${gigId}`
+                );
+                nav(`/ops/messages?thread=${data.thread_id}`);
+              } catch (e) {
+                toast.error(getErr(e));
+              }
+            }}
+            variant="outline"
+            className="mt-3 h-12 w-full rounded-none border-[#030712]"
+          >
+            <Megaphone size={18} className="mr-2" /> Open gig group chat
+          </Button>
+
+          <Button
             data-testid="duplicate-gig-btn"
             onClick={duplicate}
             disabled={duplicating}

@@ -297,6 +297,57 @@ export default function WorkerGigDetail() {
         )}
       </div>
 
+      {/* Messaging — message HCOB admin or open the gig group chat */}
+      {isApproved && (
+        <div
+          data-testid="worker-gig-messaging"
+          className="mx-0 mt-5 grid grid-cols-2 gap-3"
+        >
+          <button
+            type="button"
+            data-testid="message-admin-btn"
+            onClick={async () => {
+              try {
+                const { data: admins } = await api.get(
+                  "/messages/eligible-users?q=admin"
+                );
+                const target = admins.find((u) => u.role === "admin");
+                if (!target) {
+                  toast.error("No admin available to message");
+                  return;
+                }
+                const { data } = await api.post("/messages/threads/dm", {
+                  user_id: target.user_id,
+                });
+                nav(`/crew/messages?thread=${data.thread_id}`);
+              } catch (e) {
+                toast.error(getErr(e));
+              }
+            }}
+            className="flex items-center justify-center gap-2 border border-[#030712] bg-white px-3 py-3 text-xs font-bold uppercase tracking-widest hover:bg-[#030712] hover:text-white"
+          >
+            Message HCOB admin
+          </button>
+          <button
+            type="button"
+            data-testid="open-gig-chat-btn"
+            onClick={async () => {
+              try {
+                const { data } = await api.get(
+                  `/messages/threads/gig/${gigId}`
+                );
+                nav(`/crew/messages?thread=${data.thread_id}`);
+              } catch (e) {
+                toast.error(getErr(e));
+              }
+            }}
+            className="flex items-center justify-center gap-2 bg-[#030712] px-3 py-3 text-xs font-bold uppercase tracking-widest text-white hover:bg-[#0044FF]"
+          >
+            Group chat
+          </button>
+        </div>
+      )}
+
       {/* Crew — other approved workers on the same gig. First name + role
           only, surfaced only after this worker is approved. */}
       {isApproved && Array.isArray(gig.crew) && gig.crew.length > 0 && (

@@ -39,6 +39,7 @@ import {
   PauseCircle,
   ThumbsUp,
   CurrencyDollar,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 
 export default function WorkerDetail() {
@@ -285,6 +286,23 @@ export default function WorkerDetail() {
 
           <div className="mt-10 border-t border-[#E5E7EB] pt-6">
             <div className="font-mono-label">Account management</div>
+            <Button
+              data-testid="message-worker-btn"
+              onClick={async () => {
+                try {
+                  const { data } = await api.post("/messages/threads/dm", {
+                    user_id: userId,
+                  });
+                  nav(`/ops/messages?thread=${data.thread_id}`);
+                } catch (e) {
+                  toast.error(getErr(e));
+                }
+              }}
+              variant="outline"
+              className="mt-3 h-11 w-full rounded-none border-[#030712]"
+            >
+              <ChatCircleDots size={16} className="mr-2" /> Message worker
+            </Button>
             <Button
               data-testid="reset-password-btn"
               onClick={() => setResetOpen(true)}

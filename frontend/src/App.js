@@ -36,6 +36,7 @@ import VASubmitLead from "@/pages/va/VASubmitLead";
 import VAMyLeads from "@/pages/va/VAMyLeads";
 import VAEarnings from "@/pages/va/VAEarnings";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
+import Messages from "@/pages/Messages";
 import RatePage from "@/pages/RatePage";
 import PublicGigPage from "@/pages/PublicGigPage";
 import WorkerLayout from "@/components/worker/WorkerLayout";
@@ -109,6 +110,7 @@ function RouterShell() {
         <Route path="quotes" element={<AdminQuotes />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="settings" element={<AdminSettings />} />
+        <Route path="messages" element={<Messages />} />
         {/* VA Commission Program — admin / Program Manager / Owner */}
         <Route path="va-program" element={<AdminVAOverview />} />
         <Route path="va-program/pipeline" element={<AdminVAPipeline />} />
@@ -142,6 +144,7 @@ function RouterShell() {
         <Route path="gigs/:gigId" element={<WorkerGigDetail />} />
         <Route path="projects/:projectId" element={<WorkerProjectPage />} />
         <Route path="my-gigs" element={<WorkerAccepted />} />
+        <Route path="messages" element={<Messages />} />
         <Route path="me" element={<WorkerProfile />} />
       </Route>
 
@@ -158,6 +161,7 @@ function RouterShell() {
         <Route path="submit" element={<VASubmitLead />} />
         <Route path="leads" element={<VAMyLeads />} />
         <Route path="earnings" element={<VAEarnings />} />
+        <Route path="messages" element={<Messages />} />
       </Route>
 
       {/* Legacy /app/* — redirect to /crew/* */}

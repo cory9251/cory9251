@@ -6,18 +6,22 @@ import {
   User,
   SignOut,
   Lightning,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
+import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const tabs = [
   { to: "/crew", label: "Feed", icon: House, end: true },
   { to: "/crew/my-gigs", label: "My gigs", icon: CheckSquare, end: false },
+  { to: "/crew/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
   { to: "/crew/me", label: "Profile", icon: User, end: false },
 ];
 
 export default function WorkerLayout() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
+  const { count: messagesUnread } = useUnreadMessages();
   const onLogout = async () => {
     await logout();
     nav("/", { replace: true });
@@ -52,23 +56,33 @@ export default function WorkerLayout() {
 
         <nav
           data-testid="worker-bottom-nav"
-          className="sticky bottom-0 z-10 grid grid-cols-3 border-t border-[#E5E7EB] bg-white"
+          className="sticky bottom-0 z-10 grid grid-cols-4 border-t border-[#E5E7EB] bg-white"
         >
           {tabs.map((t) => (
             <NavLink
               key={t.to}
               to={t.to}
               end={t.end}
-              data-testid={`tab-${t.label.toLowerCase()}`}
+              data-testid={`tab-${t.label.toLowerCase().replace(/ /g, "-")}`}
               className={({ isActive }) =>
-                `flex flex-col items-center justify-center gap-1 py-3 text-[10px] font-semibold uppercase tracking-widest ${
+                `relative flex flex-col items-center justify-center gap-1 py-3 text-[10px] font-semibold uppercase tracking-widest ${
                   isActive ? "text-[#0044FF]" : "text-[#4B5563]"
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <t.icon size={22} weight={isActive ? "fill" : "duotone"} />
+                  <div className="relative">
+                    <t.icon size={22} weight={isActive ? "fill" : "duotone"} />
+                    {t.badge === "messages" && messagesUnread > 0 && (
+                      <span
+                        data-testid="worker-tab-messages-badge"
+                        className="absolute -right-2 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center bg-[#F59E0B] px-1 text-[9px] font-bold tracking-widest text-white"
+                      >
+                        {messagesUnread > 99 ? "99+" : messagesUnread}
+                      </span>
+                    )}
+                  </div>
                   {t.label}
                 </>
               )}
