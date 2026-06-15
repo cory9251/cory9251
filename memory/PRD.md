@@ -366,6 +366,17 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 32: Backend Modularization Phase 3d — Gigs Extracted) — VERIFIED
+- **server.py: 7,136 → 5,439 lines** (−1,697; cumulative −3,572 from baseline ≈ 40% reduction).
+- **`routes/gigs.py`** (~1,500 lines) owns the entire gig surface:
+  - **CRUD**: `POST /gigs` (with recurrence series), `GET /gigs`, `GET /gigs/{id}`, `DELETE /gigs/{id}`, `PUT /gigs/{id}`, `POST /gigs/{id}/duplicate`
+  - **Lifecycle**: `POST /gigs/{id}/accept`, `POST /gigs/{id}/requests/{aid}/approve`, `POST /gigs/{id}/requests/{aid}/approve-backup`, `POST /gigs/{id}/acceptances/{aid}/promote`, `POST /gigs/{id}/requests/{aid}/reject`, `POST /gigs/{id}/assign`, `DELETE /gigs/{id}/acceptances/{aid}`, `POST /gigs/{id}/cancel-shift`, `POST /gigs/{id}/withdraw` (legacy alias)
+  - **Broadcast**: `POST /gigs/{id}/blast`, `PUT /gigs/{id}/rush`, `PUT /gigs/{id}/tags`, `POST /gigs/{id}/publish`
+  - **Time tracking**: `POST /gigs/{id}/clock-in`, `POST /gigs/{id}/clock-out`
+  - **Helpers** (re-exported for admin/timesheet/reports): `_gig_doc`, `_strip_sensitive_for_worker`, `_effective_status`, `_resolve_pay`, `_resolve_break_minutes`, `_compute_paid_hours`, `_compute_earnings`, `_format_gig_email`, `_format_gig_sms`, `_promote_first_backup`, `_notify_matching_workers_of_new_gig`, `_publish_due_gigs_loop`
+- **`notifications.py`**: gained `_log_blast` (moved from server.py — used by both gig blast and project blast endpoints).
+- **Verified**: 80/80 backend tests pass (15 new iter29 + 65 prior regression). Testing agent confirmed zero behavior change across blast→rush+tags flip, clock-in/out guards, cancel-shift→backup-promotion chain, and delete-cascade. 3 unrelated pre-existing test_calendar fixture failures explicitly excluded by testing agent.
+
 ## Implemented — 2026-02 (Iter 31: Backend Modularization Phase 3c — Profile Extracted) — VERIFIED
 - **server.py: 7,262 → 7,136 lines** (−126; cumulative −1,875 from baseline).
 - **`routes/profile.py`** (163 lines) owns `/profile/options`, `/profile` (PUT), `/profile/avatar`, `/profile/id`, `/files/{path}`, plus the shared `_upload_user_image` helper. server.py re-imports `_upload_user_image` so the admin worker-ID upload endpoint keeps working unchanged.
