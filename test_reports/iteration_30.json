@@ -1,0 +1,48 @@
+{
+  "summary": "Phase 3e backend modularization regression — verified that the extraction of ALL admin endpoints (~1,140 lines) into routes/admin.py + ALL reports endpoints (~1,070 lines) into routes/reports.py is behavior-preserving. Created /app/backend/tests/test_iter30_admin_reports.py (29 new tests) covering every endpoint called out in the iter30 review-request: /admin/workers list+filters (status, zip_prefix, search), /admin/workers/match, /admin/workers/{id} detail, /admin/requests, verify-id, PUT /admin/workers/{id}/profile, the approve/reject/suspend/reinstate transitions (incl. session-kill on reject+suspend), /admin/workers/{id}/reset-password (worker), /admin/users/{id}/reset-password (Owner-only), DELETE /admin/workers/{id} cascade (acceptances+sessions+notifications), /admin/stats KPIs, PUT /admin/workers/{id}/pay defaults, PUT /gigs/{id}/acceptances/{aid}/pay override + earnings recompute, approve-timesheet, unapprove-timesheet, PUT timesheet edits, /admin/reports/{workers,gigs,activity,earnings,blasts} shape, /admin/reports/timesheets + .csv variant, /admin/reports/{bogus} → 404, /admin/reports/export-google-sheets → 400 when SA JSON not configured, /me/earnings worker vs admin gating. Also re-ran the iter29 + iter28 + messenger + backups_and_cancel + iter_projects + iter25_breaks regression suites (75 tests + 1 intentional skip) — ALL still green. Total: 104/104 relevant tests pass. The pure refactor has ZERO behavioral regressions on the verified surface.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter30_admin_reports.py",
+    "/app/test_reports/pytest/iter30_admin_reports.xml",
+    "/app/test_reports/pytest/iter30_regression.xml"
+  ],
+  "action_items": [
+    "No blocking issues. Phase 3e (routes/admin.py + routes/reports.py extraction) is regression-clean — safe to proceed to next phase.",
+    "(Pre-existing, NOT iter30) test_admin_settings.py has 3 flaky tests tied to RESEND_API_KEY env-var fallback per PRD.md. Out of scope for this refactor.",
+    "(Pre-existing, NOT iter30) test_calendar.py::TestStatusAllFilter (3 tests) fails due to incomplete-worker-profile fixture per iter29 findings."
+  ],
+  "critical_code_review_comments": [
+    "Refactor is clean: routes/admin.py uses APIRouter (~1,138 lines) and routes/reports.py uses APIRouter (~1,072 lines), both wired into server.py via include_router(). server.py dropped from 9,011 baseline → 3,378 lines (~62% reduction across Phases 3a-3e).",
+    "Pay-override schema is `pay_rate_override` / `pay_type_override` (not `pay_rate` / `pay_type`). After the PUT, the endpoint correctly recomputes pay_rate_applied + earnings via _resolve_pay/_compute_earnings (re-imported from routes.gigs) AND invalidates a prior approval (sets timesheet_approved=False). Verified by test_acceptance_pay_override_and_earnings_recompute.",
+    "POST /admin/workers/{id}/reset-password and POST /admin/workers/{id}/{approve|reject|suspend|reinstate} and POST /admin/reports/export-google-sheets ALL require a JSON body (even {}). Pydantic 422 if body is omitted — same behavior as pre-refactor.",
+    "Session-kill semantics preserved on reject/suspend/reset-password (verified by test_approve_reject_suspend_reinstate + test_reset_worker_password_kills_sessions).",
+    "DELETE /admin/workers/{id} cascades acceptances + notifications + sessions (verified by test_delete_worker_cascades).",
+    "GET /admin/reports/{workers|gigs|activity|earnings|blasts} all return {rows, columns, totals, filter} — uniform shape (verified by parameterized test_generic_report_shape).",
+    "GET /admin/reports/timesheets returns JSON {rows, totals}; .csv variant returns text/csv MIME — both verified.",
+    "GET /admin/reports/{bogus} returns 404 with detail 'Unknown report_type: {bogus}' — verified.",
+    "POST /admin/reports/export-google-sheets returns 400 when google_service_account_json is missing in app_settings — verified (test skips if SA JSON is configured to avoid destroying real config).",
+    "GET /me/earnings 403s admins and returns {approved:{rows,total_hours,total_earnings,...}, pending:{count,hours}} for workers — verified end-to-end via seeded acceptances on two distinct gigs (the unique index gig_id_1_worker_id_1 prevents two acceptances on the same gig+worker, which is correct domain behavior)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter30_admin_reports.py (NEW — 29 regression tests for the Phase 3e admin + reports router extraction)"
+  ],
+  "success_rate": {
+    "backend": "100% on iter30 new suite (29/29). 100% on iter29+iter28+messenger+backups_and_cancel+iter_projects+iter25_breaks regression (75/75 + 1 intentional skip). Combined: 104/104 relevant tests pass.",
+    "frontend": "N/A — review_request specified 'backend only (skip frontend)'."
+  },
+  "test_credentials": "Owner admin@hcobcleaners.com / HcobAdmin2026! (used). Program-manager target mechiebadlong77@gmail.com used for the owner-reset-another-admin test (restored to Mechie2026! after the test). Test workers seeded directly in Mongo with TEST_iter30_<hex>@example.com.",
+  "seed_data_creation": "Each test_iter30_* run inserts ~10-15 ephemeral worker docs (TEST_iter30_ prefix) + session tokens + gig_acceptances directly in Mongo to bypass the id-verification gate. Gigs created via POST /api/gigs are deleted in test teardown (best-effort try/finally blocks). The cancel-shift, delete-cascade, and earnings tests are self-cleaning. No production/seed-admin data is mutated except the PM admin password (force-reset, then immediately restored).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "If main agent continues Phase 3+ modularization (e.g., extracting routes/customers.py, routes/notifications.py, routes/auth.py next), re-run FOUR suites: (1) /app/backend/tests/test_iter30_admin_reports.py — 29 tests covering admin + reports + /me/earnings surface, (2) /app/backend/tests/test_iter29_gigs_router.py — 15 tests covering gig blast/rush/tags/clock-in/clock-out/cancel-shift/cascade-delete, (3) /app/backend/tests/test_iter28_refactor_regression.py — 17 broad auth/profile/messages/files tests, (4) /app/backend/tests/test_backups_and_cancel.py + test_messenger.py + test_iter_projects.py + test_iter25_breaks.py for messenger/backups/projects/breaks (44 tests). All 104 should pass. Required env: REACT_APP_BACKEND_URL, MONGO_URL, DB_NAME (source from /app/frontend/.env and /app/backend/.env). KEY GOTCHAS: (a) admin endpoints that take optional body (reset-password, approve/reject/suspend/reinstate, approve-timesheet, unapprove-timesheet, export-google-sheets) all require at least `json={}` or you get 422. (b) Pay-override endpoint uses `pay_rate_override`/`pay_type_override`, NOT `pay_rate`/`pay_type`. (c) gig_acceptances has a UNIQUE index on (gig_id, worker_id) — to test multi-acceptance flows, seed on different gigs. (d) The cleanest pattern for seeding a 'real' worker that bypasses the profile/id-verification gates is the _seed_verified_worker + _set_session_for_worker helpers in test_iter30_admin_reports.py — copy them rather than going through register+login+id-upload+verify.",
+  "rca_of_the_issue": "N/A — Phase 3e refactor verified clean. Initial test-write encountered 4 transient test-author errors (wrong field name for pay-override, missing required JSON body on three endpoints, duplicate-key on the same gig+worker pair) — all were test-side fixes that did not require backend changes; the underlying endpoints behaved identically to the pre-refactor specification."
+}
