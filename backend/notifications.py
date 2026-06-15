@@ -182,3 +182,46 @@ async def _send_gig_event_email(
         worker, kind=kind, subject=subject, body_html=body_html,
         cta_label="Open in HCOB Network", cta_url=cta_url,
     )
+
+
+
+async def _log_blast(
+    *,
+    kind: str,                       # "gig" | "project"
+    gig_id: Optional[str],
+    gig_title: Optional[str],
+    project_id: Optional[str],
+    project_title: Optional[str],
+    channels: list,
+    counts: dict,
+    workers_targeted: int,
+    sent_by_id: str,
+    sent_by_name: Optional[str] = None,
+    extra: Optional[dict] = None,
+) -> None:
+    """Append a single send event to `blast_logs`. Powers the Blasts report."""
+    doc = {
+        "blast_id": f"blast_{uuid.uuid4().hex[:12]}",
+        "kind": kind,
+        "gig_id": gig_id,
+        "gig_title": gig_title,
+        "project_id": project_id,
+        "project_title": project_title,
+        "channels": list(channels or []),
+        "in_app": int(counts.get("in_app") or 0),
+        "email": int(counts.get("email") or 0),
+        "sms": int(counts.get("sms") or 0),
+        "push": int(counts.get("push") or 0),
+        "email_failed": int(counts.get("email_failed") or 0),
+        "sms_failed": int(counts.get("sms_failed") or 0),
+        "workers_targeted": int(workers_targeted or 0),
+        "sent_by_id": sent_by_id,
+        "sent_by_name": sent_by_name,
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        doc["extra"] = extra
+    try:
+        await db.blast_logs.insert_one(doc)
+    except Exception as e:
+        logger.error(f"Failed to log blast: {e}")
