@@ -459,8 +459,38 @@
 - **Resend email notifications**: Hooked into approve / reject / remove / suspend / gig-update flows. Graceful degradation when Resend isn't configured (admin action still succeeds).
 - **Testing**: 12/12 backend pytests pass (`test_backups_and_cancel.py` + `test_iter23_e2e_setup.py`). Full Playwright E2E coverage for Admin GigDetail backup flow and Worker GigDetail cancel-shift modal (iter23 report).
 
+## Implemented — 2026-06 (Iter 34: Wall-Clock Times + 'Available Now' Toggle) — VERIFIED
+- **Calendar/feed timezone bug FIXED**. Recurring gigs were storing the human display string (`scheduled_date`) in UTC because `strftime` was called on a UTC-aware datetime, so an admin in EST posting "9 AM weekly" saw "9 AM" on occurrence 0 but "2 PM" on every later one. Root cause + fix verified end-to-end.
+- **New field `scheduled_local`** (`"YYYY-MM-DDTHH:mm"`, no TZ) is now the single source of truth for display. Same string is shown to the admin and any worker, anywhere in the world — no drift.
+  - Backend: added to `GigIn` + `GigPatch` (`models.py`). `routes/gigs.py` `_gig_doc` persists it; the recurring loop now advances both the wall-clock and the UTC datetime in lock-step.
+  - Backfill on `on_startup`: derives `scheduled_local` from `scheduled_at` interpreted in `America/New_York` (HCOB HQ, override via `HCOB_SITE_TZ` env). Idempotent.
+- **New frontend helper `/app/frontend/src/lib/gigDate.js`**:
+  - `getGigDate(g)` — JS Date in browser-local with the admin's wall-clock hour, regardless of viewer TZ.
+  - `formatGigWhen(g)` — "Today · 9 AM – 5 PM", "Tomorrow · …", "Fri Mar 14 · 9 AM"
+  - `formatGigLong(g)` — "Friday, March 14 · 9:00 AM – 5:00 PM (8h)"
+  - `formatGigShort(g)` — "Fri Mar 14 · 9 AM"
+  - `formatGigRelative(g)` — "Starts in 3h", "Started 20m ago"
+  - `isGigToday(g)` / `isGigTomorrow(g)` for highlight styling.
+- **Applied across every surface**: WorkerFeed (with Today highlight pill), WorkerGigDetail, WorkerAccepted, AdminCalendar (replaces `parseISO(scheduled_at)`), AdminGigs (sortable column), AdminDashboard, GigDetail (admin), PublicGigPage, Landing live snippet. CreateGigDialog + EditGigDialog now send `scheduled_local` alongside `scheduled_at`.
+
+### "Available Now" worker toggle (user picked option E from the AI suggestions)
+- **Backend**:
+  - `PUT /api/me/availability` body `{available: bool, hours?: int}` — worker self-service. Default `available=true` sets `available_until = end-of-day in HCOB_SITE_TZ` (America/New_York). Custom `hours` = 1..24. Non-workers get 403.
+  - New user fields: `available_now: bool`, `available_until: ISO string`, `available_set_at: ISO string`.
+  - Auto-expiry: `_get_user_by_id` and `GET /admin/workers` recompute on read — if `available_until < now`, the flag is auto-cleared (and persisted for housekeeping).
+  - `GET /admin/workers?available_now=true|false` filter.
+  - `GET /admin/stats` adds `available_now` integer count of currently-available workers.
+- **Frontend**:
+  - New component `/app/frontend/src/components/worker/AvailableNowToggle.jsx` with two variants (`card`, `compact`).
+  - Worker `/crew` (WorkerFeed): big green pill above the verification banner. Tap → broadcasts. Shows live countdown "Until 9:30 PM" with "Xm left" pulse when <60min remain. Hidden for pending/rejected/suspended workers.
+  - Admin `/ops` dashboard: green strip "X worker(s) are available right now — perfect for RUSH gigs" → links to roster (data-testid `dashboard-available-strip`).
+  - Admin `/ops/workers`: new toggle button (data-testid `filter-available-now`) next to Filters; each available worker card shows a pulsing green `AVAILABLE NOW` badge.
+  - Admin `Add a worker` dialog: available workers pinned to top + per-row badge + counter pill (data-testids `assign-available-{id}`, `available-now-count`).
+- **Tests**: 9/9 pytest (`test_iter34_tz_and_availability.py` + `test_iter35_backcompat.py`). 100% E2E via the testing agent (iteration_35.json) — calendar timezone fix, robust feed formatting, and full Available-Now flow all verified.
+
+
 ## Next steps
-1. **Backend modularization (P1)** — `server.py` is now ~8,346 lines. Split into `routes/auth.py`, `routes/gigs.py`, `routes/projects.py`, `routes/va_commission.py`, `routes/owner.py`, `routes/backups_cancel.py`.
+1. **Backend modularization (P1)** — `server.py` still has ~3,378 lines: split `routes/projects.py`, `routes/va.py`, `routes/pm.py`, `routes/owner.py` (Phase 3f).
 2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).
 3. **Stripe auto-payouts (P2)** — VA commissions + worker payouts.
 4. **Auto-blast on gig create (P3)** — hook blast system to gig creation.
