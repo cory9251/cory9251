@@ -1,9 +1,107 @@
 """HCOB Network — Gig Opportunity Management Platform."""
-from dotenv import load_dotenv
-from pathlib import Path
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / ".env")
+# Loading order matters: backend.config calls load_dotenv() on import. Every
+# module below it can then read env vars normally.
+from config import (  # noqa: F401 — re-exported for legacy imports
+    MONGO_URL,
+    DB_NAME,
+    JWT_SECRET,
+    JWT_ALG,
+    APP_NAME,
+    EMERGENT_LLM_KEY,
+    STORAGE_URL,
+    RESEND_API_KEY,
+    SENDER_EMAIL,
+    TWILIO_SID,
+    TWILIO_TOKEN,
+    TWILIO_FROM,
+    VAPID_PUBLIC_KEY,
+    VAPID_PRIVATE_KEY,
+    VAPID_SUBJECT,
+    logger,
+    client,
+    db,
+)
+from constants import (
+    WORKER_SKILLS,
+    SKILL_LABELS,
+    GIG_CATEGORY_TO_SKILLS,
+    AVAILABILITY_OPTIONS,
+    EXPERIENCE_OPTIONS,
+    TSHIRT_SIZES,
+    REQUIRED_PROFILE_FIELDS,
+    GIG_TAG_VALUES,
+)
+from storage import init_storage, put_object, get_object, _ext_from
+from auth_deps import (
+    hash_password,
+    verify_password,
+    new_session_token,
+    SESSION_DAYS,
+    cookie_kwargs,
+    _profile_missing_fields,
+    _is_profile_complete,
+    _get_user_by_id,
+    _worker_rating_stats,
+    get_current_user,
+    require_admin,
+)
+from notifications import (
+    _resolve_public_base,
+    _public_base,
+    _get_settings_doc,
+    _resolve_email_creds,
+    _resolve_sms_creds,
+    _send_email_sync,
+    _send_sms_sync,
+    _email_layout,
+    _send_user_email,
+    _send_gig_event_email,
+)
+from routes.messages import router as messages_router, _message_digest_runner
+from models import (
+    GigCategory,
+    PayType,
+    GigRecurrence,
+    GigTag,
+    WorkerStatus,
+    RegisterIn,
+    LoginIn,
+    GoogleSessionIn,
+    ProfileUpdateIn,
+    GigIn,
+    GigPatch,
+    BlastIn,
+    RushToggleIn,
+    GigTagsIn,
+    AssignWorkerIn,
+    CancelShiftIn,
+    WorkerPayIn,
+    AcceptancePayIn,
+    TimesheetApproveIn,
+    TimesheetEditIn,
+    ProjectDefaults,
+    ProjectIn,
+    ProjectPatch,
+    ProjectNoteIn,
+    LinkGigToProjectIn,
+    AdminRatingIn,
+    ClientRatingLinkIn,
+    ClientRatingSubmitIn,
+    SettingsIn,
+    SettingsTestIn,
+    QuoteRequestIn,
+    QuoteRequestPatch,
+    PushKeysIn,
+    PushSubscriptionIn,
+    PushTestIn,
+    AdminResetPasswordIn,
+    ForgotPasswordIn,
+    ResetPasswordIn,
+    ChangePasswordIn,
+    WorkerStatusIn,
+    MessageSendIn,
+    OpenDMIn,
+)
 
 import os
 import uuid
@@ -35,635 +133,10 @@ from fastapi import (
 )
 from fastapi.responses import Response as FastAPIResponse, HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient  # noqa: F401 — used in tests via patching
 from pydantic import BaseModel, EmailStr, Field
 from twilio.rest import Client as TwilioClient
 from pywebpush import webpush, WebPushException
-
-# ----------------------------------------------------------------------------
-# Config
-# ----------------------------------------------------------------------------
-MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
-JWT_SECRET = os.environ["JWT_SECRET"]
-JWT_ALG = "HS256"
-APP_NAME = os.environ.get("APP_NAME", "gigblast")
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
-
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
-TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
-TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM = os.environ.get("TWILIO_FROM_NUMBER", "")
-VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
-VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
-VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@hcobcleaners.com")
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("gigblast")
-
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
-
-if RESEND_API_KEY:
-    resend.api_key = RESEND_API_KEY
-
-# ----------------------------------------------------------------------------
-# Object Storage helper
-# ----------------------------------------------------------------------------
-_storage_key: Optional[str] = None
-
-
-def init_storage() -> Optional[str]:
-    global _storage_key
-    if _storage_key:
-        return _storage_key
-    if not EMERGENT_LLM_KEY:
-        logger.warning("EMERGENT_LLM_KEY missing — storage disabled")
-        return None
-    try:
-        resp = requests.post(
-            f"{STORAGE_URL}/init",
-            json={"emergent_key": EMERGENT_LLM_KEY},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        _storage_key = resp.json()["storage_key"]
-        logger.info("Object storage initialized")
-        return _storage_key
-    except Exception as e:
-        logger.error(f"Storage init failed: {e}")
-        return None
-
-
-def put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = init_storage()
-    if not key:
-        raise HTTPException(500, "Storage not initialized")
-    resp = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data,
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def get_object(path: str):
-    key = init_storage()
-    if not key:
-        raise HTTPException(500, "Storage not initialized")
-    resp = requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
-
-
-# ----------------------------------------------------------------------------
-# Password / Token helpers
-# ----------------------------------------------------------------------------
-def hash_password(p: str) -> str:
-    return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
-
-
-def verify_password(p: str, h: str) -> bool:
-    try:
-        return bcrypt.checkpw(p.encode(), h.encode())
-    except Exception:
-        return False
-
-
-def new_session_token() -> str:
-    return secrets.token_urlsafe(48)
-
-
-SESSION_DAYS = 7
-
-
-def cookie_kwargs() -> dict:
-    """httpOnly cookie config that works for Emergent preview (cross-site)."""
-    return dict(
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=SESSION_DAYS * 86400,
-    )
-
-
-# ----------------------------------------------------------------------------
-# Models
-# ----------------------------------------------------------------------------
-GigCategory = Literal["cleaning", "labor", "driver"]
-PayType = Literal["hourly", "flat"]
-GigRecurrence = Literal["none", "daily", "weekly", "biweekly", "monthly"]
-
-# Canonical worker skill tags. Workers select these on their profile; admins
-# filter on them. Sub-category strings on gigs use the same values.
-WORKER_SKILLS = [
-    # Cleaning
-    "deep_cleaning",
-    "routine_cleaning",
-    "moveouts",
-    "detailing",
-    "window_cleaning",
-    "carpet_cleaning",
-    "post_construction",
-    # Labor
-    "hourly_labor",
-    "heavy_lifting",
-    "forklift",
-    "moving",
-    "warehouse",
-    "landscaping",
-    "painting",
-    # Driver / transport
-    "driving",
-    "delivery",
-    "cdl",
-    # Soft skills HCOB cares about
-    "fast_learner",
-    "bilingual",
-    "team_lead",
-]
-SKILL_LABELS = {
-    "deep_cleaning": "Deep cleaning",
-    "routine_cleaning": "Routine cleaning",
-    "moveouts": "Move-outs",
-    "detailing": "Detailing",
-    "window_cleaning": "Window cleaning",
-    "carpet_cleaning": "Carpet cleaning",
-    "post_construction": "Post-construction",
-    "hourly_labor": "Hourly labor",
-    "heavy_lifting": "Heavy lifting",
-    "forklift": "Forklift",
-    "moving": "Moving",
-    "warehouse": "Warehouse",
-    "landscaping": "Landscaping",
-    "painting": "Painting",
-    "driving": "Driving",
-    "delivery": "Delivery",
-    "cdl": "CDL",
-    "fast_learner": "Fast learner",
-    "bilingual": "Bilingual",
-    "team_lead": "Team lead",
-}
-# Map a gig's category → which skill tags qualify a worker for it
-GIG_CATEGORY_TO_SKILLS = {
-    "cleaning": ["deep_cleaning", "routine_cleaning", "moveouts", "detailing", "window_cleaning", "carpet_cleaning", "post_construction"],
-    "labor": ["hourly_labor", "heavy_lifting", "forklift", "moving", "warehouse", "landscaping", "painting"],
-    "driver": ["driving", "delivery", "cdl"],
-}
-
-AVAILABILITY_OPTIONS = ["weekdays", "weekends", "mornings", "evenings", "overnight", "full_time"]
-EXPERIENCE_OPTIONS = ["none", "0_1_yr", "1_3_yr", "3_plus_yr"]
-TSHIRT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]
-
-
-# Fields required for a worker profile to be considered "complete" — gates the
-# ability to request gigs together with id_verified.
-REQUIRED_PROFILE_FIELDS = [
-    "phone",
-    "zip_code",
-    "date_of_birth",
-    "skills",        # at least 1
-    "availability",  # at least 1
-    "emergency_contact_name",
-    "emergency_contact_phone",
-]
-
-
-def _profile_missing_fields(user: dict) -> List[str]:
-    """Return the list of required-profile fields that are blank/empty for a
-    worker. An empty list means the profile is complete."""
-    if user.get("role") != "worker":
-        return []
-    missing: List[str] = []
-    for f in REQUIRED_PROFILE_FIELDS:
-        v = user.get(f)
-        if v is None:
-            missing.append(f)
-        elif isinstance(v, str) and not v.strip():
-            missing.append(f)
-        elif isinstance(v, list) and len(v) == 0:
-            missing.append(f)
-    return missing
-
-
-def _is_profile_complete(user: dict) -> bool:
-    return len(_profile_missing_fields(user)) == 0
-
-
-class RegisterIn(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=6)
-    name: str
-    role: Optional[Literal["worker", "admin", "va"]] = "worker"
-    # VA-only optional fields captured at signup
-    va_phone: Optional[str] = None
-    va_address: Optional[str] = None  # registered home address — used for self-referral check
-
-
-class LoginIn(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class GoogleSessionIn(BaseModel):
-    session_id: str
-
-
-class ProfileUpdateIn(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    address: Optional[str] = None
-    bio: Optional[str] = None
-    skills: Optional[List[str]] = None
-    # Extended profile fields ----------------------------------------------
-    zip_code: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    date_of_birth: Optional[str] = None  # ISO date YYYY-MM-DD
-    has_car: Optional[bool] = None
-    has_truck: Optional[bool] = None
-    has_cdl: Optional[bool] = None
-    experience_level: Optional[str] = None
-    availability: Optional[List[str]] = None
-    emergency_contact_name: Optional[str] = None
-    emergency_contact_phone: Optional[str] = None
-    tshirt_size: Optional[str] = None
-
-
-class GigIn(BaseModel):
-    title: str
-    description: str
-    category: GigCategory
-    subcategory: Optional[str] = None
-    location: str  # PUBLIC preview — e.g. "Oak Ave · 94110" — visible to all workers
-    address_line: Optional[str] = None  # SENSITIVE — revealed only after accept
-    scheduled_date: str  # display string (kept for backwards compat / human display)
-    scheduled_at: Optional[str] = None  # ISO 8601 datetime — drives the calendar
-    pay_rate: float
-    pay_type: PayType
-    slots: int = 1
-    # Optional backup pool. Workers approved as backups get auto-promoted to
-    # primary when an approved worker cancels (or admin manually promotes).
-    backup_slots: int = 0
-    duration_hours: Optional[float] = None
-    # Unpaid break minutes deducted from each worker's clocked time. Default
-    # is 0 — admin sets it per-gig in the Create/Edit dialog. Per-worker
-    # override lives on the acceptance.
-    break_minutes: Optional[int] = 0
-    # When workers can expect payment. UI shows this as a colored pill on
-    # cards and detail pages so workers know if it's same-day cash vs payroll.
-    payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = "2_3_days"
-    payment_timeline_note: Optional[str] = None
-    contact_phone: Optional[str] = None
-    # Optional link to a parent project. When set, this gig is shown alongside
-    # its sibling gigs in the worker UI so the crews can coordinate.
-    project_id: Optional[str] = None
-    # Recurrence — optional. If recurrence != 'none', the create endpoint generates
-    # `repeat_count` gig instances spaced by the chosen period.
-    recurrence: Optional[GigRecurrence] = "none"
-    repeat_count: Optional[int] = 1  # ignored when recurrence == 'none'
-    # New: optional "Coming soon" → "Open" toggle. publish_at is a hint; the
-    # background loop auto-flips, but the admin can publish manually anytime.
-    status: Optional[Literal["open", "coming_soon"]] = "open"
-    publish_at: Optional[str] = None  # ISO 8601 — when to auto-flip to open
-
-
-class GigPatch(BaseModel):
-    """All fields optional — partial update from the Edit dialog."""
-    title: Optional[str] = None
-    description: Optional[str] = None
-    category: Optional[GigCategory] = None
-    subcategory: Optional[str] = None
-    location: Optional[str] = None
-    address_line: Optional[str] = None
-    scheduled_date: Optional[str] = None
-    scheduled_at: Optional[str] = None
-    pay_rate: Optional[float] = None
-    pay_type: Optional[PayType] = None
-    slots: Optional[int] = None
-    backup_slots: Optional[int] = None
-    duration_hours: Optional[float] = None
-    break_minutes: Optional[int] = None
-    payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = None
-    payment_timeline_note: Optional[str] = None
-    contact_phone: Optional[str] = None
-    project_id: Optional[str] = None
-    clear_project: Optional[bool] = False
-    status: Optional[str] = None  # admin can flip status from the Edit dialog
-    publish_at: Optional[str] = None
-
-
-class BlastIn(BaseModel):
-    channels: List[Literal["in_app", "email", "sms", "push"]]
-
-
-class RushToggleIn(BaseModel):
-    """Manual RUSH on/off without blasting. Blast endpoint flips this on as a
-    side effect; admin can also toggle it independently here."""
-    is_rush: bool
-
-
-# Allowed pin-tag values. Any active tag pins the gig to the top of the
-# worker feed and the public landing snippet. Multiple can be active at once.
-GIG_TAG_VALUES = ("rush", "priority_need", "same_day", "top_pay")
-GigTag = Literal["rush", "priority_need", "same_day", "top_pay"]
-
-
-class GigTagsIn(BaseModel):
-    """Replace the gig's `tags` array entirely. Any tag pins the gig to the
-    top of the feed. Pass an empty list to clear all tags."""
-    tags: List[GigTag]
-
-
-class SettingsIn(BaseModel):
-    resend_api_key: Optional[str] = None
-    sender_email: Optional[str] = None
-    twilio_account_sid: Optional[str] = None
-    twilio_auth_token: Optional[str] = None
-    twilio_from_number: Optional[str] = None
-    google_service_account_json: Optional[str] = None
-    google_sheets_share_email: Optional[str] = None
-
-
-class WorkerPayIn(BaseModel):
-    """Set a worker's default pay rate/type. Either field can be cleared with `null`
-    by sending an explicit JSON `null`."""
-    default_pay_rate: Optional[float] = None
-    default_pay_type: Optional[PayType] = None
-    clear_rate: Optional[bool] = False
-    clear_type: Optional[bool] = False
-
-
-class AcceptancePayIn(BaseModel):
-    """Override pay rate/type for a worker on a specific gig."""
-    pay_rate_override: Optional[float] = None
-    pay_type_override: Optional[PayType] = None
-    clear_rate: Optional[bool] = False
-    clear_type: Optional[bool] = False
-
-
-class TimesheetApproveIn(BaseModel):
-    """Optional admin corrections when approving a timesheet."""
-    hours_worked: Optional[float] = None
-    earnings: Optional[float] = None
-    note: Optional[str] = None
-    # Per-worker break override (minutes). When set, overrides the gig's default
-    # break_minutes for this acceptance. Pass null to leave unchanged.
-    break_minutes: Optional[int] = None
-
-
-class TimesheetEditIn(BaseModel):
-    """Admin edits raw clock-in/out times. Either field accepts an ISO datetime
-    string. Passing `clear_clock_out=true` reverts the acceptance back to
-    on-the-clock state. Editing always recomputes hours+earnings and resets
-    timesheet_approved=false."""
-    clock_in_at: Optional[str] = None
-    clock_out_at: Optional[str] = None
-    clear_clock_out: Optional[bool] = False
-    # Per-worker break override (minutes). Same semantics as the approve payload.
-    break_minutes: Optional[int] = None
-
-
-# ----- Projects ---------------------------------------------------------------
-# A project groups 2+ gigs that share a job site or coordinated outcome (e.g.,
-# trash-removal driver + handyman with tools). Workers on linked gigs see each
-# other in the project crew so they can coordinate; admins get a combined
-# roster + a shared notes thread for ops.
-
-class ProjectDefaults(BaseModel):
-    """Pre-fill values when adding a new gig under a project. Each is optional
-    so an admin can sync any subset (or none). On gig-create the dialog reads
-    these and pre-fills the form; the admin can then opt in/out per gig."""
-    location: Optional[str] = None
-    address_line: Optional[str] = None
-    scheduled_date: Optional[str] = None
-    scheduled_at: Optional[str] = None
-    payment_timeline: Optional[Literal["same_day", "2_3_days", "weekly", "custom"]] = None
-    payment_timeline_note: Optional[str] = None
-    contact_phone: Optional[str] = None
-
-
-class ProjectIn(BaseModel):
-    title: str
-    description: Optional[str] = ""
-    client_name: Optional[str] = None
-    defaults: Optional[ProjectDefaults] = None
-
-
-class ProjectPatch(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    client_name: Optional[str] = None
-    defaults: Optional[ProjectDefaults] = None
-    archived: Optional[bool] = None
-
-
-class ProjectNoteIn(BaseModel):
-    text: str
-
-
-class LinkGigToProjectIn(BaseModel):
-    project_id: str
-    # When true, apply the project's defaults to the gig now. Defaults to
-    # false so admin can opt in explicitly.
-    sync_defaults: Optional[bool] = False
-
-
-class AdminRatingIn(BaseModel):
-    """Admin sets a 1-5 star rating for a worker on a specific gig. Optional
-    private note. Passing `clear=true` removes the rating."""
-    stars: Optional[int] = None
-    note: Optional[str] = None
-    clear: Optional[bool] = False
-
-
-class ClientRatingLinkIn(BaseModel):
-    """Generate (or regenerate) a public client-feedback link for an
-    acceptance. Optional `client_email` is stored for reference."""
-    client_email: Optional[str] = None
-    regenerate: Optional[bool] = False
-
-
-class ClientRatingSubmitIn(BaseModel):
-    """Body of the public client rating submission."""
-    stars: int
-    note: Optional[str] = None
-    client_name: Optional[str] = None
-
-
-class SettingsTestIn(BaseModel):
-    channel: Literal["email", "sms"]
-    to: str
-
-
-class QuoteRequestIn(BaseModel):
-    """Public lead capture from /customers — a prospective client requesting a
-    quote. SMS notifies HCOB ops. Honeypot field 'website' silently rejected."""
-    name: str = Field(min_length=2, max_length=120)
-    phone: str = Field(min_length=7, max_length=40)
-    email: Optional[str] = None
-    service: str = Field(min_length=2, max_length=120)
-    timeline: str = Field(min_length=1, max_length=60)
-    message: Optional[str] = Field(default=None, max_length=2000)
-    address: Optional[str] = Field(default=None, max_length=240)
-    # Honeypot — bots fill in hidden fields. Real users won't.
-    website: Optional[str] = None
-
-
-class QuoteRequestPatch(BaseModel):
-    status: Optional[Literal["new", "contacted", "won", "lost", "dismissed"]] = None
-    admin_note: Optional[str] = None
-
-
-class PushKeysIn(BaseModel):
-    p256dh: str
-    auth: str
-
-
-class PushSubscriptionIn(BaseModel):
-    endpoint: str = Field(min_length=10, max_length=1024)
-    keys: PushKeysIn
-    user_agent: Optional[str] = None
-    platform: Optional[str] = None  # ios | android | other
-
-
-class PushTestIn(BaseModel):
-    title: Optional[str] = "HCOB Network test"
-    body: Optional[str] = "Push is working — you'll get pinged on new gigs."
-
-
-class AdminResetPasswordIn(BaseModel):
-    new_password: Optional[str] = None  # If None/blank, server generates a temp password
-
-
-class ForgotPasswordIn(BaseModel):
-    email: EmailStr
-
-
-class ResetPasswordIn(BaseModel):
-    token: str = Field(min_length=10)
-    new_password: str = Field(min_length=6)
-
-
-class ChangePasswordIn(BaseModel):
-    current_password: str
-    new_password: str = Field(min_length=6)
-
-
-WorkerStatus = Literal["pending", "approved", "rejected", "suspended"]
-
-
-class WorkerStatusIn(BaseModel):
-    note: Optional[str] = None  # Optional internal note for the action
-
-
-# ----------------------------------------------------------------------------
-# Auth dependency
-# ----------------------------------------------------------------------------
-async def _get_user_by_id(user_id: str) -> Optional[dict]:
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
-    if not user:
-        return None
-    # Enrich with computed profile-completion fields so the client knows what
-    # to prompt for. Admins are never blocked.
-    if user.get("role") == "worker":
-        missing = _profile_missing_fields(user)
-        user["profile_complete"] = len(missing) == 0
-        user["profile_missing_fields"] = missing
-        # Attach rating aggregates — pulled across all of this worker's
-        # acceptances. Admin-only data, but always returned (the worker UI
-        # is responsible for not displaying it).
-        stats = await _worker_rating_stats(user_id)
-        user.update(stats)
-    else:
-        user["profile_complete"] = True
-        user["profile_missing_fields"] = []
-    # Default flags for owner / PM so the frontend always has them.
-    user.setdefault("is_owner", False)
-    user.setdefault("is_program_manager", False)
-    user.setdefault("must_change_password", False)
-    if user.get("role") == "va":
-        user.setdefault("va_status", "pending")
-    return user
-
-
-async def _worker_rating_stats(user_id: str) -> dict:
-    """Return rating aggregates for a worker — combined avg + per-source
-    breakdowns (admin vs client). Considers only non-null star values."""
-    cur = db.gig_acceptances.find(
-        {"worker_id": user_id},
-        {"_id": 0, "admin_rating": 1, "client_rating": 1},
-    )
-    admin_stars: list = []
-    client_stars: list = []
-    async for a in cur:
-        if isinstance(a.get("admin_rating"), (int, float)):
-            admin_stars.append(a["admin_rating"])
-        if isinstance(a.get("client_rating"), (int, float)):
-            client_stars.append(a["client_rating"])
-    all_stars = admin_stars + client_stars
-    return {
-        "rating_avg": round(sum(all_stars) / len(all_stars), 2) if all_stars else None,
-        "rating_count": len(all_stars),
-        "admin_rating_avg": round(sum(admin_stars) / len(admin_stars), 2) if admin_stars else None,
-        "admin_rating_count": len(admin_stars),
-        "client_rating_avg": round(sum(client_stars) / len(client_stars), 2) if client_stars else None,
-        "client_rating_count": len(client_stars),
-    }
-
-
-async def get_current_user(request: Request) -> dict:
-    # Cookie first, header fallback
-    token = request.cookies.get("session_token")
-    if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-    if not token:
-        raise HTTPException(401, "Not authenticated")
-
-    session = await db.sessions.find_one({"session_token": token}, {"_id": 0})
-    if not session:
-        raise HTTPException(401, "Invalid session")
-
-    exp = session["expires_at"]
-    if isinstance(exp, str):
-        exp = datetime.fromisoformat(exp)
-    if exp.tzinfo is None:
-        exp = exp.replace(tzinfo=timezone.utc)
-    if exp < datetime.now(timezone.utc):
-        raise HTTPException(401, "Session expired")
-
-    user = await _get_user_by_id(session["user_id"])
-    if not user:
-        raise HTTPException(401, "User not found")
-    return user
-
-
-async def require_admin(
-    request: Request, user: dict = Depends(get_current_user)
-) -> dict:
-    if user.get("role") != "admin":
-        raise HTTPException(403, "Admin access required")
-    # Read-only admins can GET anything in the admin surface but cannot mutate.
-    if (
-        user.get("is_read_only")
-        and request.method in ("POST", "PUT", "PATCH", "DELETE")
-    ):
-        raise HTTPException(
-            403, "Read-only admin — ask a full-access admin to make this change"
-        )
-    return user
-
 
 # ----------------------------------------------------------------------------
 # FastAPI app
@@ -890,17 +363,6 @@ async def update_profile(payload: ProfileUpdateIn, user: dict = Depends(get_curr
     if updates:
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     return await _get_user_by_id(user["user_id"])
-
-
-def _ext_from(filename: str, content_type: str) -> str:
-    if "." in (filename or ""):
-        return filename.rsplit(".", 1)[-1].lower()
-    return {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-        "image/gif": "gif",
-    }.get(content_type, "bin")
 
 
 async def _upload_user_image(user_id: str, kind: str, file: UploadFile) -> str:
@@ -1984,10 +1446,6 @@ async def reject_request(
     return {"ok": True}
 
 
-class AssignWorkerIn(BaseModel):
-    worker_id: str
-
-
 @api.post("/gigs/{gig_id}/assign")
 async def assign_worker(
     gig_id: str,
@@ -2122,11 +1580,6 @@ async def remove_worker_from_gig(
 
     logger.info(f"Admin {admin['email']} removed worker {acceptance['worker_id']} from gig {gig_id}")
     return {"ok": True}
-
-
-class CancelShiftIn(BaseModel):
-    reason: Literal["sick", "conflict", "transportation", "other"]
-    note: Optional[str] = None
 
 
 @api.post("/gigs/{gig_id}/cancel-shift")
@@ -2402,21 +1855,6 @@ async def push_test(
 
 
 
-def _resolve_public_base(request: Request | None = None) -> str:
-    """Return the canonical public origin so blast emails/SMS can include deep
-    links. Order of precedence: proxy-forwarded headers → PUBLIC_BASE_URL env
-    → safe production fallback."""
-    if request is not None:
-        fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-        fwd_proto = request.headers.get("x-forwarded-proto") or "https"
-        if fwd_host and "localhost" not in fwd_host and "0.0.0.0" not in fwd_host:
-            return f"{fwd_proto}://{fwd_host}".rstrip("/")
-    env_base = (os.environ.get("PUBLIC_BASE_URL") or "").strip()
-    if env_base:
-        return env_base.rstrip("/")
-    return "https://hcobnetwork.com"
-
-
 def _format_gig_email(gig: dict, base_url: str = "") -> str:
     pay = (
         f"${gig['pay_rate']:.2f}/hr"
@@ -2475,136 +1913,6 @@ def _format_gig_sms(gig: dict, base_url: str = "") -> str:
         f"[HCOB Network] {gig['title']} — {gig['location']} — "
         f"{gig['scheduled_date']} — {pay}. Tap to claim: {link}"
     )
-
-
-async def _get_settings_doc() -> dict:
-    """Return the singleton app_settings document (creating an empty one if missing)."""
-    doc = await db.app_settings.find_one({"_id": "global"})
-    return doc or {}
-
-
-async def _resolve_email_creds() -> dict:
-    s = await _get_settings_doc()
-    return {
-        "api_key": (s.get("resend_api_key") or RESEND_API_KEY or "").strip(),
-        "sender": (s.get("sender_email") or SENDER_EMAIL or "").strip(),
-    }
-
-
-async def _resolve_sms_creds() -> dict:
-    s = await _get_settings_doc()
-    return {
-        "sid": (s.get("twilio_account_sid") or TWILIO_SID or "").strip(),
-        "token": (s.get("twilio_auth_token") or TWILIO_TOKEN or "").strip(),
-        "from_": (s.get("twilio_from_number") or TWILIO_FROM or "").strip(),
-    }
-
-
-def _send_email_sync(api_key: str, sender: str, to: str, subject: str, html: str) -> dict:
-    if not api_key:
-        return {"skipped": "no_resend_key"}
-    resend.api_key = api_key
-    return resend.Emails.send(
-        {"from": sender, "to": [to], "subject": subject, "html": html}
-    )
-
-
-def _public_base() -> str:
-    """Background-task safe — no Request object available."""
-    return _resolve_public_base(None)
-
-
-def _email_layout(title: str, body_html: str, cta_label: Optional[str] = None, cta_url: Optional[str] = None) -> str:
-    """Wrap notification HTML in the standard HCOB email shell."""
-    cta_block = ""
-    if cta_label and cta_url:
-        cta_block = (
-            f'<p style="margin:24px 0"><a href="{cta_url}" '
-            f'style="background:#0044FF;color:#fff;text-decoration:none;padding:14px 22px;'
-            f'font-weight:700;display:inline-block">{cta_label}</a></p>'
-        )
-    return f"""
-    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px">
-      <div style="background:#030712;color:#fff;padding:18px 22px;font-weight:900;letter-spacing:-0.02em;font-size:22px">HCOB Network</div>
-      <div style="padding:24px 22px;border:1px solid #E5E7EB;border-top:0">
-        <h2 style="margin:0 0 12px 0;font-size:20px;color:#030712">{title}</h2>
-        <div style="color:#4B5563;line-height:1.55;font-size:14px">{body_html}</div>
-        {cta_block}
-        <p style="color:#9CA3AF;font-size:11px;margin-top:32px;border-top:1px solid #E5E7EB;padding-top:16px">
-          Sent automatically by HCOB Network · Baltimore, MD ·
-          <a href="https://hcobnetwork.com" style="color:#0044FF;text-decoration:none">hcobnetwork.com</a>
-        </p>
-      </div>
-    </div>
-    """
-
-
-async def _send_user_email(
-    user: dict,
-    *,
-    kind: str,
-    subject: str,
-    body_html: str,
-    cta_label: Optional[str] = None,
-    cta_url: Optional[str] = None,
-) -> bool:
-    """Fire-and-forget transactional email to a user. Logs failures, never raises.
-    Always sends (no preference toggle per product decision)."""
-    email = (user or {}).get("email")
-    if not email:
-        return False
-    try:
-        creds = await _resolve_email_creds()
-        if not creds.get("api_key") or not creds.get("sender"):
-            logger.warning(f"[email/{kind}] no Resend creds — skipped for {email}")
-            return False
-        html = _email_layout(subject, body_html, cta_label=cta_label, cta_url=cta_url)
-        await asyncio.to_thread(
-            _send_email_sync,
-            creds["api_key"], creds["sender"], email, subject, html,
-        )
-        try:
-            await db.email_logs.insert_one({
-                "log_id": f"em_{uuid.uuid4().hex[:12]}",
-                "user_id": user.get("user_id"),
-                "email": email,
-                "kind": kind,
-                "subject": subject,
-                "sent_at": datetime.now(timezone.utc).isoformat(),
-            })
-        except Exception:
-            pass
-        return True
-    except Exception as e:
-        logger.exception(f"[email/{kind}] failed for {email}: {e}")
-        return False
-
-
-async def _send_gig_event_email(
-    worker_id: str,
-    *,
-    kind: str,
-    subject: str,
-    body_html: str,
-    gig_id: Optional[str] = None,
-) -> bool:
-    """Convenience wrapper — look up worker by id and send a gig-related email."""
-    worker = await db.users.find_one({"user_id": worker_id})
-    if not worker:
-        return False
-    cta_url = f"{_public_base()}/crew" + (f"/gigs/{gig_id}" if gig_id else "")
-    return await _send_user_email(
-        worker, kind=kind, subject=subject, body_html=body_html,
-        cta_label="Open in HCOB Network", cta_url=cta_url,
-    )
-
-
-def _send_sms_sync(sid: str, token: str, from_: str, to: str, body: str) -> dict:
-    if not (sid and token and from_):
-        return {"skipped": "no_twilio_creds"}
-    c = TwilioClient(sid, token)
-    m = c.messages.create(body=body, from_=from_, to=to)
-    return {"sid": m.sid}
 
 
 @api.post("/gigs/{gig_id}/blast")
@@ -8184,630 +7492,9 @@ async def owner_mark_paid(
 
 
 
-# ============================================================================
-# In-App Messenger — DMs + Per-Gig Group Chats
-# ============================================================================
-# Architecture
-#   threads        : type=dm | gig_group; deterministic thread IDs for both
-#   messages       : append-only, ordered by created_at
-#   thread_reads   : per-user last-read pointer (for unread counts)
-#   files          : message_attachment kind; ACL extended in /files/{path}
-# Polling-based delivery — clients hit /unread-count + the thread messages
-# endpoint on a timer. No websockets.
-# Email digest task runs every 5 min and notifies users about unread
-# messages older than MESSAGE_DIGEST_DELAY_MIN.
 
 
-# Statuses that count as "this worker is/was on the roster" for permission
-# checks. Includes historical (completed) and backup so that a worker who
-# shared a gig in the past can still DM their old coworker.
-WORKER_ON_GIG_STATUSES = ["accepted", "on_the_clock", "completed", "backup"]
-
-
-async def _workers_share_a_gig(user_a_id: str, user_b_id: str) -> bool:
-    """True if user_a and user_b have both ever been approved on the same gig."""
-    if user_a_id == user_b_id:
-        return False
-    my_gigs = await db.gig_acceptances.distinct(
-        "gig_id",
-        {"worker_id": user_a_id, "status": {"$in": WORKER_ON_GIG_STATUSES}},
-    )
-    if not my_gigs:
-        return False
-    shared = await db.gig_acceptances.count_documents({
-        "gig_id": {"$in": my_gigs},
-        "worker_id": user_b_id,
-        "status": {"$in": WORKER_ON_GIG_STATUSES},
-    })
-    return shared > 0
-
-
-async def _coworker_ids(user_id: str) -> list:
-    """All worker_ids who share at least one ever-approved gig with this user."""
-    my_gigs = await db.gig_acceptances.distinct(
-        "gig_id",
-        {"worker_id": user_id, "status": {"$in": WORKER_ON_GIG_STATUSES}},
-    )
-    if not my_gigs:
-        return []
-    ids = await db.gig_acceptances.distinct(
-        "worker_id",
-        {
-            "gig_id": {"$in": my_gigs},
-            "worker_id": {"$ne": user_id},
-            "status": {"$in": WORKER_ON_GIG_STATUSES},
-        },
-    )
-    return list(ids)
-
-
-def _dm_thread_id(user_a_id: str, user_b_id: str) -> str:
-    """Deterministic ID for a 1:1 DM — same regardless of who opens it."""
-    a, b = sorted([user_a_id, user_b_id])
-    return f"dm_{a}__{b}"
-
-
-def _gig_thread_id(gig_id: str) -> str:
-    return f"gig_{gig_id}"
-
-
-async def _gig_group_participants(gig_id: str) -> list:
-    """Approved workers on the gig + every admin in the system."""
-    workers = await db.gig_acceptances.find(
-        {
-            "gig_id": gig_id,
-            "status": {"$in": ["accepted", "on_the_clock", "completed", "backup"]},
-        },
-        {"_id": 0, "worker_id": 1},
-    ).to_list(length=10000)
-    worker_ids = list({w["worker_id"] for w in workers if w.get("worker_id")})
-    admins = await db.users.find(
-        {"role": "admin"}, {"_id": 0, "user_id": 1}
-    ).to_list(length=1000)
-    admin_ids = [a["user_id"] for a in admins if a.get("user_id")]
-    return sorted(set(worker_ids + admin_ids))
-
-
-async def _get_or_create_dm_thread(user_a_id: str, user_b_id: str) -> dict:
-    if user_a_id == user_b_id:
-        raise HTTPException(400, "Can't DM yourself")
-    tid = _dm_thread_id(user_a_id, user_b_id)
-    existing = await db.threads.find_one({"thread_id": tid}, {"_id": 0})
-    if existing:
-        return existing
-    now = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "thread_id": tid,
-        "type": "dm",
-        "gig_id": None,
-        "gig_title": None,
-        "participant_ids": sorted([user_a_id, user_b_id]),
-        "created_at": now,
-        "updated_at": now,
-        "last_message_at": None,
-        "last_message_text": None,
-        "last_message_sender_id": None,
-    }
-    await db.threads.insert_one(doc)
-    return {k: v for k, v in doc.items() if k != "_id"}
-
-
-async def _get_or_create_gig_thread(gig_id: str) -> dict:
-    gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0, "title": 1, "gig_id": 1})
-    if not gig:
-        raise HTTPException(404, "Gig not found")
-    tid = _gig_thread_id(gig_id)
-    parts = await _gig_group_participants(gig_id)
-    existing = await db.threads.find_one({"thread_id": tid}, {"_id": 0})
-    if existing:
-        # Keep participant list fresh — workers approved/removed since last visit
-        if set(existing.get("participant_ids", [])) != set(parts):
-            await db.threads.update_one(
-                {"thread_id": tid},
-                {"$set": {"participant_ids": parts}},
-            )
-            existing["participant_ids"] = parts
-        if existing.get("gig_title") != gig.get("title"):
-            await db.threads.update_one(
-                {"thread_id": tid},
-                {"$set": {"gig_title": gig.get("title")}},
-            )
-            existing["gig_title"] = gig.get("title")
-        return existing
-    now = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "thread_id": tid,
-        "type": "gig_group",
-        "gig_id": gig_id,
-        "gig_title": gig.get("title"),
-        "participant_ids": parts,
-        "created_at": now,
-        "updated_at": now,
-        "last_message_at": None,
-        "last_message_text": None,
-        "last_message_sender_id": None,
-    }
-    await db.threads.insert_one(doc)
-    return {k: v for k, v in doc.items() if k != "_id"}
-
-
-async def _ensure_participant(thread: dict, user: dict) -> None:
-    parts = thread.get("participant_ids", []) or []
-    if user["user_id"] in parts:
-        return
-    # Admins can always view any thread (moderation/oversight)
-    if user.get("role") == "admin":
-        return
-    # Refresh participants for gig groups (in case worker was just approved)
-    if thread.get("type") == "gig_group" and thread.get("gig_id"):
-        fresh = await _gig_group_participants(thread["gig_id"])
-        if user["user_id"] in fresh:
-            await db.threads.update_one(
-                {"thread_id": thread["thread_id"]},
-                {"$set": {"participant_ids": fresh}},
-            )
-            return
-    raise HTTPException(403, "You don't have access to this thread")
-
-
-async def _unread_count_for_user_in_thread(thread: dict, user_id: str) -> int:
-    """Count messages in thread not sent by user and not yet read."""
-    read = await db.thread_reads.find_one(
-        {"thread_id": thread["thread_id"], "user_id": user_id}, {"_id": 0}
-    )
-    last_read = (read or {}).get("last_read_at") or "1970-01-01T00:00:00+00:00"
-    return await db.messages.count_documents({
-        "thread_id": thread["thread_id"],
-        "sender_id": {"$ne": user_id},
-        "created_at": {"$gt": last_read},
-        "deleted": {"$ne": True},
-    })
-
-
-async def _participants_summary(user_ids: list) -> list:
-    """Lightweight participant cards (name, role, avatar) for the thread UI."""
-    if not user_ids:
-        return []
-    docs = await db.users.find(
-        {"user_id": {"$in": user_ids}},
-        {
-            "_id": 0, "user_id": 1, "name": 1, "email": 1,
-            "role": 1, "avatar_path": 1,
-        },
-    ).to_list(length=1000)
-    out = []
-    for d in docs:
-        full = d.get("name") or d.get("email") or "Unknown"
-        out.append({
-            "user_id": d["user_id"],
-            "name": full,
-            "first_name": (full.split(" ")[0] if full else "Unknown"),
-            "role": d.get("role"),
-            "avatar_path": d.get("avatar_path"),
-        })
-    return out
-
-
-async def _serialize_thread(thread: dict, user_id: str) -> dict:
-    out = {k: v for k, v in thread.items() if k != "_id"}
-    out["unread_count"] = await _unread_count_for_user_in_thread(thread, user_id)
-    out["participants"] = await _participants_summary(thread.get("participant_ids", []) or [])
-    if thread.get("type") == "dm":
-        other_ids = [
-            p for p in (thread.get("participant_ids") or []) if p != user_id
-        ]
-        out["other_user"] = next(
-            (p for p in out["participants"] if p["user_id"] in other_ids), None
-        )
-    return out
-
-
-def _serialize_message(msg: dict) -> dict:
-    return {
-        "message_id": msg["message_id"],
-        "thread_id": msg["thread_id"],
-        "sender_id": msg["sender_id"],
-        "sender_name": msg.get("sender_name") or "Unknown",
-        "sender_role": msg.get("sender_role"),
-        "text": msg.get("text") or "",
-        "attachments": msg.get("attachments") or [],
-        "created_at": msg.get("created_at"),
-    }
-
-
-# ---- Models ----------------------------------------------------------------
-class MessageSendIn(BaseModel):
-    text: Optional[str] = Field(default=None, max_length=4000)
-    attachment_paths: Optional[List[str]] = None
-
-
-class OpenDMIn(BaseModel):
-    user_id: str
-
-
-# ---- Endpoints -------------------------------------------------------------
-@api.get("/messages/threads")
-async def list_my_threads(user: dict = Depends(get_current_user)):
-    """Threads I'm a participant of. Admins see every thread (oversight)."""
-    if user.get("role") == "admin":
-        q = {}
-    else:
-        q = {"participant_ids": user["user_id"]}
-    cur = db.threads.find(q, {"_id": 0}).sort(
-        [("last_message_at", -1), ("updated_at", -1)]
-    )
-    out = []
-    async for t in cur:
-        out.append(await _serialize_thread(t, user["user_id"]))
-    return out
-
-
-@api.get("/messages/unread-count")
-async def messages_unread_count(user: dict = Depends(get_current_user)):
-    """Global unread badge count across all my threads. Polled by the navbar."""
-    if user.get("role") == "admin":
-        q = {}
-    else:
-        q = {"participant_ids": user["user_id"]}
-    threads = await db.threads.find(q, {"_id": 0}).to_list(length=2000)
-    total = 0
-    for t in threads:
-        total += await _unread_count_for_user_in_thread(t, user["user_id"])
-    return {"count": total}
-
-
-@api.post("/messages/threads/dm")
-async def open_dm(payload: OpenDMIn, user: dict = Depends(get_current_user)):
-    """Open or create a DM with another user.
-    Role gating:
-      - Admins can DM anyone
-      - Workers can DM admins, OR other workers they've shared a gig with
-        (any gig where both have ever been approved)
-      - VAs can DM admins only
-    """
-    target = await db.users.find_one({"user_id": payload.user_id}, {"_id": 0})
-    if not target:
-        raise HTTPException(404, "User not found")
-    if user.get("role") == "worker":
-        if target.get("role") == "admin":
-            pass  # workers can always DM admins
-        elif target.get("role") == "worker":
-            if target.get("worker_status") != "approved":
-                raise HTTPException(403, "That worker is not active")
-            shared = await _workers_share_a_gig(user["user_id"], target["user_id"])
-            if not shared:
-                raise HTTPException(
-                    403,
-                    "You can only DM workers you've shared a gig with",
-                )
-        else:
-            raise HTTPException(
-                403, "Workers can only DM admins or coworkers from a shared gig"
-            )
-    elif user.get("role") == "va":
-        if target.get("role") != "admin":
-            raise HTTPException(403, "VAs can only DM admins")
-    thread = await _get_or_create_dm_thread(user["user_id"], target["user_id"])
-    return await _serialize_thread(thread, user["user_id"])
-
-
-@api.get("/messages/threads/gig/{gig_id}")
-async def open_gig_thread(gig_id: str, user: dict = Depends(get_current_user)):
-    """Get or create the gig group thread. Approved-on-gig workers + admins."""
-    if user.get("role") != "admin":
-        ok = await db.gig_acceptances.find_one({
-            "gig_id": gig_id,
-            "worker_id": user["user_id"],
-            "status": {"$in": ["accepted", "on_the_clock", "completed", "backup"]},
-        })
-        if not ok:
-            raise HTTPException(403, "You must be approved on this gig to access the group chat")
-    thread = await _get_or_create_gig_thread(gig_id)
-    return await _serialize_thread(thread, user["user_id"])
-
-
-@api.get("/messages/threads/{thread_id}")
-async def get_thread(thread_id: str, user: dict = Depends(get_current_user)):
-    thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
-    if not thread:
-        raise HTTPException(404, "Thread not found")
-    await _ensure_participant(thread, user)
-    return await _serialize_thread(thread, user["user_id"])
-
-
-@api.get("/messages/threads/{thread_id}/messages")
-async def list_thread_messages(
-    thread_id: str,
-    limit: int = Query(default=50, le=200),
-    before: Optional[str] = Query(default=None, description="created_at < this ISO ts"),
-    user: dict = Depends(get_current_user),
-):
-    thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
-    if not thread:
-        raise HTTPException(404, "Thread not found")
-    await _ensure_participant(thread, user)
-    q = {"thread_id": thread_id, "deleted": {"$ne": True}}
-    if before:
-        q["created_at"] = {"$lt": before}
-    cur = db.messages.find(q, {"_id": 0}).sort("created_at", -1).limit(limit)
-    docs = await cur.to_list(length=limit)
-    docs.reverse()  # client expects ascending order
-    return [_serialize_message(m) for m in docs]
-
-
-@api.post("/messages/threads/{thread_id}/messages")
-async def send_message(
-    thread_id: str,
-    payload: MessageSendIn,
-    user: dict = Depends(get_current_user),
-):
-    thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
-    if not thread:
-        raise HTTPException(404, "Thread not found")
-    await _ensure_participant(thread, user)
-
-    text = (payload.text or "").strip()
-    attachments_in = payload.attachment_paths or []
-    if not text and not attachments_in:
-        raise HTTPException(400, "Empty message (no text and no attachments)")
-
-    # Validate attachments: must be a message_attachment owned by the sender.
-    attachments = []
-    for path in attachments_in:
-        rec = await db.files.find_one(
-            {"storage_path": path, "owner_id": user["user_id"], "kind": "message_attachment"},
-            {"_id": 0},
-        )
-        if not rec:
-            raise HTTPException(400, f"Attachment not found or not yours: {path}")
-        attachments.append({
-            "path": path,
-            "content_type": rec.get("content_type"),
-            "size": rec.get("size"),
-        })
-
-    now = datetime.now(timezone.utc).isoformat()
-    msg_id = f"msg_{uuid.uuid4().hex[:14]}"
-    doc = {
-        "message_id": msg_id,
-        "thread_id": thread_id,
-        "sender_id": user["user_id"],
-        "sender_name": user.get("name") or user.get("email"),
-        "sender_role": user.get("role"),
-        "text": text,
-        "attachments": attachments,
-        "created_at": now,
-        "deleted": False,
-    }
-    await db.messages.insert_one(doc)
-
-    preview = text if text else f"📎 {len(attachments)} attachment{'s' if len(attachments) != 1 else ''}"
-    await db.threads.update_one(
-        {"thread_id": thread_id},
-        {"$set": {
-            "last_message_at": now,
-            "last_message_text": preview[:140],
-            "last_message_sender_id": user["user_id"],
-            "updated_at": now,
-        }},
-    )
-    # Auto-mark sender as read so the new message doesn't count against them.
-    await db.thread_reads.update_one(
-        {"thread_id": thread_id, "user_id": user["user_id"]},
-        {"$set": {"last_read_message_id": msg_id, "last_read_at": now}},
-        upsert=True,
-    )
-    return _serialize_message(doc)
-
-
-@api.post("/messages/threads/{thread_id}/read")
-async def mark_thread_read(thread_id: str, user: dict = Depends(get_current_user)):
-    thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
-    if not thread:
-        raise HTTPException(404, "Thread not found")
-    await _ensure_participant(thread, user)
-    last = await db.messages.find_one(
-        {"thread_id": thread_id, "deleted": {"$ne": True}},
-        {"_id": 0, "message_id": 1, "created_at": 1},
-        sort=[("created_at", -1)],
-    )
-    now = datetime.now(timezone.utc).isoformat()
-    await db.thread_reads.update_one(
-        {"thread_id": thread_id, "user_id": user["user_id"]},
-        {"$set": {
-            "last_read_message_id": (last or {}).get("message_id"),
-            "last_read_at": (last or {}).get("created_at") or now,
-        }},
-        upsert=True,
-    )
-    return {"ok": True}
-
-
-@api.post("/messages/attachments")
-async def upload_message_attachment(
-    file: UploadFile = File(...), user: dict = Depends(get_current_user)
-):
-    """Upload an image attachment. Returns the storage path which the client
-    then passes in attachment_paths on send_message."""
-    if file.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
-        raise HTTPException(400, "Only images supported (jpg, png, webp, gif)")
-    data = await file.read()
-    if len(data) > 10 * 1024 * 1024:
-        raise HTTPException(400, "Attachment too large (max 10MB)")
-    ext = _ext_from(file.filename or "", file.content_type or "")
-    path = f"{APP_NAME}/messages/{user['user_id']}/{uuid.uuid4().hex}.{ext}"
-    result = await asyncio.to_thread(
-        put_object, path, data, file.content_type or "application/octet-stream"
-    )
-    await db.files.insert_one({
-        "file_id": str(uuid.uuid4()),
-        "storage_path": result["path"],
-        "original_filename": file.filename,
-        "content_type": file.content_type,
-        "size": result.get("size"),
-        "owner_id": user["user_id"],
-        "kind": "message_attachment",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    return {
-        "path": result["path"],
-        "size": result.get("size"),
-        "content_type": file.content_type,
-    }
-
-
-@api.get("/messages/eligible-users")
-async def messages_eligible_users(
-    q: Optional[str] = Query(default=None),
-    user: dict = Depends(get_current_user),
-):
-    """Users I'm allowed to start a new DM with. Used by the New Message dialog.
-    Workers see: every admin + every coworker (someone they've shared a gig with).
-    """
-    if user.get("role") == "admin":
-        match: dict = {}
-    elif user.get("role") == "worker":
-        coworker_ids = await _coworker_ids(user["user_id"])
-        if coworker_ids:
-            match = {
-                "$or": [
-                    {"role": "admin"},
-                    {
-                        "role": "worker",
-                        "worker_status": "approved",
-                        "user_id": {"$in": coworker_ids},
-                    },
-                ]
-            }
-        else:
-            # No coworkers yet — only admins are reachable.
-            match = {"role": "admin"}
-    elif user.get("role") == "va":
-        match = {"role": "admin"}
-    else:
-        match = {"role": "admin"}
-    docs = await db.users.find(
-        match,
-        {
-            "_id": 0, "user_id": 1, "name": 1, "email": 1,
-            "role": 1, "avatar_path": 1,
-            "is_owner": 1, "is_program_manager": 1,
-        },
-    ).sort("name", 1).to_list(length=500)
-    me = user["user_id"]
-    qn = (q or "").strip().lower()
-    out = []
-    for d in docs:
-        if d["user_id"] == me:
-            continue
-        name = d.get("name") or d.get("email") or ""
-        if qn and qn not in name.lower() and qn not in (d.get("email") or "").lower():
-            continue
-        out.append({
-            "user_id": d["user_id"],
-            "name": name,
-            "email": d.get("email"),
-            "role": d.get("role"),
-            "avatar_path": d.get("avatar_path"),
-            "is_owner": bool(d.get("is_owner")),
-            "is_program_manager": bool(d.get("is_program_manager")),
-        })
-    return out
-
-
-# ---- Email digest task -----------------------------------------------------
-MESSAGE_DIGEST_DELAY_MIN = int(os.environ.get("MESSAGE_DIGEST_DELAY_MIN", "15"))
-MESSAGE_DIGEST_CHECK_INTERVAL_SEC = int(os.environ.get("MESSAGE_DIGEST_CHECK_INTERVAL_SEC", "300"))
-
-
-async def _send_message_digest_pass():
-    """One pass through all threads — for any user with unread messages older
-    than MESSAGE_DIGEST_DELAY_MIN AND for which we haven't yet emailed the
-    current head message, fire a single rolled-up email."""
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(minutes=MESSAGE_DIGEST_DELAY_MIN)
-    ).isoformat()
-    threads = await db.threads.find(
-        {"last_message_at": {"$lt": cutoff, "$ne": None}},
-        {"_id": 0},
-    ).to_list(length=2000)
-
-    per_user: dict = {}
-    for t in threads:
-        for uid in t.get("participant_ids", []) or []:
-            if t.get("last_message_sender_id") == uid:
-                continue
-            unread = await _unread_count_for_user_in_thread(t, uid)
-            if unread <= 0:
-                continue
-            ptr = await db.message_digest_state.find_one(
-                {"user_id": uid, "thread_id": t["thread_id"]}, {"_id": 0}
-            )
-            last_digested_at = (ptr or {}).get("last_digested_at")
-            if last_digested_at and last_digested_at >= t["last_message_at"]:
-                continue
-            per_user.setdefault(uid, []).append((t, unread))
-
-    sent_count = 0
-    for uid, items in per_user.items():
-        user = await db.users.find_one({"user_id": uid}, {"_id": 0})
-        if not user or not user.get("email"):
-            continue
-        total_unread = sum(c for _, c in items)
-        lines = []
-        for t, unread in items[:5]:
-            sender_id = t.get("last_message_sender_id")
-            sender = None
-            if sender_id:
-                sender = await db.users.find_one(
-                    {"user_id": sender_id}, {"_id": 0, "name": 1, "email": 1}
-                )
-            sender_name = (sender or {}).get("name") or (sender or {}).get("email") or "Someone"
-            label = t.get("gig_title") or sender_name
-            preview = (t.get("last_message_text") or "")[:120]
-            lines.append(
-                "<p style='margin:8px 0;padding:12px;background:#FFFBEB;border-left:3px solid #030712;'>"
-                f"<strong>{sender_name}</strong> · {label}"
-                f"<br><span style='color:#525252;font-size:14px;'>{preview}</span>"
-                f"<br><span style='font-size:12px;color:#737373;'>{unread} unread message{'s' if unread != 1 else ''}</span>"
-                "</p>"
-            )
-        body_html = "<p>You have unread messages on HCOB Network.</p>" + "".join(lines)
-        portal = "ops" if user.get("role") == "admin" else (
-            "va" if user.get("role") == "va" else "crew"
-        )
-        ok = await _send_user_email(
-            user,
-            kind="message_digest",
-            subject=f"📬 {total_unread} unread message{'s' if total_unread != 1 else ''} on HCOB Network",
-            body_html=body_html,
-            cta_label="Open messages",
-            cta_url=f"{_public_base()}/{portal}/messages",
-        )
-        if ok:
-            now = datetime.now(timezone.utc).isoformat()
-            for t, _ in items:
-                await db.message_digest_state.update_one(
-                    {"user_id": uid, "thread_id": t["thread_id"]},
-                    {"$set": {"last_digested_at": now}},
-                    upsert=True,
-                )
-            sent_count += 1
-    if sent_count:
-        logger.info(f"[message digest] sent {sent_count} digest email(s)")
-
-
-async def _message_digest_runner():
-    """Long-running coroutine — kicked off in on_startup."""
-    await asyncio.sleep(30)
-    while True:
-        try:
-            await _send_message_digest_pass()
-        except Exception as e:
-            logger.exception(f"[message digest] pass failed: {e}")
-        await asyncio.sleep(MESSAGE_DIGEST_CHECK_INTERVAL_SEC)
-
-
+api.include_router(messages_router)
 app.include_router(api)
 
 app.add_middleware(
