@@ -366,6 +366,22 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 28: Backend Modularization Phase 1+2) — VERIFIED
+- **server.py: 9,011 → 7,688 lines** (-1,323, ~15% reduction).
+- **7 new modules extracted** (1,546 lines pulled into focused files):
+  - `config.py` (51) — env vars, logger, Mongo client, Resend init
+  - `constants.py` (92) — WORKER_SKILLS, GIG_CATEGORY_TO_SKILLS, etc.
+  - `models.py` (331) — ALL Pydantic request models in one place (~35 classes)
+  - `storage.py` (78) — object storage helpers (put_object, get_object, _ext_from)
+  - `auth_deps.py` (164) — get_current_user, require_admin, password helpers, profile-completion helpers
+  - `notifications.py` (184) — Resend + Twilio helpers (_send_user_email, _public_base, _email_layout, etc)
+  - `routes/messages.py` (646) — entire messenger module (10 endpoints + email-digest background task)
+- **Flat-import pattern** (e.g., `from config import db`) matches existing uvicorn invocation (`server:app` from `/app/backend`)
+- **Verified clean**: 35/35 pre-existing pytests pass; 16/16 new regression suite (`test_iter28_refactor_regression.py`) passes; all admin nav pages, VA portal, public pages, worker register→login→feed→detail E2E all work with zero console errors and zero 5xx.
+
+## Implemented — 2026-02 (Iter 27: Removed Emergent Badge) — VERIFIED
+- Removed static `<a id="emergent-badge">` from `index.html` and added a MutationObserver to strip the runtime-injected version. Verified across login / /ops / /ops/messages — zero badge presence.
+
 ## Implemented — 2026-02 (Iter 26: Clickable Worker Names Everywhere) — VERIFIED
 - New `<WorkerLink>` component at `/components/admin/WorkerLink.jsx` — renders a worker's name as a dotted-underline `<a target="_blank" href="/ops/workers/:id">` with `data-testid=worker-link-{worker_id}`. Falls back to plain `<span>` when worker_id is missing.
 - Applied across every admin surface that displays a worker name:
