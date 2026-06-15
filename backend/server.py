@@ -1071,6 +1071,7 @@ async def public_gig_lookup(gig_id: str):
         "location": gig.get("location"),
         "scheduled_date": gig.get("scheduled_date"),
         "scheduled_at": gig.get("scheduled_at"),
+        "scheduled_local": gig.get("scheduled_local"),
         "start_time": gig.get("start_time"),
         "duration_hours": gig.get("duration_hours"),
         "pay_rate": gig.get("pay_rate"),
@@ -1362,6 +1363,7 @@ async def public_gig_feed(limit: int = Query(3, ge=1, le=24)):
             "location": g.get("location"),
             "scheduled_date": g.get("scheduled_date"),
             "scheduled_at": g.get("scheduled_at"),
+            "scheduled_local": g.get("scheduled_local"),
             "pay_rate": g.get("pay_rate"),
             "pay_type": g.get("pay_type"),
             "payment_timeline": g.get("payment_timeline") or "2_3_days",
@@ -3246,6 +3248,39 @@ async def on_startup():
         {"project_id": {"$exists": False}},
         {"$set": {"project_id": None}},
     )
+    # Backfill scheduled_local on legacy gigs. The wall-clock string is the
+    # single source of truth for display — without it, the calendar/feed have
+    # to fall back to parsing scheduled_at as UTC and converting to the
+    # viewer's local TZ (which makes the displayed hour drift). For legacy
+    # docs we derive scheduled_local from scheduled_at assuming the platform's
+    # default TZ (America/New_York — HCOB Baltimore HQ). On a brand-new gig
+    # the frontend sends scheduled_local explicitly so this never runs.
+    try:
+        from zoneinfo import ZoneInfo
+        _site_tz = ZoneInfo(os.environ.get("HCOB_SITE_TZ", "America/New_York"))
+    except Exception:
+        _site_tz = None
+    legacy_gigs = await db.gigs.find(
+        {"scheduled_local": {"$in": [None, ""]}, "scheduled_at": {"$ne": None}},
+        {"gig_id": 1, "scheduled_at": 1},
+    ).to_list(length=None)
+    for lg in legacy_gigs:
+        sa = lg.get("scheduled_at")
+        if not sa:
+            continue
+        try:
+            dt = datetime.fromisoformat(str(sa).replace("Z", "+00:00"))
+            if _site_tz and dt.tzinfo is not None:
+                dt_local = dt.astimezone(_site_tz)
+            else:
+                dt_local = dt
+            sl = dt_local.strftime("%Y-%m-%dT%H:%M")
+            await db.gigs.update_one(
+                {"gig_id": lg["gig_id"]},
+                {"$set": {"scheduled_local": sl}},
+            )
+        except Exception:
+            continue
     # Projects collection indices
     await db.projects.create_index("project_id", unique=True)
     await db.projects.create_index([("archived", 1), ("created_at", -1)])

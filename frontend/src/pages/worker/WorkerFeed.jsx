@@ -25,6 +25,8 @@ import {
 } from "@phosphor-icons/react";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
+import { formatGigWhen, isGigToday } from "@/lib/gigDate";
+import AvailableNowToggle from "@/components/worker/AvailableNowToggle";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -94,6 +96,11 @@ export default function WorkerFeed() {
       <h1 className="mt-1 font-display text-3xl font-black tracking-tight">
         Open gigs
       </h1>
+
+      {/* "I'm available now" toggle — hidden for pending/blocked workers
+          (the component handles that). Sits above the verification banner so
+          even fully-onboarded crews get the prompt first. */}
+      <AvailableNowToggle />
 
       {showBanner && (
         <button
@@ -284,7 +291,12 @@ export default function WorkerFeed() {
                     }`}
                   />
                   <Bit icon={MapPin} value={g.location} />
-                  <Bit icon={Clock} value={g.scheduled_date} />
+                  <Bit
+                    icon={Clock}
+                    value={formatGigWhen(g)}
+                    highlight={isGigToday(g)}
+                    testId={`feed-when-${g.gig_id}`}
+                  />
                 </div>
               </div>
             );
@@ -295,9 +307,20 @@ export default function WorkerFeed() {
   );
 }
 
-const Bit = ({ icon: I, value }) => (
-  <div className="flex items-start gap-1.5 text-[#4B5563]">
-    <I size={14} weight="duotone" className="mt-px shrink-0" />
-    <span className="truncate font-semibold text-[#030712]">{value}</span>
+const Bit = ({ icon: I, value, highlight, testId }) => (
+  <div
+    data-testid={testId}
+    className={`flex items-start gap-1.5 ${
+      highlight ? "text-[#0044FF]" : "text-[#4B5563]"
+    }`}
+  >
+    <I size={14} weight={highlight ? "fill" : "duotone"} className="mt-px shrink-0" />
+    <span
+      className={`truncate font-semibold ${
+        highlight ? "text-[#0044FF]" : "text-[#030712]"
+      }`}
+    >
+      {value}
+    </span>
   </div>
 );

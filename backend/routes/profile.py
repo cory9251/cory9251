@@ -8,11 +8,12 @@ ID upload (still in server.py) reuses it.
 """
 import uuid
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response as FastAPIResponse
+from pydantic import BaseModel
 
 from config import db, APP_NAME
 from auth_deps import get_current_user, _get_user_by_id
@@ -113,6 +114,68 @@ async def upload_id(
         {"$set": {"id_image_path": path, "id_verified": False}},
     )
     return {"id_image_path": path}
+
+
+# ----- Available Now -------------------------------------------------------
+class AvailabilityIn(BaseModel):
+    available: bool
+    hours: Optional[int] = None  # how long to stay available; default = until midnight (site TZ)
+
+
+@router.put("/me/availability")
+async def set_availability(
+    payload: AvailabilityIn, user: dict = Depends(get_current_user)
+):
+    """Worker self-service: flip the 'I'm available now' switch.
+
+    When `available=True`, sets `available_until` to either:
+      - `hours` from now (1..24), OR
+      - end-of-day at the site's TZ (default America/New_York) if `hours` is None.
+
+    When `available=False`, clears the flag immediately.
+
+    Admins can filter `/api/admin/workers?available_now=true` to find who is
+    actually reachable for same-day RUSH gigs.
+    """
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Only workers can set availability")
+
+    if not payload.available:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"available_now": False, "available_until": None}},
+        )
+        return {"available_now": False, "available_until": None}
+
+    now = datetime.now(timezone.utc)
+    if payload.hours and 1 <= int(payload.hours) <= 24:
+        until = now + timedelta(hours=int(payload.hours))
+    else:
+        # End-of-day at the site TZ (default America/New_York — HCOB HQ).
+        try:
+            import os
+            from zoneinfo import ZoneInfo
+            site_tz = ZoneInfo(os.environ.get("HCOB_SITE_TZ", "America/New_York"))
+            local_now = now.astimezone(site_tz)
+            eod_local = local_now.replace(hour=23, minute=59, second=59, microsecond=0)
+            # If we're already past EOD (rare), fall back to +8h.
+            if eod_local <= local_now:
+                eod_local = local_now + timedelta(hours=8)
+            until = eod_local.astimezone(timezone.utc)
+        except Exception:
+            until = now + timedelta(hours=8)
+
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {
+            "$set": {
+                "available_now": True,
+                "available_until": until.isoformat(),
+                "available_set_at": now.isoformat(),
+            }
+        },
+    )
+    return {"available_now": True, "available_until": until.isoformat()}
 
 
 @router.get("/files/{path:path}")

@@ -85,6 +85,9 @@ class GigIn(BaseModel):
     address_line: Optional[str] = None  # SENSITIVE — revealed only after accept
     scheduled_date: str  # display string (kept for backwards compat / human display)
     scheduled_at: Optional[str] = None  # ISO 8601 datetime — drives the calendar
+    # Wall-clock at the job site (TZ-free). Format: "YYYY-MM-DDTHH:mm".
+    # Single source of truth — same string is shown to admin and workers in any TZ.
+    scheduled_local: Optional[str] = None
     pay_rate: float
     pay_type: PayType
     slots: int = 1
@@ -124,6 +127,7 @@ class GigPatch(BaseModel):
     address_line: Optional[str] = None
     scheduled_date: Optional[str] = None
     scheduled_at: Optional[str] = None
+    scheduled_local: Optional[str] = None
     pay_rate: Optional[float] = None
     pay_type: Optional[PayType] = None
     slots: Optional[int] = None

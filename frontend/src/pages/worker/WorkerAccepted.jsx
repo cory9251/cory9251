@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { CheckCircle, CurrencyDollar, MapPin, Clock, Hourglass } from "@phosphor-icons/react";
+import { formatGigWhen, isGigToday, isGigTomorrow } from "@/lib/gigDate";
 
 export default function WorkerAccepted() {
   const [items, setItems] = useState([]);
@@ -121,7 +122,7 @@ export default function WorkerAccepted() {
               <div className="mt-3 flex flex-wrap gap-3 border-t border-[#E5E7EB] pt-3 text-xs">
                 <Tag icon={CurrencyDollar} v={`$${Number(g.pay_rate).toFixed(0)}${g.pay_type === "hourly" ? "/hr" : ""}`} />
                 <Tag icon={MapPin} v={g.location} />
-                <Tag icon={Clock} v={g.scheduled_date} />
+                <Tag icon={Clock} v={formatGigWhen(g)} highlight={isGigToday(g) || isGigTomorrow(g)} />
               </div>
               {completed && (
                 <div
@@ -168,9 +169,13 @@ export default function WorkerAccepted() {
     </div>
   );
 }
-const Tag = ({ icon: I, v }) => (
-  <span className="inline-flex items-center gap-1 text-[#030712]">
-    <I size={12} weight="duotone" /> {v}
+const Tag = ({ icon: I, v, highlight }) => (
+  <span
+    className={`inline-flex items-center gap-1 ${
+      highlight ? "font-bold text-[#0044FF]" : "text-[#030712]"
+    }`}
+  >
+    <I size={12} weight={highlight ? "fill" : "duotone"} /> {v}
   </span>
 );
 

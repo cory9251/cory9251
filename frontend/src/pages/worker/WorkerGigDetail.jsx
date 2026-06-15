@@ -4,6 +4,7 @@ import { api, getErr } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
+import { formatGigLong, formatGigRelative, isGigToday } from "@/lib/gigDate";
 import MarkdownView from "@/components/MarkdownView";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -250,7 +251,20 @@ export default function WorkerGigDetail() {
             {gig.pay_type === "hourly" ? "/hr" : "flat"}
           </Row>
           <Row icon={MapPin} label="Location">{gig.location}</Row>
-          <Row icon={Clock} label="When">{gig.scheduled_date}</Row>
+          <Row icon={Clock} label="When" data-testid="gig-when">
+            <span
+              data-testid="gig-when-value"
+              className={isGigToday(gig) ? "font-bold text-[#0044FF]" : ""}
+            >
+              {formatGigLong(gig)}
+            </span>
+            <span
+              data-testid="gig-when-relative"
+              className="ml-2 text-[10px] font-mono-label text-[#4B5563]"
+            >
+              {formatGigRelative(gig)}
+            </span>
+          </Row>
           <Row icon={Users} label="Slots">
             {gig.slots_filled}/{gig.slots}
           </Row>

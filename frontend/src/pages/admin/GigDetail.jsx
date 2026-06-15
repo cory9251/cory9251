@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import WorkerLink from "@/components/admin/WorkerLink";
+import { formatGigLong, formatGigRelative } from "@/lib/gigDate";
 import {
   Dialog,
   DialogContent,
@@ -335,7 +336,7 @@ export default function GigDetail() {
 
           <dl className="mt-8 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
             <Item label="Public location" value={gig.location} />
-            <Item label="When" value={gig.scheduled_date} />
+            <Item label="When" value={formatGigLong(gig)} testId="gig-when-admin" hint={formatGigRelative(gig)} />
             <Item
               label="Pay"
               value={`$${Number(gig.pay_rate).toFixed(2)} ${
@@ -1096,10 +1097,11 @@ export default function GigDetail() {
   );
 }
 
-const Item = ({ label, value }) => (
-  <div className="border-l-2 border-[#0044FF] pl-3">
+const Item = ({ label, value, testId, hint }) => (
+  <div className="border-l-2 border-[#0044FF] pl-3" data-testid={testId}>
     <div className="font-mono-label">{label}</div>
     <div className="mt-1 font-semibold">{value}</div>
+    {hint && <div className="mt-0.5 text-[10px] font-mono-label text-[#4B5563]">{hint}</div>}
   </div>
 );
 

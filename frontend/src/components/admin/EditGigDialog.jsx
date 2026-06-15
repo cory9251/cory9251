@@ -39,9 +39,23 @@ const SUBCATS = {
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
 const MINUTES = ["00", "15", "30", "45"];
 
-function decomposeTime(iso) {
-  if (!iso) return { date: new Date(), hour: "9", minute: "00", ampm: "AM" };
-  const d = parseISO(iso);
+function decomposeTime(gig) {
+  // Prefer wall-clock (TZ-free) so the time editor opens with the EXACT hour
+  // the admin originally entered, even if the viewer is in a different TZ
+  // than the admin who created the gig.
+  const wall = gig?.scheduled_local;
+  let d;
+  if (wall && typeof wall === "string") {
+    const m = wall.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (m) {
+      d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]), parseInt(m[4]), parseInt(m[5]), 0, 0);
+    }
+  }
+  if (!d) {
+    const iso = gig?.scheduled_at;
+    if (!iso) return { date: new Date(), hour: "9", minute: "00", ampm: "AM" };
+    d = parseISO(iso);
+  }
   let h = d.getHours();
   const ampm = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
@@ -54,18 +68,20 @@ function decomposeTime(iso) {
 }
 
 function buildScheduledAt(date, hour12, minute, ampm) {
-  if (!date) return { iso: null, display: "" };
+  if (!date) return { iso: null, local: null, display: "" };
   const h12 = parseInt(hour12, 10);
   const min = parseInt(minute, 10);
   let h24 = h12 % 12;
   if (ampm === "PM") h24 += 12;
   const d = new Date(date);
   d.setHours(h24, min, 0, 0);
-  return { iso: d.toISOString(), display: format(d, "EEE MMM d · h:mm a") };
+  const pad = (n) => String(n).padStart(2, "0");
+  const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return { iso: d.toISOString(), local, display: format(d, "EEE MMM d · h:mm a") };
 }
 
 export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
-  const init = decomposeTime(gig?.scheduled_at);
+  const init = decomposeTime(gig);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -107,7 +123,7 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
         payment_timeline_note: gig.payment_timeline_note || "",
         contact_phone: gig.contact_phone || "",
       });
-      const d = decomposeTime(gig.scheduled_at);
+      const d = decomposeTime(gig);
       setDate(d.date);
       setHour(d.hour);
       setMinute(d.minute);
@@ -124,11 +140,12 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
     e.preventDefault();
     setLoading(true);
     try {
-      const { iso, display } = buildScheduledAt(date, hour, minute, ampm);
+      const { iso, local, display } = buildScheduledAt(date, hour, minute, ampm);
       await api.put(`/gigs/${gig.gig_id}`, {
         ...form,
         scheduled_date: display,
         scheduled_at: iso,
+        scheduled_local: local,
         pay_rate: parseFloat(form.pay_rate || 0),
         slots: parseInt(form.slots || 1),
         duration_hours: form.duration_hours

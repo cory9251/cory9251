@@ -69,6 +69,7 @@ async def list_workers(
     vehicle: Optional[str] = Query(None, description="one of: any, car, truck, cdl"),
     profile_complete: Optional[bool] = Query(None),
     min_rating: Optional[float] = Query(None, ge=0, le=5, description="Hide workers below this avg rating"),
+    available_now: Optional[bool] = Query(None, description="Only workers who flipped the 'I'm available now' switch"),
     search: Optional[str] = Query(None, description="Free-text search across name/email/phone"),
     admin: dict = Depends(require_admin),
 ):
@@ -124,6 +125,25 @@ async def list_workers(
         query, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
 
+    # Re-evaluate "available_now" with auto-expiry semantics. A worker is
+    # actually available if both `available_now=True` AND `available_until`
+    # is in the future. We return both fields to the client so they can show
+    # countdowns / status pills.
+    now_utc = datetime.now(timezone.utc)
+    for w in workers:
+        if w.get("available_now"):
+            until = w.get("available_until")
+            try:
+                until_dt = datetime.fromisoformat(str(until).replace("Z", "+00:00")) if until else None
+            except Exception:
+                until_dt = None
+            if not until_dt or until_dt < now_utc:
+                w["available_now"] = False
+                w["available_until"] = None
+        else:
+            w["available_now"] = bool(w.get("available_now"))
+            w.setdefault("available_until", None)
+
     # Enrich with computed profile_complete + missing + rating stats
     for w in workers:
         miss = _profile_missing_fields(w)
@@ -142,6 +162,11 @@ async def list_workers(
         # they have no rating yet, exclude — matches admin intent of "show me
         # 4-star+ workers."
         workers = [w for w in workers if (w.get("rating_avg") or 0) >= min_rating]
+
+    if available_now is True:
+        workers = [w for w in workers if w.get("available_now")]
+    elif available_now is False:
+        workers = [w for w in workers if not w.get("available_now")]
 
     return workers
 
@@ -757,6 +782,15 @@ async def admin_stats(admin: dict = Depends(require_admin)):
     pending_requests = await db.gig_acceptances.count_documents(
         {"status": "requested"}
     )
+    # "Available now" — workers who flipped the switch AND haven't expired.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    available_now = await db.users.count_documents(
+        {
+            "role": "worker",
+            "available_now": True,
+            "available_until": {"$gt": now_iso},
+        }
+    )
     return {
         "total_workers": total_workers,
         "open_gigs": open_gigs,
@@ -766,6 +800,7 @@ async def admin_stats(admin: dict = Depends(require_admin)):
         "pending_id_verification": pending_id,
         "pending_approval": pending_approval,
         "pending_requests": pending_requests,
+        "available_now": available_now,
     }
 
 

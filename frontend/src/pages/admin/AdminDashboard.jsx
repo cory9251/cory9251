@@ -12,7 +12,9 @@ import {
   ClockCounterClockwise,
   Plus,
   Megaphone,
+  Lightning,
 } from "@phosphor-icons/react";
+import { formatGigShort } from "@/lib/gigDate";
 
 const KPI = ({ label, value, icon: Icon, accent }) => (
   <div className="flex items-start justify-between border-r border-b border-[#E5E7EB] p-6 last:border-r-0">
@@ -89,6 +91,28 @@ export default function AdminDashboard() {
         />
       </div>
 
+      {stats?.available_now > 0 && (
+        <div
+          data-testid="dashboard-available-strip"
+          className="border-b border-[#E5E7EB] bg-[#ECFDF5] px-6 py-3 md:px-10"
+        >
+          <button
+            data-testid="dashboard-available-link"
+            onClick={() => nav("/ops/workers?status=approved")}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2 text-[#065F46]">
+              <Lightning size={18} weight="fill" className="animate-pulse" />
+              <span className="font-display text-sm font-bold">
+                {stats.available_now} worker
+                {stats.available_now === 1 ? " is" : "s are"} available right now — perfect for RUSH gigs
+              </span>
+            </div>
+            <span className="font-mono-label text-[#065F46]">Browse roster →</span>
+          </button>
+        </div>
+      )}
+
       {stats?.pending_requests > 0 && (
         <div className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-3 md:px-10">
           <button
@@ -140,7 +164,7 @@ export default function AdminDashboard() {
                   <div>
                     <div className="font-display text-base font-bold">{g.title}</div>
                     <div className="mt-1 text-xs text-[#4B5563]">
-                      {g.category.toUpperCase()} · {g.location} · {g.scheduled_date}
+                      {g.category.toUpperCase()} · {g.location} · {formatGigShort(g)}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">

@@ -50,15 +50,19 @@ const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
 const MINUTES = ["00", "15", "30", "45"];
 
 function buildScheduledAt(date, hour12, minute, ampm) {
-  if (!date) return { iso: null, display: "" };
+  if (!date) return { iso: null, local: null, display: "" };
   const h12 = parseInt(hour12, 10);
   const min = parseInt(minute, 10);
   let h24 = h12 % 12;
   if (ampm === "PM") h24 += 12;
   const d = new Date(date);
   d.setHours(h24, min, 0, 0);
+  // Wall-clock string (no TZ) — the single source of truth for display.
+  const pad = (n) => String(n).padStart(2, "0");
+  const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return {
     iso: d.toISOString(),
+    local,
     display: format(d, "EEE MMM d · h:mm a"),
   };
 }
@@ -167,7 +171,7 @@ export default function CreateGigDialog({
 
   const submit = async (e) => {
     e.preventDefault();
-    const { iso, display } = buildScheduledAt(date, hour, minute, ampm);
+    const { iso, local, display } = buildScheduledAt(date, hour, minute, ampm);
     if (!iso) {
       toast.error("Pick a date");
       return;
@@ -178,6 +182,7 @@ export default function CreateGigDialog({
         ...form,
         scheduled_date: display,
         scheduled_at: iso,
+        scheduled_local: local,
         pay_rate: parseFloat(form.pay_rate || 0),
         slots: parseInt(form.slots || 1),
         backup_slots: parseInt(form.backup_slots || 0),

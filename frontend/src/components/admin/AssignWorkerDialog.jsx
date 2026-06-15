@@ -14,6 +14,7 @@ import {
   UserCircle,
   ShieldCheck,
   Plus,
+  Lightning,
 } from "@phosphor-icons/react";
 
 export default function AssignWorkerDialog({
@@ -58,8 +59,20 @@ export default function AssignWorkerDialog({
           (w.name || "").toLowerCase().includes(query) ||
           (w.email || "").toLowerCase().includes(query)
       )
+      // Pin "Available now" workers to the top — admins assigning a RUSH gig
+      // need them first.
+      .sort((a, b) => {
+        const aa = a.available_now ? 1 : 0;
+        const bb = b.available_now ? 1 : 0;
+        return bb - aa;
+      })
       .slice(0, 80);
   }, [workers, excludeIds, q]);
+
+  const availableCount = useMemo(
+    () => workers.filter((w) => w.available_now && !excludeIds.has(w.user_id)).length,
+    [workers, excludeIds]
+  );
 
   const assign = async (w) => {
     setBusy(w.user_id);
@@ -101,8 +114,17 @@ export default function AssignWorkerDialog({
               className="h-11 rounded-none border-[#030712] pl-9"
             />
           </div>
-          <div className="mt-2 font-mono-label">
-            {filtered.length} eligible worker{filtered.length === 1 ? "" : "s"}
+          <div className="mt-2 flex items-center gap-3 font-mono-label">
+            <span>{filtered.length} eligible worker{filtered.length === 1 ? "" : "s"}</span>
+            {availableCount > 0 && (
+              <span
+                data-testid="available-now-count"
+                className="inline-flex items-center gap-1 rounded-full bg-[#10B981] px-2 py-0.5 text-[9px] font-bold tracking-widest text-white"
+              >
+                <Lightning size={9} weight="fill" className="animate-pulse" />
+                {availableCount} AVAILABLE NOW
+              </span>
+            )}
           </div>
         </div>
         <div className="max-h-[60vh] overflow-y-auto">
@@ -132,6 +154,15 @@ export default function AssignWorkerDialog({
                         {w.phone ? ` · ${w.phone}` : ""}
                       </div>
                     </div>
+                    {w.available_now && (
+                      <span
+                        data-testid={`assign-available-${w.user_id}`}
+                        className="inline-flex shrink-0 items-center gap-1 bg-[#10B981] px-2 py-0.5 text-[10px] font-bold tracking-widest text-white"
+                      >
+                        <Lightning size={10} weight="fill" className="animate-pulse" />
+                        AVAILABLE NOW
+                      </span>
+                    )}
                     {w.id_verified ? (
                       <span className="inline-flex shrink-0 items-center gap-1 bg-[#10B981]/15 px-2 py-0.5 text-[10px] font-bold tracking-widest text-[#065F46]">
                         <ShieldCheck size={10} weight="fill" /> ID OK

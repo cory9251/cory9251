@@ -71,6 +71,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "address_line": payload.address_line,
         "scheduled_date": payload.scheduled_date,
         "scheduled_at": payload.scheduled_at,
+        "scheduled_local": payload.scheduled_local,
         "pay_rate": payload.pay_rate,
         "pay_type": payload.pay_type,
         "slots": payload.slots,
@@ -430,33 +431,54 @@ async def create_gig(payload: GigIn, admin: dict = Depends(require_admin)):
         base.pop("_id", None)
         return {**base, "created_count": 1}
 
+    # Parse the wall-clock too (if the client sent it). This lets us format the
+    # human-readable `scheduled_date` for every occurrence using the admin's
+    # local wall-clock time instead of UTC (which would shift the displayed
+    # hour for every admin not in UTC).
+    base_local: Optional[datetime] = None
+    if payload.scheduled_local:
+        try:
+            base_local = datetime.fromisoformat(payload.scheduled_local)
+        except Exception:
+            base_local = None
+
+    def _add_months(dt: datetime, months: int) -> datetime:
+        m0 = dt.month - 1 + months
+        new_year = dt.year + m0 // 12
+        new_month = m0 % 12 + 1
+        max_day = [31, 29 if new_year % 4 == 0 and (new_year % 100 != 0 or new_year % 400 == 0) else 28,
+                   31, 30, 31, 30, 31, 31, 30, 31, 30, 31][new_month - 1]
+        return dt.replace(year=new_year, month=new_month, day=min(dt.day, max_day))
+
     series_id = f"ser_{uuid.uuid4().hex[:12]}"
     docs: List[dict] = []
     for i in range(count):
         if rec == "daily":
             occ_dt = base_dt + timedelta(days=i)
+            occ_local = base_local + timedelta(days=i) if base_local else None
         elif rec == "weekly":
             occ_dt = base_dt + timedelta(weeks=i)
+            occ_local = base_local + timedelta(weeks=i) if base_local else None
         elif rec == "biweekly":
             occ_dt = base_dt + timedelta(weeks=i * 2)
+            occ_local = base_local + timedelta(weeks=i * 2) if base_local else None
         elif rec == "monthly":
-            # Add i months — naive but predictable; falls back to last-day-of-month
-            month = base_dt.month - 1 + i
-            year = base_dt.year + month // 12
-            month = month % 12 + 1
-            day = min(
-                base_dt.day,
-                [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
-                 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1],
-            )
-            occ_dt = base_dt.replace(year=year, month=month, day=day)
+            occ_dt = _add_months(base_dt, i)
+            occ_local = _add_months(base_local, i) if base_local else None
         else:
             occ_dt = base_dt
+            occ_local = base_local
+
+        # Pick the source datetime for the human display string. Wall-clock
+        # wins — that's what the admin saw in the dialog and is the same
+        # number any worker will see in the feed, regardless of their TZ.
+        display_src = occ_local or occ_dt
 
         doc = dict(base)
         doc["gig_id"] = f"gig_{uuid.uuid4().hex[:12]}"
         doc["scheduled_at"] = occ_dt.isoformat()
-        doc["scheduled_date"] = occ_dt.strftime("%a %b %d · %-I:%M %p")
+        doc["scheduled_local"] = occ_local.strftime("%Y-%m-%dT%H:%M") if occ_local else base.get("scheduled_local")
+        doc["scheduled_date"] = display_src.strftime("%a %b %d · %-I:%M %p")
         doc["series_id"] = series_id
         doc["series_index"] = i
         doc["series_total"] = count

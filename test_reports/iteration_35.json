@@ -1,0 +1,53 @@
+{
+  "summary": "Iter34/35 E2E validation: scheduled_local wall-clock, robust gig date formatting, and 'Available Now' worker toggle. 9/9 backend pytest pass and all frontend flows verified via Playwright.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_features": [
+    "POST /api/gigs with scheduled_local persists and GET returns it intact (test_gig_stores_scheduled_local PASS)",
+    "Recurring weekly gigs: every occurrence's scheduled_date contains '9:00 AM' (UTC drift bug fixed; test_recurring_uses_wall_clock_for_display PASS)",
+    "PUT /api/me/availability ON sets available_now+future available_until; OFF clears both; custom hours=2 supported; admin (non-worker) blocked with 403",
+    "GET /api/auth/me reflects current available_now and available_until",
+    "GET /api/admin/workers?available_now=true filter returns only flipped-on workers; admin-only (worker gets 403)",
+    "GET /api/admin/stats includes integer 'available_now' field",
+    "Backward-compat: single + recurring gig POST without scheduled_local still works (test_iter35_backcompat 2/2 PASS)",
+    "/ops/calendar: Month/Week/Day toggles (cal-view-month/week/day) work without errors",
+    "/ops dashboard: 'dashboard-available-strip' appears when >=1 worker available; text 'X worker(s) are available right now'; click navigates to /ops/workers?status=approved",
+    "/ops/workers: filter-available-now toggle present and clickable; when active, only available workers shown; each card shows AVAILABLE NOW badge (available-badge-{user_id})",
+    "Admin gig detail 'Add a worker' dialog: shows '1 AVAILABLE NOW' counter (data-testid='available-now-count') and pins available workers at top with assign-available-{user_id} badge",
+    "Admin gig detail When row uses formatGigLong ('Monday, June 29 · 4:07 PM – 8:07 PM (4h)') with 'Starts in 14 days' relative",
+    "Admin gig list 'When' column uses formatGigShort ('Sat, Jan 31 · 9:00 AM')",
+    "Worker /crew feed: AvailableNowToggle present for approved workers; click ON shows green 'You're available right now' card with 'Until X' label (data-testid='available-until') and ON pill; click OFF removes the until element",
+    "Worker /crew feed gig cards: feed-when-{gig_id} test ids render formatGigShort ('Thu Dec 31 · 5 AM – 9 AM')",
+    "Worker /crew/gigs/{id}: gig-when-value='Thursday, December 31 · 5 AM – 9 AM (4h)' (formatGigLong); gig-when-relative='Starts in 7 months' (formatGigRelative)",
+    "Public /gigs/{id} page: uses formatGigLong; no raw timestamps visible"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter34_tz_and_availability.py",
+    "/app/backend/tests/test_iter35_backcompat.py",
+    "/app/test_reports/pytest/iter35_iter34_re.xml",
+    "/app/test_reports/pytest/iter35_backcompat.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AvailableNowToggle 'Until' label shows '3:59 AM' for a worker because PUT /me/availability with no body defaults to end-of-day in America/New_York site time, but the FRONTEND renders that ISO string in the browser's local TZ. For a tester in UTC, 'end of ET day (Mon 23:59 EDT)' becomes 03:59 UTC next morning. Functionally correct, but might confuse workers in non-ET timezones. Consider always rendering this label in the same site TZ (America/New_York) used to compute the expiry, for consistency.",
+    "Public gig share page is fully accessible without auth (verified) — no PII leaked, just title/category/location-city/date/payment. OK.",
+    "Pending/rejected/suspended worker no-toggle behaviour could not be exercised end-to-end via /auth/register because registration auto-approves the user (worker_status='approved' in the response). The null-return guard exists in AvailableNowToggle.jsx and was code-reviewed only — not runtime-verified. Recommend a backend admin endpoint or DB seed step to flip a worker to 'pending' for future regression tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter35_backcompat.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all checks passed)"},
+  "test_credentials": "Admin: admin@hcobcleaners.com / HcobAdmin2026! ; Seed worker created/deleted during test (iter35ui_*)",
+  "seed_data_creation": "Registered + deleted one worker (iter35ui_1781554221804@example.com / user_f2cc444a0a8b) during this run for the available-now badge+strip verification. Cleaned up at end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter34/35 features (scheduled_local, formatGigLong/Short/Relative, AvailableNowToggle, admin filter + dashboard strip + assign-dialog pinning) are all green. Backend regression in /app/backend/tests/test_iter34_tz_and_availability.py and /app/backend/tests/test_iter35_backcompat.py. Available-now session auto-expires at end-of-day America/New_York; tests created/cleaned up their own data.",
+  "rca of the issue": "Original Calendar timezone bug RCA (fixed in this iteration, validated here): recurring gig generator called strftime on a UTC-aware datetime to build the scheduled_date display string, so an admin posting 9 AM EST got the first occurrence's display correct (server echoed admin payload), but subsequent generated occurrences serialized the UTC moment (14:00) which rendered as '2:00 PM'. Fix: introduced scheduled_local 'YYYY-MM-DDTHH:mm' wall-clock field as the single source of truth; recurring loop computes future occurrences by adding 7-day deltas to that wall-clock string. Frontend now reads scheduled_local first via /app/frontend/src/lib/gigDate.js. Verified: 3-occurrence weekly series all contain '9:00 AM' in scheduled_date."
+}

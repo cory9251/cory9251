@@ -115,6 +115,28 @@ async def _get_user_by_id(user_id: str) -> Optional[dict]:
     user.setdefault("is_owner", False)
     user.setdefault("is_program_manager", False)
     user.setdefault("must_change_password", False)
+    # "Available now" toggle — auto-expires at `available_until`. Clears the
+    # field if expired so the client always sees the current truth.
+    if user.get("available_now"):
+        until = user.get("available_until")
+        try:
+            until_dt = datetime.fromisoformat(str(until).replace("Z", "+00:00")) if until else None
+        except Exception:
+            until_dt = None
+        if not until_dt or until_dt < datetime.now(timezone.utc):
+            user["available_now"] = False
+            user["available_until"] = None
+            # Persist the cleared state (fire-and-forget; ignore failure)
+            try:
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"available_now": False, "available_until": None}},
+                )
+            except Exception:
+                pass
+    else:
+        user.setdefault("available_now", False)
+        user.setdefault("available_until", None)
     if user.get("role") == "va":
         user.setdefault("va_status", "pending")
     return user

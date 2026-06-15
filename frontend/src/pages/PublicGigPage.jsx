@@ -16,6 +16,7 @@ import {
   ArrowRight,
 } from "@phosphor-icons/react";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
+import { formatGigLong } from "@/lib/gigDate";
 import MarkdownView from "@/components/MarkdownView";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -129,11 +130,7 @@ export default function PublicGigPage() {
             <Row
               icon={CalendarBlank}
               label="When"
-              value={
-                gig.scheduled_date
-                  ? `${gig.scheduled_date}${gig.start_time ? ` · ${gig.start_time}` : ""}`
-                  : "Flexible"
-              }
+              value={formatGigLong(gig)}
             />
             {gig.duration_hours && (
               <Row

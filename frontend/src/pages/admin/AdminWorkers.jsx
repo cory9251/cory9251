@@ -17,6 +17,7 @@ import {
   MagnifyingGlass,
   MapPin,
   Star,
+  Lightning,
 } from "@phosphor-icons/react";
 
 const TABS = [
@@ -91,6 +92,7 @@ export default function AdminWorkers() {
   const [profileComplete, setProfileComplete] = useState("");
   const [minRating, setMinRating] = useState("");
   const [search, setSearch] = useState("");
+  const [availableNow, setAvailableNow] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const nav = useNavigate();
 
@@ -106,6 +108,7 @@ export default function AdminWorkers() {
       if (profileComplete === "complete") q.profile_complete = true;
       else if (profileComplete === "incomplete") q.profile_complete = false;
       if (minRating) q.min_rating = minRating;
+      if (availableNow) q.available_now = true;
       if (search.trim()) q.search = search.trim();
       const { data } = await api.get("/admin/workers", { params: q });
       setWorkers(data);
@@ -117,7 +120,7 @@ export default function AdminWorkers() {
   useEffect(() => {
     load();
     // eslint-disable-next-line
-  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, search]);
+  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, availableNow, search]);
 
   const toggleArr = (arr, setter, v) =>
     setter(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
@@ -130,6 +133,7 @@ export default function AdminWorkers() {
     setVehicle("");
     setProfileComplete("");
     setMinRating("");
+    setAvailableNow(false);
     setSearch("");
   };
 
@@ -141,6 +145,7 @@ export default function AdminWorkers() {
     (vehicle ? 1 : 0) +
     (profileComplete ? 1 : 0) +
     (minRating ? 1 : 0) +
+    (availableNow ? 1 : 0) +
     (search ? 1 : 0);
 
   return (
@@ -201,6 +206,24 @@ export default function AdminWorkers() {
               </span>
             )}
           </Button>
+          <button
+            type="button"
+            data-testid="filter-available-now"
+            onClick={() => setAvailableNow((v) => !v)}
+            className={`inline-flex h-10 items-center gap-1.5 border px-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${
+              availableNow
+                ? "border-[#10B981] bg-[#10B981] text-white"
+                : "border-[#10B981] bg-white text-[#065F46] hover:bg-[#ECFDF5]"
+            }`}
+            title="Show only workers who flipped 'I'm available now'"
+          >
+            <Lightning
+              size={12}
+              weight="fill"
+              className={availableNow ? "animate-pulse" : ""}
+            />
+            Available now
+          </button>
           {activeFilterCount > 0 && (
             <button
               data-testid="clear-filters-btn"
@@ -380,6 +403,15 @@ export default function AdminWorkers() {
                 </div>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <StatusBadge status={w.worker_status} />
+                  {w.available_now && (
+                    <span
+                      data-testid={`available-badge-${w.user_id}`}
+                      className="inline-flex items-center gap-1 bg-[#10B981] px-2 py-1 text-[10px] font-bold tracking-widest text-white"
+                    >
+                      <Lightning size={10} weight="fill" className="animate-pulse" />
+                      AVAILABLE NOW
+                    </span>
+                  )}
                   {w.id_image_path ? (
                     w.id_verified ? (
                       <span className="inline-flex items-center gap-1 bg-[#10B981]/15 px-2 py-1 text-[10px] font-bold tracking-widest text-[#065F46]">

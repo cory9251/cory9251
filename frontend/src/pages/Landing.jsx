@@ -15,6 +15,7 @@ import {
   MapPin,
 } from "@phosphor-icons/react";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
+import { formatGigShort } from "@/lib/gigDate";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -372,7 +373,7 @@ export default function Landing() {
                           </div>
                           <div className="flex items-center gap-1.5">
                             <Clock size={12} weight="duotone" />
-                            <span>{g.scheduled_date || "Flexible"}</span>
+                            <span>{formatGigShort(g)}</span>
                           </div>
                         </div>
                         <div className="text-right">

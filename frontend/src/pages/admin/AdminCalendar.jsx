@@ -11,7 +11,6 @@ import {
   isSameDay,
   isSameMonth,
   isToday,
-  parseISO,
   startOfDay,
   startOfMonth,
   startOfWeek,
@@ -22,6 +21,7 @@ import {
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { getGigDate } from "@/lib/gigDate";
 import CreateGigDialog from "@/components/admin/CreateGigDialog";
 import {
   CaretLeft,
@@ -95,7 +95,9 @@ export default function AdminCalendar() {
   const load = async () => {
     try {
       const { data } = await api.get("/gigs");
-      setGigs(data.filter((g) => g.scheduled_at));
+      // Keep gigs that have ANY usable date — scheduled_local (wall-clock) or
+      // scheduled_at (ISO). getGigDate() reads scheduled_local first.
+      setGigs(data.filter((g) => g.scheduled_local || g.scheduled_at));
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -105,12 +107,13 @@ export default function AdminCalendar() {
     load();
   }, []);
 
-  // Index gigs by yyyy-MM-dd
+  // Index gigs by yyyy-MM-dd (wall-clock)
   const gigsByDate = useMemo(() => {
     const map = new Map();
     for (const g of gigs) {
       try {
-        const d = parseISO(g.scheduled_at);
+        const d = getGigDate(g);
+        if (!d) continue;
         const key = format(d, "yyyy-MM-dd");
         if (!map.has(key)) map.set(key, []);
         map.get(key).push({ ...g, _date: d });
