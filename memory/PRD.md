@@ -366,6 +366,12 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 30: Backend Modularization Phase 3b — Auth Extracted) — VERIFIED
+- **server.py: 7,545 → 7,262 lines** (−283; cumulative −1,749 from the 9,011 baseline).
+- **`routes/auth.py`** (329 lines) now owns the full auth surface: `_issue_session` helper + `/auth/register`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/google/session`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/change-password`.
+- **Pure move, zero behavior change**: VA-vs-worker register branching, Google-only 409 detection, single-use token expiry, kill-all-sessions-on-reset — all preserved verbatim.
+- **Verified**: 86/87 backend pytests pass (1 pre-existing skip). End-to-end curl: login ✅, /auth/me ✅, bad-password 401 ✅, forgot-password 200 ✅, logout 200 ✅.
+
 ## Implemented — 2026-02 (Iter 29: Backend Modularization Phase 3a — Push Extracted) — VERIFIED
 - **server.py: 7,688 → 7,545 lines** (−143).
 - **`push_service.py`** (90 lines) now owns `_send_push_sync`, `_send_push_to_user`, and `PushSubscriptionGone`. Async fan-out + auto-prune of dead (404/410) subscriptions.
