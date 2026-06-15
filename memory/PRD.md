@@ -366,6 +366,13 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 29: Backend Modularization Phase 3a — Push Extracted) — VERIFIED
+- **server.py: 7,688 → 7,545 lines** (−143).
+- **`push_service.py`** (90 lines) now owns `_send_push_sync`, `_send_push_to_user`, and `PushSubscriptionGone`. Async fan-out + auto-prune of dead (404/410) subscriptions.
+- **`routes/push.py`** (102 lines) — 5 endpoints lifted out: `GET /push/public-key`, `POST /push/subscribe`, `DELETE /push/subscribe`, `GET /push/status`, `POST /push/test`.
+- server.py now imports the fan-out helper (`from push_service import _send_push_to_user`) for the 4 places that fire pushes (approve-request, promote-backup, blast-gig, publish-due-gigs).
+- **Verified**: 35/35 modularization tests pass; 86/87 broader sweep green (1 pre-existing skip); `curl /api/push/public-key` returns VAPID key; unauth `/api/push/status` returns 401.
+
 ## Implemented — 2026-02 (Iter 28: Backend Modularization Phase 1+2) — VERIFIED
 - **server.py: 9,011 → 7,688 lines** (-1,323, ~15% reduction).
 - **7 new modules extracted** (1,546 lines pulled into focused files):

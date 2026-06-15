@@ -58,6 +58,8 @@ from notifications import (
     _send_gig_event_email,
 )
 from routes.messages import router as messages_router, _message_digest_runner
+from routes.push import router as push_router
+from push_service import _send_push_to_user, _send_push_sync, PushSubscriptionGone  # noqa: F401
 from models import (
     GigCategory,
     PayType,
@@ -1705,154 +1707,8 @@ async def withdraw_gig(gig_id: str, user: dict = Depends(get_current_user)):
 
 
 # ---- Web Push (PWA notifications) -----------------------------------------
-# Workers register a browser PushSubscription once after granting permission.
-# The subscription is identified by its unique `endpoint` URL — workers can
-# have multiple subscriptions (one per device). Sending is best-effort and
-# expired subscriptions (HTTP 410) are auto-pruned.
-def _send_push_sync(subscription: dict, payload: dict) -> bool:
-    """Synchronous push send — call via asyncio.to_thread from async code."""
-    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
-        return False
-    try:
-        webpush(
-            subscription_info={
-                "endpoint": subscription["endpoint"],
-                "keys": subscription.get("keys", {}),
-            },
-            data=json.dumps(payload),
-            vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims={"sub": VAPID_SUBJECT},
-            ttl=60 * 60 * 24,  # keep undelivered messages for up to a day
-        )
-        return True
-    except WebPushException as e:
-        # 404/410 mean the subscription is dead — let the caller prune.
-        status = getattr(e.response, "status_code", None) if e.response else None
-        if status in (404, 410):
-            raise PushSubscriptionGone(subscription["endpoint"])
-        logger.error(f"Push send failed for {subscription['endpoint'][:60]}: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"Push send unexpected error: {e}")
-        return False
-
-
-class PushSubscriptionGone(Exception):
-    def __init__(self, endpoint: str):
-        self.endpoint = endpoint
-
-
-async def _send_push_to_user(
-    user_id: str, payload: dict, prune_failed: bool = True
-) -> int:
-    """Fan out a push payload to every subscription registered for a user.
-    Returns how many sends succeeded. Auto-prunes dead subscriptions."""
-    if not VAPID_PRIVATE_KEY:
-        return 0
-    subs = await db.push_subscriptions.find(
-        {"user_id": user_id, "active": True}, {"_id": 0}
-    ).to_list(20)
-    sent = 0
-    for sub in subs:
-        try:
-            ok = await asyncio.to_thread(_send_push_sync, sub, payload)
-            if ok:
-                sent += 1
-                await db.push_subscriptions.update_one(
-                    {"endpoint": sub["endpoint"]},
-                    {"$set": {"last_sent_at": datetime.now(timezone.utc).isoformat()}},
-                )
-        except PushSubscriptionGone as gone:
-            if prune_failed:
-                logger.info(f"Pruning dead push subscription {gone.endpoint[:60]}")
-                await db.push_subscriptions.update_one(
-                    {"endpoint": gone.endpoint},
-                    {"$set": {"active": False, "pruned_at": datetime.now(timezone.utc).isoformat()}},
-                )
-    return sent
-
-
-@api.get("/push/public-key")
-async def push_public_key():
-    """Frontend reads this to call PushManager.subscribe()."""
-    if not VAPID_PUBLIC_KEY:
-        raise HTTPException(503, "Push notifications are not configured on this server")
-    return {"public_key": VAPID_PUBLIC_KEY}
-
-
-@api.post("/push/subscribe")
-async def push_subscribe(
-    payload: PushSubscriptionIn, user: dict = Depends(get_current_user)
-):
-    """Register or refresh this device's push subscription for the current user.
-    Idempotent: same endpoint upserts."""
-    now_iso = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "user_id": user["user_id"],
-        "endpoint": payload.endpoint,
-        "keys": {"p256dh": payload.keys.p256dh, "auth": payload.keys.auth},
-        "user_agent": (payload.user_agent or "")[:240],
-        "platform": payload.platform,
-        "active": True,
-        "subscribed_at": now_iso,
-        "pruned_at": None,
-        "last_sent_at": None,
-    }
-    await db.push_subscriptions.update_one(
-        {"endpoint": payload.endpoint},
-        {"$set": doc},
-        upsert=True,
-    )
-    return {"ok": True}
-
-
-@api.delete("/push/subscribe")
-async def push_unsubscribe(
-    endpoint: str = Body(..., embed=True),
-    user: dict = Depends(get_current_user),
-):
-    """Remove a device subscription. Workers can unsubscribe per-device."""
-    await db.push_subscriptions.update_one(
-        {"endpoint": endpoint, "user_id": user["user_id"]},
-        {"$set": {"active": False, "unsubscribed_at": datetime.now(timezone.utc).isoformat()}},
-    )
-    return {"ok": True}
-
-
-@api.get("/push/status")
-async def push_status(user: dict = Depends(get_current_user)):
-    """Return whether the current user has any active push subscriptions and a
-    summary of devices — used by the Profile UI to show 'Enabled on N devices'.
-    """
-    rows = await db.push_subscriptions.find(
-        {"user_id": user["user_id"], "active": True},
-        {"_id": 0, "endpoint": 1, "platform": 1, "user_agent": 1, "subscribed_at": 1},
-    ).to_list(20)
-    return {
-        "enabled": len(rows) > 0,
-        "device_count": len(rows),
-        "devices": rows,
-        "server_configured": bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY),
-    }
-
-
-@api.post("/push/test")
-async def push_test(
-    payload: PushTestIn, user: dict = Depends(get_current_user)
-):
-    """Fire a test push to every device the current user has registered.
-    Useful from the Profile UI to confirm setup."""
-    sent = await _send_push_to_user(
-        user["user_id"],
-        {
-            "title": payload.title or "HCOB Network test",
-            "body": payload.body or "Push is working.",
-            "tag": "hcob-test",
-            "url": "/crew",
-        },
-    )
-    return {"ok": True, "sent": sent}
-
+# Subscription/status/test endpoints live in routes/push.py and the fan-out
+# send helper lives in push_service.py — both imported above.
 
 
 def _format_gig_email(gig: dict, base_url: str = "") -> str:
@@ -7495,6 +7351,7 @@ async def owner_mark_paid(
 
 
 api.include_router(messages_router)
+api.include_router(push_router)
 app.include_router(api)
 
 app.add_middleware(
