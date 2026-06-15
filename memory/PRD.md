@@ -366,6 +366,11 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 31: Backend Modularization Phase 3c — Profile Extracted) — VERIFIED
+- **server.py: 7,262 → 7,136 lines** (−126; cumulative −1,875 from baseline).
+- **`routes/profile.py`** (163 lines) owns `/profile/options`, `/profile` (PUT), `/profile/avatar`, `/profile/id`, `/files/{path}`, plus the shared `_upload_user_image` helper. server.py re-imports `_upload_user_image` so the admin worker-ID upload endpoint keeps working unchanged.
+- **Verified**: 86/87 backend pytests still green; curl: login ✅, /profile/options ✅, /files/nope unauth 401 ✅, /files/nope auth 404 ✅.
+
 ## Implemented — 2026-02 (Iter 30: Backend Modularization Phase 3b — Auth Extracted) — VERIFIED
 - **server.py: 7,545 → 7,262 lines** (−283; cumulative −1,749 from the 9,011 baseline).
 - **`routes/auth.py`** (329 lines) now owns the full auth surface: `_issue_session` helper + `/auth/register`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/google/session`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/change-password`.
