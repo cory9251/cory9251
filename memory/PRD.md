@@ -366,6 +366,12 @@
 - 4 KPIs (Total Blasts, Workers Targeted, Email Sent, SMS Sent) + full per-send row showing channels, counts, failures, and **sender name**
 - CSV download + Google Sheets export inherited from existing Reports plumbing
 
+## Implemented — 2026-02 (Iter 33: Backend Modularization Phase 3e — Admin + Reports Extracted) — VERIFIED
+- **server.py: 5,439 → 3,378 lines** (−2,061; cumulative −5,633 ≈ **62% reduction** from the 9,011 baseline).
+- **`routes/admin.py`** (~1,140 lines) owns: `/admin/workers/*` (list/match/get/profile/verify-id/id-upload/approve/reject/suspend/reinstate/reset-password/delete), `/admin/users/{id}/reset-password` (Owner-only), `/admin/requests`, `/admin/stats`, `/admin/workers/{id}/pay` defaults, `/gigs/{id}/acceptances/{aid}/pay` overrides, `/gigs/{id}/acceptances/{aid}/{approve,unapprove}-timesheet`, `/gigs/{id}/acceptances/{aid}/timesheet` edit. Helpers `_set_worker_status`, `_completed_gigs_by_worker_and_category`, `_parse_admin_dt` and inline Pydantic models (`AdminProfileUpdateIn`, `AdminGigNoteIn`, `WorkerMessageIn`, `AcceptanceRoleIn`, `AdminCreateIn`, `AdminRoleUpdateIn`) live here. Re-exports `GIG_ROLES`/`GIG_ROLE_LABELS` for the 3 remaining gig-acceptance admin endpoints in server.py.
+- **`routes/reports.py`** (~1,070 lines) owns the entire reports stack: builders (`_build_workers_report`, `_build_gigs_report`, `_build_activity_report`, `_build_earnings_report`, `_build_blasts_report`, `_build_timesheet_rows`), dispatcher (`_dispatch_report` + `REPORT_TYPES`), endpoints (`/admin/reports/{type}`, `/admin/reports/{type}.csv`, `/admin/reports/timesheets[.csv]`, `/admin/reports/export-google-sheets`), and the worker-facing `/me/earnings`.
+- **Verified by testing agent**: **104/104 tests pass** (29 new iter30 + 75 prior regression). Zero behavior change confirmed across pay overrides + earnings recompute, session-kill on reject/suspend/reset, delete-cascade, report shape parity, /me/earnings worker-vs-admin gating, and Google Sheets export error path.
+
 ## Implemented — 2026-02 (Iter 32: Backend Modularization Phase 3d — Gigs Extracted) — VERIFIED
 - **server.py: 7,136 → 5,439 lines** (−1,697; cumulative −3,572 from baseline ≈ 40% reduction).
 - **`routes/gigs.py`** (~1,500 lines) owns the entire gig surface:
