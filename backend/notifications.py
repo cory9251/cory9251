@@ -30,6 +30,28 @@ from config import (
 )
 
 
+# ---- Blast safety (kill switch + cooldown) ---------------------------------
+# These guards exist because a SEV1 incident (Feb-2026) showed that without
+# them a single misclick or duplicate user record can drain the Resend quota.
+# Source of truth: env var → app_settings.blast_kill_switch (mongo).
+BLAST_COOLDOWN_SECONDS = int(os.environ.get("BLAST_COOLDOWN_SECONDS", "300"))
+
+
+async def is_blast_disabled() -> bool:
+    """Return True if blasts are disabled (env var OR DB toggle).
+
+    Env var `BLAST_KILL_SWITCH=1` is the emergency override. The DB toggle in
+    `app_settings.blast_kill_switch` is set via the Owner UI / API and
+    survives across deploys."""
+    if (os.environ.get("BLAST_KILL_SWITCH") or "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    try:
+        s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "blast_kill_switch": 1})
+        return bool((s or {}).get("blast_kill_switch"))
+    except Exception:
+        return False
+
+
 # ---- Public base URL --------------------------------------------------------
 def _resolve_public_base(request: Optional[Request] = None) -> str:
     """Return the canonical public origin so blast emails/SMS can include deep
@@ -272,20 +294,98 @@ async def fanout_blast_channels(
     its own concurrency cap so a slow provider can't stall the others, and
     we stay under typical free-tier rate limits.
 
+    Safety guarantees (post Feb-2026 SEV1):
+      • Re-checks `is_blast_disabled()` on entry — Owner can kill an in-flight
+        blast by flipping the toggle.
+      • Dedupes `workers` by email (and by phone for SMS) so duplicate user
+        rows can't multiply sends.
+      • Persists `sent_emails` on the blast log so a retried fan-out skips
+        addresses already mailed in this blast.
+
     Push imports are deferred to avoid an import cycle
     (notifications.py → push_service.py → config.py)."""
     from push_service import _send_push_to_user
     from config import VAPID_PRIVATE_KEY
 
+    # ---- Kill switch (1) — pre-flight ---------------------------------------
+    if await is_blast_disabled():
+        logger.warning(
+            f"[blast {blast_log_id}] aborted: blast_kill_switch is ON. "
+            f"channels={channels} workers={len(workers)}"
+        )
+        if blast_log_id:
+            try:
+                await db.blast_logs.update_one(
+                    {"blast_id": blast_log_id},
+                    {"$set": {
+                        "aborted": True,
+                        "abort_reason": "kill_switch",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+            except Exception:
+                pass
+        return {"email": 0, "sms": 0, "push": 0, "email_failed": 0, "sms_failed": 0, "aborted": True}
+
+    # ---- Idempotency — skip addresses already sent in this blast ------------
+    already_sent_emails: set = set()
+    already_sent_phones: set = set()
+    if blast_log_id:
+        try:
+            prior = await db.blast_logs.find_one(
+                {"blast_id": blast_log_id},
+                {"_id": 0, "sent_emails": 1, "sent_phones": 1},
+            )
+            already_sent_emails = set((prior or {}).get("sent_emails") or [])
+            already_sent_phones = set((prior or {}).get("sent_phones") or [])
+        except Exception:
+            pass
+
+    # ---- Dedupe workers ------------------------------------------------------
+    # If duplicate user docs share the same email, we MUST only send once.
+    # Same for phone numbers on SMS. We keep the first occurrence so the
+    # push channel (which is per-user_id, not per-email) still gets every
+    # device the user has registered.
+    unique_email_workers: list = []
+    seen_emails: set = set()
+    for w in workers:
+        em = (w.get("email") or "").strip().lower()
+        if em and em not in seen_emails and em not in already_sent_emails:
+            seen_emails.add(em)
+            unique_email_workers.append(w)
+
+    unique_sms_workers: list = []
+    seen_phones: set = set()
+    for w in workers:
+        ph = (w.get("phone") or "").strip()
+        if ph and ph not in seen_phones and ph not in already_sent_phones:
+            seen_phones.add(ph)
+            unique_sms_workers.append(w)
+
+    logger.info(
+        f"[blast {blast_log_id}] starting fanout: channels={channels} "
+        f"workers={len(workers)} unique_emails={len(unique_email_workers)} "
+        f"unique_phones={len(unique_sms_workers)}"
+    )
+
     email_creds = await _resolve_email_creds() if "email" in channels else None
     sms_creds = await _resolve_sms_creds() if "sms" in channels else None
     counts = {"email": 0, "sms": 0, "push": 0, "email_failed": 0, "sms_failed": 0}
 
+    # Track addresses actually attempted so we can persist them and skip on retry.
+    sent_emails_now: set = set()
+    sent_phones_now: set = set()
+
     # ---- Email channel (rate-limited) ---------------------------------------
     async def send_one_email(w: dict, sem: asyncio.Semaphore) -> None:
         async with sem:
+            # Kill-switch re-check inside the loop so flipping it mid-blast
+            # halts further sends as soon as the running tasks pick up.
+            if await is_blast_disabled():
+                return
             if not (w.get("email") and email_creds):
                 return
+            em = w["email"].strip().lower()
             try:
                 await asyncio.to_thread(
                     _send_email_sync,
@@ -296,6 +396,7 @@ async def fanout_blast_channels(
                     html,
                 )
                 counts["email"] += 1
+                sent_emails_now.add(em)
             except Exception as e:
                 # Resend 429 ("Too many requests") is the most common failure
                 # at scale. We log + count it and keep going — workers who
@@ -306,8 +407,11 @@ async def fanout_blast_channels(
     # ---- SMS channel (rate-limited) -----------------------------------------
     async def send_one_sms(w: dict, sem: asyncio.Semaphore) -> None:
         async with sem:
+            if await is_blast_disabled():
+                return
             if not (w.get("phone") and sms_creds):
                 return
+            ph = w["phone"].strip()
             try:
                 await asyncio.to_thread(
                     _send_sms_sync,
@@ -318,6 +422,7 @@ async def fanout_blast_channels(
                     sms_body,
                 )
                 counts["sms"] += 1
+                sent_phones_now.add(ph)
             except Exception as e:
                 logger.error(f"blast sms failed for {w.get('phone')}: {e}")
                 counts["sms_failed"] += 1
@@ -325,6 +430,8 @@ async def fanout_blast_channels(
     # ---- Push channel (in-house) --------------------------------------------
     async def send_one_push(w: dict, sem: asyncio.Semaphore) -> None:
         async with sem:
+            if await is_blast_disabled():
+                return
             try:
                 sent = await _send_push_to_user(w["user_id"], push_payload)
                 counts["push"] += sent
@@ -334,19 +441,27 @@ async def fanout_blast_channels(
     coros = []
     if "email" in channels and email_creds:
         sem_e = asyncio.Semaphore(max(1, int(email_concurrency)))
-        coros.extend(send_one_email(w, sem_e) for w in workers)
+        coros.extend(send_one_email(w, sem_e) for w in unique_email_workers)
     if "sms" in channels and sms_creds:
         sem_s = asyncio.Semaphore(max(1, int(sms_concurrency)))
-        coros.extend(send_one_sms(w, sem_s) for w in workers)
+        coros.extend(send_one_sms(w, sem_s) for w in unique_sms_workers)
     if "push" in channels and VAPID_PRIVATE_KEY:
         sem_p = asyncio.Semaphore(max(1, int(push_concurrency)))
-        coros.extend(send_one_push(w, sem_p) for w in workers)
+        # Push is keyed by user_id — dedupe by user_id (not email/phone).
+        seen_ids: set = set()
+        unique_push_workers: list = []
+        for w in workers:
+            uid = w.get("user_id")
+            if uid and uid not in seen_ids:
+                seen_ids.add(uid)
+                unique_push_workers.append(w)
+        coros.extend(send_one_push(w, sem_p) for w in unique_push_workers)
 
     if coros:
         await asyncio.gather(*coros, return_exceptions=True)
 
-    # Reconcile counts on the persisted blast log entry so the Blasts report
-    # shows the real numbers once the background job finishes.
+    # Reconcile counts + persist recipients on the blast log so a retry of
+    # this same blast_id can skip already-sent addresses (idempotency).
     if blast_log_id:
         try:
             await db.blast_logs.update_one(
@@ -359,10 +474,19 @@ async def fanout_blast_channels(
                         "email_failed": counts["email_failed"],
                         "sms_failed": counts["sms_failed"],
                         "completed_at": datetime.now(timezone.utc).isoformat(),
-                    }
+                    },
+                    "$addToSet": {
+                        "sent_emails": {"$each": list(sent_emails_now)},
+                        "sent_phones": {"$each": list(sent_phones_now)},
+                    },
                 },
             )
         except Exception as e:
             logger.error(f"failed to reconcile blast log {blast_log_id}: {e}")
 
+    logger.info(
+        f"[blast {blast_log_id}] done: email={counts['email']} "
+        f"sms={counts['sms']} push={counts['push']} "
+        f"failed=email:{counts['email_failed']}/sms:{counts['sms_failed']}"
+    )
     return counts

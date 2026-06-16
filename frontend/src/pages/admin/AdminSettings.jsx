@@ -197,6 +197,8 @@ export default function AdminSettings() {
         />
       </div>
 
+      <BlastKillSwitchPanel />
+
       <ChangeMyPasswordPanel />
 
       <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
@@ -583,6 +585,95 @@ function StatusCard({ ready, icon: Icon, channel, provider }) {
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Blast safety panel — Owner-only kill switch and recent-blast audit.
+ * Lets the Owner instantly disable every /blast endpoint without a redeploy.
+ * Added after the Feb-2026 SEV1 quota-drain incident.
+ */
+function BlastKillSwitchPanel() {
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await api.get("/admin/blast-kill-switch");
+      setStatus(data);
+    } catch (e) {
+      // Non-fatal — non-admins shouldn't see this panel anyway.
+      setStatus({ enabled: false, source: "off", cooldown_seconds: 300, error: true });
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const toggle = async () => {
+    if (!status) return;
+    const next = !status.enabled;
+    if (next && !window.confirm("Disable ALL blasts? Admins won't be able to send emails / SMS / push until you turn this back off.")) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post("/admin/blast-kill-switch", { enabled: next });
+      toast.success(next ? "Blasts disabled — every /blast endpoint now returns 503." : "Blasts re-enabled.");
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!status || status.error) return null;
+
+  const envLocked = status.source === "env";
+  const on = status.enabled;
+
+  return (
+    <div
+      data-testid="blast-kill-switch-panel"
+      className={`border-b border-[#E5E7EB] p-6 md:p-10 ${on ? "bg-[#FEF2F2]" : ""}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-mono-label">Safety</div>
+          <h2 className="mt-2 font-display text-2xl font-black flex items-center gap-2">
+            <WarningCircle size={20} weight={on ? "fill" : "duotone"} className={on ? "text-[#DC2626]" : ""} />
+            Blast kill switch · {on ? <span className="text-[#DC2626]">ON</span> : <span className="text-[#10B981]">OFF</span>}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
+            When ON, every <code className="rounded bg-[#F3F4F6] px-1 font-mono text-xs">/blast</code> endpoint returns 503 and any
+            in-flight background fan-out exits immediately. Use this to instantly stop a runaway blast.
+            Cooldown between repeat blasts of the same gig/project: <strong>{status.cooldown_seconds}s</strong>.
+          </p>
+          {status.toggled_at && (
+            <p className="mt-1 text-xs text-[#737373]">
+              Last toggled <strong>{new Date(status.toggled_at).toLocaleString()}</strong>
+              {status.toggled_by ? <> by <strong>{status.toggled_by}</strong></> : null}
+            </p>
+          )}
+          {envLocked && (
+            <p className="mt-2 text-xs text-[#DC2626]">
+              Currently forced ON by the <code>BLAST_KILL_SWITCH</code> environment variable. UI toggle is read-only until that env var is removed.
+            </p>
+          )}
+        </div>
+        <Button
+          data-testid="blast-kill-switch-toggle"
+          onClick={toggle}
+          disabled={busy || envLocked}
+          className={`h-10 rounded-none ${on ? "bg-[#10B981] text-white hover:bg-[#059669]" : "bg-[#DC2626] text-white hover:bg-[#B91C1C]"}`}
+        >
+          {busy ? "Working…" : on ? "Re-enable blasts" : "Disable all blasts"}
+        </Button>
       </div>
     </div>
   );

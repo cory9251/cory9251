@@ -27,6 +27,8 @@ from notifications import (
     _resolve_public_base,
     _log_blast,
     fanout_blast_channels,
+    is_blast_disabled,
+    BLAST_COOLDOWN_SECONDS,
 )
 
 router = APIRouter()
@@ -493,6 +495,30 @@ async def blast_project(
         raise HTTPException(404, "Project not found")
     if project.get("archived"):
         raise HTTPException(400, "Cannot blast an archived project")
+
+    # ---- Safety guards (post Feb-2026 SEV1 quota-drain) --------------------
+    if await is_blast_disabled():
+        raise HTTPException(
+            503,
+            "Blasts are temporarily disabled by the Owner. Turn the kill switch off in "
+            "Admin → Settings to resume sending.",
+        )
+    last_blast = project.get("last_blast_at")
+    if last_blast:
+        try:
+            last_dt = datetime.fromisoformat(str(last_blast).replace("Z", "+00:00"))
+            elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            if elapsed < BLAST_COOLDOWN_SECONDS:
+                wait = int(BLAST_COOLDOWN_SECONDS - elapsed)
+                raise HTTPException(
+                    429,
+                    f"This project was just blasted. Wait {wait}s before re-blasting "
+                    f"(cooldown is {BLAST_COOLDOWN_SECONDS}s).",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
 
     TERMINAL_STATUSES = {"closed", "cancelled", "completed", "archived", "draft"}
     all_linked = await db.gigs.find(

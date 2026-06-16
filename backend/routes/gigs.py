@@ -42,6 +42,8 @@ from notifications import (
     _send_gig_event_email,
     _log_blast,
     fanout_blast_channels,
+    is_blast_disabled,
+    BLAST_COOLDOWN_SECONDS,
 )
 from push_service import _send_push_to_user
 from constants import GIG_TAG_VALUES, GIG_CATEGORY_TO_SKILLS
@@ -1480,6 +1482,32 @@ async def blast_gig(
     gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
     if not gig:
         raise HTTPException(404, "Gig not found")
+
+    # ---- Safety guards (post Feb-2026 SEV1 quota-drain) --------------------
+    if await is_blast_disabled():
+        raise HTTPException(
+            503,
+            "Blasts are temporarily disabled by the Owner. Turn the kill switch off in "
+            "Admin → Settings to resume sending.",
+        )
+    # Cooldown: prevent repeat blasts within BLAST_COOLDOWN_SECONDS (default 300s).
+    last_blast = gig.get("last_blast_at")
+    if last_blast:
+        try:
+            last_dt = datetime.fromisoformat(str(last_blast).replace("Z", "+00:00"))
+            elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            if elapsed < BLAST_COOLDOWN_SECONDS:
+                wait = int(BLAST_COOLDOWN_SECONDS - elapsed)
+                raise HTTPException(
+                    429,
+                    f"This gig was just blasted. Wait {wait}s before re-blasting "
+                    f"(cooldown is {BLAST_COOLDOWN_SECONDS}s).",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            # Malformed timestamp — fail open so a bad legacy doc doesn't block sending.
+            pass
 
     # Only blast to workers who can actually claim the gig — exclude pending,
     # rejected, and suspended accounts. This prevents wasting Resend quota on

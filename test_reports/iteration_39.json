@@ -1,0 +1,48 @@
+{
+  "summary": "Iter39 blast-safety guards (post Feb-2026 SEV1 quota-drain) — 100% green. Ran the existing test_iter39_blast_safety.py (6 tests) + authored a NEW test_iter39_blast_safety_extra.py (8 tests) to cover the gaps the request specifically called out that the existing suite didn't exercise: non-owner 403 on POST kill-switch, kill-switch GET full-shape (toggled_at/toggled_by populated after toggle), kill-switch blocks /projects/{id}/blast (only gigs was covered), per-gig cooldown isolation (different gig NOT blocked in same 300s window), project cooldown 429, in_app-only blast → queued=false + counts.in_app==workers_targeted + appears in /api/admin/reports/blasts, full-channel regression (<10s, queued=true), and a final-state failsafe that verifies the kill switch is OFF at the end. Total combined run: 17/17 PASSED (3 iter36 perf + 6 iter39 + 8 iter39_extra). Backend logs confirm every email attempt short-circuits with 'API key is invalid' — ZERO Resend quota consumed. Final GET /admin/blast-kill-switch shows enabled=false, source='off'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_features": [
+    "[Kill-switch endpoint] GET /api/admin/blast-kill-switch returns {enabled, source, toggled_at, toggled_by, cooldown_seconds=300}. After Owner toggles ON, toggled_by==admin@hcobcleaners.com and source=='db'. Toggling OFF flips enabled=false, source=='off'.",
+    "[Owner gate] POST /api/admin/blast-kill-switch by admin@gigblast.com (non-owner admin) returns 403 'Owner sign-off required'. Owner (admin@hcobcleaners.com, is_owner=true) gets 200.",
+    "[Kill-switch blocks gigs] With switch ON, POST /api/gigs/{id}/blast returns 503 with 'disabled' in body. With switch OFF, same request returns 200.",
+    "[Kill-switch blocks projects] With switch ON, POST /api/projects/{id}/blast returns 503 with 'disabled' in body. With switch OFF, returns 200. (NEW — was not covered in original iter39 test file.)",
+    "[Gig cooldown] Repeat POST /api/gigs/{id}/blast within 300s returns 429 with 'wait Xs' / 'cooldown 300s' message.",
+    "[Cooldown isolation] Blasting a DIFFERENT gig in the same 300s window returns 200 (per-gig last_blast_at, not global). Original gig still 429.",
+    "[Project cooldown] Repeat POST /api/projects/{id}/blast within 300s returns 429 with cooldown message. (NEW.)",
+    "[Audit endpoint] GET /api/admin/blast-audit?gig_id=...&hours=1 returns {window_hours, blasts, blast_count, top_email_recipients, total_event_emails}; freshly-created blast_id is present in blasts[].blast_id list.",
+    "[in_app-only fast path] POST /api/gigs/{id}/blast channels=['in_app'] → queued=false, blast_id returned, counts.in_app == workers_targeted, counts.email==0, counts.sms==0, response <10s, blast row surfaced via /api/admin/reports/blasts.",
+    "[Regression — full channels] POST /api/gigs/{id}/blast channels=['in_app','email','sms','push'] returns in <10s with queued=true and blast_id (background fan-out still queued).",
+    "[Fanout dedupe (unit)] notifications.fanout_blast_channels dedupes by lower-cased email — 4 worker docs with 3 sharing dup@example.com (case-insensitive) → only 2 sends.",
+    "[Fanout kill-switch abort (unit)] When is_blast_disabled() returns True mid-fanout, _send_email_sync is NEVER called and result.aborted==True.",
+    "[Resend safety] Backend logs show only 'ERROR blast email failed for ...: API key is invalid' — no successful Resend calls, no quota consumed, intentionally-invalid preview key respected.",
+    "[Final state] Kill switch is OFF at end of test run (enabled=false, source='off')."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter39_blast_safety.py",
+    "/app/backend/tests/test_iter39_blast_safety_extra.py (NEW — 8 tests)",
+    "/app/backend/tests/test_iter36_blast_perf.py (regression)",
+    "/app/test_reports/pytest/iter39.xml",
+    "/app/test_reports/pytest/iter39_extra.xml",
+    "/app/test_reports/pytest/iter39_combined.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/admin.py blast-audit (line ~1240): caps results at .to_list(500). During the original SEV1 incident, 25k duplicate sends happened — if a future incident generates >500 rows in the lookback window, the audit will silently truncate. Consider adding a 'truncated' boolean to the response or paginating.",
+    "routes/gigs.py blast_gig (line ~1494) + routes/projects.py blast_project (line ~506): the cooldown ENFORCEMENT uses the gig/project's own last_blast_at field, so simultaneous blasts from two admin browser tabs in <300s can race — both reads see the old value before the $set lands. Low risk because cooldown is a UX guard, not a security boundary, but worth noting. A conditional update (e.g. $set with filter on last_blast_at < cutoff_iso, then check matched_count) would make it atomic.",
+    "notifications.is_blast_disabled (line ~40) reads BLAST_KILL_SWITCH env on every call but the DB lookup hits app_settings every blast — for 5k-worker fanouts that's 5k Mongo lookups inside fanout_blast_channels (re-checked on every batch boundary at line 384/410/433). Already throttled by batch size so probably fine, but consider a 1-second TTL cache to avoid hammering app_settings during a big blast.",
+    "routes/admin.py POST blast-kill-switch (line ~1198): writes blast_kill_switch_by from owner.get('email') or owner.get('user_id'). Good. But there's no audit log of the toggle — only a logger.warning. For SEV1 follow-up consider persisting a history collection (blast_kill_switch_audit) so we have a forensic trail of who flipped it when.",
+    "routes/projects.py blast_project (line ~636): writes last_blast_at to the project AND copies it to each linked gig (line ~623). After a project blast, every linked gig is also on its own 300s cooldown. That's correct safety behavior, but combined with the fact that GIG-level blasts only write the gig's own last_blast_at, an admin could blast a gig immediately after a project blast cleared the cooldown by deleting the gig field — minor edge case, low priority.",
+    "Cosmetic: 'is_blast_disabled' name is slightly ambiguous — reads as 'is blasting disabled?' which is what it means, but could be 'blast_kill_switch_active()' for clarity at call sites."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter39_blast_safety_extra.py (NEW — 8 tests, ~250 lines)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Owner admin@hcobcleaners.com / HcobAdmin2026! ; Non-owner admin admin@gigblast.com / GigBlast2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Each test creates its own ephemeral gigs (via POST /api/gigs) and projects (via POST /api/projects). Gigs deleted at end of each test; projects archived (no hard-delete endpoint). One blast_logs row per blast remains in DB (expected — audit trail), but every row is tagged with iter39-extra-* titles for traceability.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter39 blast-safety is GREEN. Two test files cover the area: /app/backend/tests/test_iter39_blast_safety.py (6 tests — original) and /app/backend/tests/test_iter39_blast_safety_extra.py (8 tests — NEW, covers non-owner 403, project cooldown, project kill-switch block, per-gig cooldown isolation, in_app-only no-queue, full-channel regression, final-state failsafe). Run combined: `cd /app/backend && REACT_APP_BACKEND_URL=$URL python -m pytest tests/test_iter36_blast_perf.py tests/test_iter39_blast_safety.py tests/test_iter39_blast_safety_extra.py -v`. All 17 tests should pass in ~12s. If you make changes to notifications.fanout_blast_channels or any /blast endpoint, re-run all three files. Resend creds are intentionally invalid in preview — do NOT swap in a real key.",
+  "rca of the issue": "No bugs found — main agent's fix correctly addresses the original SEV1 (25k duplicate sends + Resend quota drain). The three layers of defense are all working: (1) Owner-toggleable kill switch (env OR DB) gates BOTH route entry and in-flight fan-out re-checks. (2) Per-gig and per-project 300s cooldown blocks accidental re-blasts at the HTTP layer with 429. (3) fanout_blast_channels dedupes the worker list by lower-cased email so duplicate user docs only get one send each. Resend safety is enforced by the intentionally-invalid preview API key — every send short-circuits to a log error with zero outbound HTTP."
+}

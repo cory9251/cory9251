@@ -11,10 +11,11 @@ Local Pydantic models (AdminProfileUpdateIn / AdminGigNoteIn / WorkerMessageIn /
 AcceptanceRoleIn / AdminCreateIn / AdminRoleUpdateIn) live here because they
 are only referenced by admin routes.
 """
+import os
 import re
 import uuid
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -46,7 +47,8 @@ from models import (
     TimesheetApproveIn,
     TimesheetEditIn,
 )
-from notifications import _send_user_email, _public_base
+from notifications import _send_user_email, _public_base, is_blast_disabled, BLAST_COOLDOWN_SECONDS
+from va_commission import require_owner
 from routes.gigs import (
     _resolve_pay,
     _resolve_break_minutes,
@@ -1168,6 +1170,96 @@ async def edit_acceptance_timesheet(
     }
 
 
+# ---------------------------------------------------------------------------
+# Blast safety (kill switch + audit) — Feb-2026 SEV1 follow-up
+# ---------------------------------------------------------------------------
+class BlastKillSwitchIn(BaseModel):
+    enabled: bool
 
 
+@router.get("/admin/blast-kill-switch")
+async def get_blast_kill_switch(admin: dict = Depends(require_admin)):
+    """Return whether blasts are currently disabled and why (env vs DB)."""
+    env_on = (os.environ.get("BLAST_KILL_SWITCH") or "").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+    s = await db.app_settings.find_one(
+        {"_id": "global"}, {"_id": 0, "blast_kill_switch": 1, "blast_kill_switch_at": 1, "blast_kill_switch_by": 1}
+    ) or {}
+    return {
+        "enabled": bool(env_on or s.get("blast_kill_switch")),
+        "source": "env" if env_on else ("db" if s.get("blast_kill_switch") else "off"),
+        "toggled_at": s.get("blast_kill_switch_at"),
+        "toggled_by": s.get("blast_kill_switch_by"),
+        "cooldown_seconds": BLAST_COOLDOWN_SECONDS,
+    }
+
+
+@router.post("/admin/blast-kill-switch")
+async def set_blast_kill_switch(
+    payload: BlastKillSwitchIn,
+    owner: dict = Depends(require_owner),
+):
+    """Owner-only: flip the global blast kill switch. When enabled, every
+    /blast endpoint returns 503 and in-flight background fan-outs exit early.
+    Note: env var `BLAST_KILL_SWITCH` still overrides the DB toggle."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.app_settings.update_one(
+        {"_id": "global"},
+        {"$set": {
+            "blast_kill_switch": bool(payload.enabled),
+            "blast_kill_switch_at": now_iso,
+            "blast_kill_switch_by": owner.get("email") or owner.get("user_id"),
+        }},
+        upsert=True,
+    )
+    logger.warning(
+        f"[BLAST_KILL_SWITCH] {'ENABLED' if payload.enabled else 'DISABLED'} "
+        f"by {owner.get('email')}"
+    )
+    return {"ok": True, "enabled": bool(payload.enabled)}
+
+
+@router.get("/admin/blast-audit")
+async def blast_audit(
+    gig_id: Optional[str] = Query(None),
+    project_id: Optional[str] = Query(None),
+    hours: int = Query(72, ge=1, le=24 * 30),
+    admin: dict = Depends(require_admin),
+):
+    """Diagnostic — show the recent `blast_logs` rows (filterable by gig or
+    project) plus a summary of the `email_logs` collection so an Owner can
+    audit exactly what was sent in production during an incident."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    q: dict = {"sent_at": {"$gte": cutoff}}
+    if gig_id:
+        q["gig_id"] = gig_id
+    if project_id:
+        q["project_id"] = project_id
+
+    blasts = await db.blast_logs.find(q, {"_id": 0}).sort("sent_at", -1).to_list(500)
+
+    # Surface per-blast unique-recipient counts to spot anomalies
+    for b in blasts:
+        b["unique_emails_sent"] = len(b.get("sent_emails") or [])
+        b["unique_phones_sent"] = len(b.get("sent_phones") or [])
+
+    # Email log summary in the window (catches event/digest emails too)
+    email_summary = await db.email_logs.aggregate([
+        {"$match": {"sent_at": {"$gte": cutoff}}},
+        {"$group": {"_id": "$email", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 50},
+    ]).to_list(50)
+    total_emails = sum(r["count"] for r in email_summary)
+
+    return {
+        "window_hours": hours,
+        "blasts": blasts,
+        "blast_count": len(blasts),
+        "top_email_recipients": [
+            {"email": r["_id"], "count": r["count"]} for r in email_summary
+        ],
+        "total_event_emails": total_emails,
+    }
 
