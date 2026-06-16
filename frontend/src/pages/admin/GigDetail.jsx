@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import WorkerLink from "@/components/admin/WorkerLink";
+import MessageUserButton from "@/components/messages/MessageUserButton";
 import { formatGigLong, formatGigRelative } from "@/lib/gigDate";
 import {
   Dialog,
@@ -543,7 +544,15 @@ export default function GigDetail() {
                   {gig.pending_requests.map((r) => (
                     <tr key={r.acceptance_id} data-testid={`request-row-${r.acceptance_id}`} className="hover:bg-[#FFFBEB]/50">
                       <td className="border-b border-[#F59E0B]/30 px-4 py-3 font-semibold">
-                        <WorkerLink workerId={r.worker_id} name={r.worker_name || r.worker_id} />
+                        <div className="flex items-center gap-2">
+                          <WorkerLink workerId={r.worker_id} name={r.worker_name || r.worker_id} />
+                          <MessageUserButton
+                            userId={r.worker_id}
+                            name={r.worker_name}
+                            variant="icon"
+                            testId={`request-message-${r.acceptance_id}`}
+                          />
+                        </div>
                       </td>
                       <td className="border-b border-[#F59E0B]/30 px-4 py-3 text-xs">
                         <div>{r.worker_email}</div>
@@ -666,7 +675,15 @@ export default function GigDetail() {
                           #{b.backup_order || "?"}
                         </td>
                         <td className="border-b border-[#0044FF]/30 px-4 py-3 font-semibold">
-                          <WorkerLink workerId={b.worker_id} name={b.worker_name || b.worker_id} />
+                          <div className="flex items-center gap-2">
+                            <WorkerLink workerId={b.worker_id} name={b.worker_name || b.worker_id} />
+                            <MessageUserButton
+                              userId={b.worker_id}
+                              name={b.worker_name}
+                              variant="icon"
+                              testId={`backup-message-${b.acceptance_id}`}
+                            />
+                          </div>
                         </td>
                         <td className="border-b border-[#0044FF]/30 px-4 py-3 text-xs">
                           <div>{b.worker_email}</div>
@@ -817,7 +834,15 @@ export default function GigDetail() {
                   return (
                   <tr key={a.acceptance_id} className="hover:bg-[#F9FAFB]">
                     <td className="border-b border-[#E5E7EB] px-3 py-3 font-semibold">
-                      <WorkerLink workerId={a.worker_id} name={a.worker_name || a.worker_id} />
+                      <div className="flex items-center gap-2">
+                        <WorkerLink workerId={a.worker_id} name={a.worker_name || a.worker_id} />
+                        <MessageUserButton
+                          userId={a.worker_id}
+                          name={a.worker_name}
+                          variant="icon"
+                          testId={`acceptance-message-${a.acceptance_id}`}
+                        />
+                      </div>
                       <div className="text-[10px] font-normal text-[#4B5563]">{a.worker_email}</div>
                     </td>
                     <td className="border-b border-[#E5E7EB] px-3 py-3">

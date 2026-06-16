@@ -17,7 +17,15 @@ from pydantic import BaseModel, Field
 from config import db, logger, APP_NAME
 from auth_deps import get_current_user
 from storage import put_object, _ext_from
-from notifications import _send_user_email, _public_base
+from notifications import (
+    _send_user_email,
+    _public_base,
+    _resolve_email_creds,
+    _resolve_sms_creds,
+    _send_email_sync,
+    _send_sms_sync,
+    is_blast_disabled,
+)
 from models import MessageSendIn, OpenDMIn
 
 router = APIRouter()
@@ -254,13 +262,7 @@ def _serialize_message(msg: dict) -> dict:
 
 
 # ---- Models ----------------------------------------------------------------
-class MessageSendIn(BaseModel):
-    text: Optional[str] = Field(default=None, max_length=4000)
-    attachment_paths: Optional[List[str]] = None
-
-
-class OpenDMIn(BaseModel):
-    user_id: str
+# MessageSendIn and OpenDMIn are imported from models.py (single source of truth).
 
 
 # ---- Endpoints -------------------------------------------------------------
@@ -435,7 +437,88 @@ async def send_message(
         {"$set": {"last_read_message_id": msg_id, "last_read_at": now}},
         upsert=True,
     )
+
+    # ---- Optional companion delivery (email / SMS) -------------------------
+    # Only admin/owner/pm may request extra channels. Workers/VAs setting
+    # channels is silently ignored (in-app only).
+    requested_channels = [c for c in (payload.channels or []) if c in ("email", "sms")]
+    if requested_channels and user.get("role") in ("admin", "owner", "pm"):
+        # Respect the kill switch — a runaway DM-flooder would be just as bad.
+        if not await is_blast_disabled():
+            await _deliver_dm_companion(
+                thread=thread,
+                sender=user,
+                text=text,
+                channels=requested_channels,
+            )
+
     return _serialize_message(doc)
+
+
+async def _deliver_dm_companion(
+    *, thread: dict, sender: dict, text: str, channels: list
+):
+    """Send the same DM body as email and/or SMS to the recipient.
+
+    Only used on DM threads (not gig groups — those have too many recipients
+    and should use the blast endpoint instead).
+    Recipient = the participant that is NOT the sender.
+    Failures are logged + swallowed; in-app delivery already succeeded."""
+    if thread.get("type") != "dm":
+        return
+    participants = thread.get("participant_ids") or []
+    other_id = next((p for p in participants if p != sender["user_id"]), None)
+    if not other_id:
+        return
+    recipient = await db.users.find_one(
+        {"user_id": other_id},
+        {"_id": 0, "user_id": 1, "email": 1, "phone": 1, "name": 1},
+    )
+    if not recipient:
+        return
+
+    sender_name = sender.get("name") or sender.get("email") or "HCOB"
+    snippet = (text or "")[:600]
+
+    if "email" in channels and recipient.get("email"):
+        try:
+            creds = await _resolve_email_creds()
+            if creds and creds.get("api_key"):
+                base = _public_base()
+                deep_link = f"{base}/messages?thread={thread['thread_id']}"
+                subject = f"New message from {sender_name}"
+                html = (
+                    f"<p><strong>{sender_name}</strong> sent you a message:</p>"
+                    f"<blockquote style='border-left:3px solid #0044FF;padding-left:12px;color:#222;'>"
+                    f"{snippet.replace(chr(10), '<br/>')}</blockquote>"
+                    f"<p><a href='{deep_link}' style='color:#0044FF;font-weight:600;'>Open conversation →</a></p>"
+                )
+                await asyncio.to_thread(
+                    _send_email_sync,
+                    creds["api_key"],
+                    creds["sender"],
+                    recipient["email"],
+                    subject,
+                    html,
+                )
+        except Exception as e:
+            logger.error(f"DM companion email failed for {recipient.get('email')}: {e}")
+
+    if "sms" in channels and recipient.get("phone"):
+        try:
+            creds = await _resolve_sms_creds()
+            if creds and creds.get("sid") and creds.get("token") and creds.get("from_"):
+                body = f"{sender_name}: {snippet[:300]}"
+                await asyncio.to_thread(
+                    _send_sms_sync,
+                    creds["sid"],
+                    creds["token"],
+                    creds["from_"],
+                    recipient["phone"],
+                    body,
+                )
+        except Exception as e:
+            logger.error(f"DM companion sms failed for {recipient.get('phone')}: {e}")
 
 
 @router.post("/messages/threads/{thread_id}/read")

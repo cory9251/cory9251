@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Check, Pause, Trash, UserPlus, Copy, Key } from "@phosphor-icons/react";
+import MessageUserButton from "@/components/messages/MessageUserButton";
 import {
   Dialog,
   DialogContent,
@@ -187,6 +188,12 @@ export default function AdminVAs() {
                     <td className="px-3 py-3 text-right font-mono font-semibold">{fmtMoney(paid + approved)}</td>
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap gap-1">
+                        <MessageUserButton
+                          userId={u.user_id}
+                          name={u.name}
+                          variant="row"
+                          testId={`va-message-${u.user_id}`}
+                        />
                         {u.va_status === "pending" && (
                           <button
                             data-testid={`va-approve-${u.user_id}`}

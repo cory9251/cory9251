@@ -20,6 +20,36 @@ import WorkerLink from "@/components/admin/WorkerLink";
 const MESSAGE_POLL_MS = 5000;
 const LIST_POLL_MS = 10000;
 
+// Stock canned templates surfaced to admins as one-click chips above the
+// composer. Tuned for the most common HCOB nudges. Tokens like {name} are
+// replaced with the recipient's first name when sending.
+const QUICK_TEMPLATES = [
+  {
+    label: "Available?",
+    text: "Hey {name} — are you available for a gig coming up? Let me know if you can take it.",
+  },
+  {
+    label: "ID reminder",
+    text: "Hey {name} — please upload a clear photo of your ID in your profile when you get a chance. Thanks!",
+  },
+  {
+    label: "Shift soon",
+    text: "Hey {name} — your shift starts soon. Please confirm you're on the way.",
+  },
+  {
+    label: "Late",
+    text: "Hey {name} — we noticed you haven't clocked in yet. Everything OK?",
+  },
+  {
+    label: "Thanks",
+    text: "Thanks for the great work, {name}! Really appreciate you.",
+  },
+  {
+    label: "Update lead",
+    text: "Hi {name} — can you give me an update on the latest lead? Stage / next step?",
+  },
+];
+
 function formatTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -103,6 +133,31 @@ export default function Messages() {
   const [attachments, setAttachments] = useState([]); // [{path, content_type, preview}]
   const [uploading, setUploading] = useState(false);
   const [newDialogOpen, setNewDialogOpen] = useState(false);
+  // Per-send channel toggles (admin-only) — persisted to localStorage so the
+  // Owner doesn't have to re-tick "Also email" for every reply.
+  const [extraChannels, setExtraChannels] = useState(() => {
+    try {
+      const raw = localStorage.getItem("hcob_dm_channels");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return {
+        email: !!parsed?.email,
+        sms: !!parsed?.sms,
+      };
+    } catch {
+      return { email: false, sms: false };
+    }
+  });
+  const toggleChannel = (key) => {
+    setExtraChannels((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem("hcob_dm_channels", JSON.stringify(next));
+      } catch {
+        /* localStorage may be unavailable in private mode */
+      }
+      return next;
+    });
+  };
 
   const listTimerRef = useRef(null);
   const msgTimerRef = useRef(null);
@@ -217,11 +272,20 @@ export default function Messages() {
     if (!activeThread) return;
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return;
+    // Companion channels only available to admin/owner/pm on DM threads
+    const canUseChannels =
+      user?.role === "admin" && activeThread?.type === "dm";
+    const channels = canUseChannels
+      ? Object.entries(extraChannels)
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+      : [];
     setSending(true);
     try {
       await api.post(`/messages/threads/${activeThread.thread_id}/messages`, {
         text: trimmed,
         attachment_paths: attachments.map((a) => a.path),
+        channels,
       });
       setText("");
       setAttachments([]);
@@ -508,6 +572,68 @@ export default function Messages() {
 
             {/* Composer */}
             <div className="border-t border-[#E5E7EB] bg-white p-3" data-testid="composer">
+              {/* Admin power-tools: quick templates + extra channels.
+                  Only shown to admins on a DM thread. */}
+              {user?.role === "admin" && activeThread?.type === "dm" && (
+                <div className="mb-2 space-y-2">
+                  <div
+                    className="flex flex-wrap gap-1"
+                    data-testid="composer-templates"
+                  >
+                    <span className="self-center font-mono-label">Quick</span>
+                    {QUICK_TEMPLATES.map((tpl) => (
+                      <button
+                        key={tpl.label}
+                        type="button"
+                        data-testid={`template-${tpl.label.toLowerCase().replace(/\s+/g, "-")}`}
+                        onClick={() => {
+                          const firstName =
+                            (activeThread.other_user?.name || "").split(" ")[0] ||
+                            "there";
+                          setText((prev) => {
+                            const filled = tpl.text.replace(/\{name\}/g, firstName);
+                            return prev ? `${prev}\n${filled}` : filled;
+                          });
+                        }}
+                        className="border border-[#E5E7EB] bg-white px-2 py-1 text-[11px] font-semibold text-[#030712] hover:border-[#0044FF] hover:text-[#0044FF]"
+                      >
+                        {tpl.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    className="flex flex-wrap items-center gap-3 text-[11px] text-[#4B5563]"
+                    data-testid="composer-channels"
+                  >
+                    <span className="font-mono-label">Also send via</span>
+                    <label className="inline-flex cursor-pointer items-center gap-1 select-none">
+                      <input
+                        type="checkbox"
+                        data-testid="channel-email"
+                        checked={extraChannels.email}
+                        onChange={() => toggleChannel("email")}
+                        className="h-3 w-3 accent-[#0044FF]"
+                      />
+                      <span>Email</span>
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-1 select-none">
+                      <input
+                        type="checkbox"
+                        data-testid="channel-sms"
+                        checked={extraChannels.sms}
+                        onChange={() => toggleChannel("sms")}
+                        className="h-3 w-3 accent-[#0044FF]"
+                      />
+                      <span>SMS</span>
+                    </label>
+                    {(extraChannels.email || extraChannels.sms) && (
+                      <span className="text-[10px] uppercase tracking-widest text-[#0044FF]">
+                        ↪ recipient will get a copy
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
               {attachments.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-2">
                   {attachments.map((a, idx) => (

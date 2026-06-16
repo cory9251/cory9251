@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { StarsDisplay } from "@/components/admin/RatingDialog";
+import MessageUserButton from "@/components/messages/MessageUserButton";
 import {
   CheckCircle,
   IdentificationCard,
@@ -384,12 +385,28 @@ export default function AdminWorkers() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {workers.map((w) => (
-              <button
+              <div
                 key={w.user_id}
                 data-testid={`worker-card-${w.user_id}`}
+                role="button"
+                tabIndex={0}
                 onClick={() => nav(`/ops/workers/${w.user_id}`)}
-                className="border border-[#E5E7EB] bg-white p-5 text-left hover:border-[#030712]"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    nav(`/ops/workers/${w.user_id}`);
+                  }
+                }}
+                className="relative cursor-pointer border border-[#E5E7EB] bg-white p-5 text-left hover:border-[#030712] focus:border-[#030712] focus:outline-none"
               >
+                <div className="absolute right-3 top-3">
+                  <MessageUserButton
+                    userId={w.user_id}
+                    name={w.name}
+                    variant="icon"
+                    testId={`message-worker-${w.user_id}`}
+                  />
+                </div>
                 <div className="flex items-center gap-3">
                   <div className="grid h-12 w-12 place-items-center bg-[#F0F4FF] text-[#0044FF]">
                     <UserCircle size={28} weight="duotone" />
@@ -480,7 +497,7 @@ export default function AdminWorkers() {
                 <div className="mt-3 font-mono-label">
                   Joined {new Date(w.created_at).toLocaleDateString()}
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}

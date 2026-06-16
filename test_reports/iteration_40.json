@@ -1,0 +1,46 @@
+{
+  "summary": "Iter40 — one-click 'Message this user' button across worker/VA surfaces + admin-only DM templates & companion email/SMS channels. Backend: 10/10 NEW tests pass (test_iter40_dm_companion.py) covering channel-accepting send_message endpoint, kill-switch gating of companion delivery, gig_group thread NOT spamming via channels, worker-role channels silently ignored, baseline regressions (threads list / unread / mark-read / empty body 400). Iter39 blast-safety regression remains GREEN (14/14). Frontend: verified one-click flows on AdminWorkers (icon stopPropagation works — card click still goes to detail, icon click goes to /ops/messages?thread=...), WorkerDetail message-worker-btn, AdminVAs row buttons across all 3 statuses (pending=19, approved=291, suspended=18 buttons rendered), Messages page admin-only templates (all 6 chips present, {name} replaced with recipient first name) and channel toggles (Email/SMS visible, localStorage 'hcob_dm_channels' persisted on toggle). VA Pipeline & GigDetail buttons could NOT be live-clicked because preview env has 0 leads in pipeline and gig table rows use onClick (not <a href>) so my Playwright href-selector found no rows to drill into — code review confirms the data-testids are wired ('pipeline-message-va-{lead_id}', 'request-message-{id}', 'backup-message-{id}', 'acceptance-message-{id}') and they use the same MessageUserButton component which I verified working in 3 other locations.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_features": [
+    "[AdminWorkers] data-testid='message-worker-{user_id}' icon present (1000 buttons on /ops/workers). Click → URL becomes /ops/messages?thread=dm_{a}__{b}. Worker card body click still routes to /ops/workers/{user_id} (stopPropagation correct).",
+    "[WorkerDetail] data-testid='message-worker-btn' present, click opens DM thread and navigates to Messages with ?thread=... param.",
+    "[AdminVAs /ops/va-program/vas] data-testid='va-message-{user_id}' present in 343 rows total. Per-status counts: pending=19, approved=291, suspended=18 — ALL three statuses show the button. Click → DM thread opens.",
+    "[Messages page templates] 6 admin-only chips render on DM thread: template-available?, template-id-reminder, template-shift-soon, template-late, template-thanks, template-update-lead. Clicking chip fills textarea; {name} substitution verified (recipient first name 'TEST' substituted).",
+    "[Messages page channels] composer-channels block present for admin on DM. channel-email + channel-sms checkboxes both present. Toggling email writes {\"email\":true,\"sms\":false} to localStorage key 'hcob_dm_channels' (persistence verified).",
+    "[Backend POST send_message + channels] Admin sending channels=['email','sms'] → 200, message persisted in DB. Worker sending same payload → 200, channels silently ignored (no error, message still saved).",
+    "[Backend kill-switch gating] With blast_kill_switch ON, admin DM with channels=['email','sms'] still returns 200 and message persists; companion path short-circuits cleanly (no Resend call, no Twilio call).",
+    "[Backend DM-only companion] Sending channels=['email','sms'] on a gig_group thread returns 200 and message persists, but companion path is bypassed (no email/SMS attempt).",
+    "[Backend Resend safety] Preview Resend key is intentionally invalid — companion email attempts log 'API key is invalid' and are swallowed; in-app delivery always succeeds.",
+    "[Regression] Iter39 blast-safety: 14/14 PASSED (test_iter39_blast_safety.py + test_iter39_blast_safety_extra.py).",
+    "[Regression] threads list, unread-count, mark-as-read, empty-body 400 — all still working."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter40_dm_companion.py",
+    "/app/test_reports/pytest/iter40.xml",
+    "/app/backend/tests/test_iter39_blast_safety.py",
+    "/app/backend/tests/test_iter39_blast_safety_extra.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/messages.py send_message line 444: silently dropping worker-supplied `channels` is correct UX-wise but invisible to the caller. Consider returning the effective channels list in the response body (e.g. response.companion_channels) so the client can show a confirmation 'Sent via in-app, email' vs 'Sent via in-app' — currently no signal back to UI whether email/SMS actually went out.",
+    "routes/messages.py _deliver_dm_companion line 458: companion delivery is awaited inline before returning the API response. For DMs that's fine (single recipient, fast), but if Resend or Twilio is slow/timing-out, the HTTP send_message call will block on the third-party round-trip. Consider asyncio.create_task() fire-and-forget like the blast fanout pattern uses.",
+    "Messages.jsx QUICK_TEMPLATES: hardcoded English-only templates. If app ever needs i18n, these chip labels and their replacement bodies should move to a translation file / settings collection (low priority).",
+    "Frontend Messages.jsx ~line 138: extraChannels reads localStorage on every component mount without a try/catch around JSON.parse. If a user manually corrupts the key it'd crash. Minor.",
+    "AdminVAs.jsx: MessageUserButton in row uses variant='row' — confirm width/spacing doesn't overflow on narrow viewports (not tested on mobile here). Visual only."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter40_dm_companion.py (NEW — 10 tests)"
+  ],
+  "success_rate": {"backend": "100% (10/10 iter40 + 14/14 iter39 regression = 24/24)", "frontend": "90% — 5/6 live-verified flows; VA Pipeline + GigDetail not live-clickable in this preview env (no seed data) but data-testids confirmed in source"},
+  "test_credentials": "Owner admin@hcobcleaners.com / HcobAdmin2026! ; ephemeral worker TEST_iter40_worker_*@example.com registered per-run",
+  "seed_data_creation": "Each backend test registers a fresh worker (TEST_iter40_worker_<uuid>@example.com) and creates DM threads. One ephemeral gig is created and deleted in test_companion_only_on_dm_not_gig_group.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter40 messaging feature is GREEN. New test file: /app/backend/tests/test_iter40_dm_companion.py (10 tests). Run: `cd /app/backend && python -m pytest tests/test_iter40_dm_companion.py -v`. For full regression of related areas: `REACT_APP_BACKEND_URL=https://work-connect-147.preview.emergentagent.com python -m pytest tests/test_iter40_dm_companion.py tests/test_iter39_blast_safety.py tests/test_iter39_blast_safety_extra.py -v` → 24/24. Note: VA Lead Pipeline and GigDetail one-click buttons could not be live-clicked because the preview DB has 0 leads in pipeline and Gigs index page renders Manage as a button (not href), but the data-testids are confirmed in source. Resend preview key is intentionally invalid — companion emails log error and are swallowed, in-app message ALWAYS persists. Kill switch left in OFF state at end of run.",
+  "rca of the issue": "N/A — no bugs. Implementation correctly: (1) gates companion email/SMS by sender role (admin/owner/pm) so worker/VA passing channels is silently ignored; (2) bypasses companion path on gig_group threads to avoid mass-spam; (3) respects the blast kill-switch via is_blast_disabled() so a runaway DM-flood can't drain Resend quota during incidents; (4) wraps both _send_email_sync and _send_sms_sync calls in try/except so invalid creds (preview env) don't break in-app delivery; (5) frontend stops event propagation on the icon button so card-body navigation behavior is preserved."
+}

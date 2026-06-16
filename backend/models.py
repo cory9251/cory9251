@@ -329,6 +329,11 @@ class WorkerStatusIn(BaseModel):
 class MessageSendIn(BaseModel):
     text: Optional[str] = Field(default=None, max_length=4000)
     attachment_paths: Optional[List[str]] = None
+    # Optional companion channels (in addition to in-app delivery, which is
+    # always done). Defaults to None / empty == in-app only.
+    # Allowed values: "email", "sms". Only admins/owners/PMs may set this;
+    # the server ignores it from workers/VAs.
+    channels: Optional[List[str]] = None
 
 
 class OpenDMIn(BaseModel):

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { MagnifyingGlass, ArrowRight } from "@phosphor-icons/react";
+import MessageUserButton from "@/components/messages/MessageUserButton";
 
 const STAGES = [
   { value: "new_lead", label: "New Lead", color: "bg-[#0044FF]" },
@@ -173,8 +174,20 @@ export default function AdminVAPipeline() {
                     className="border-t border-[#E5E7EB] hover:bg-[#F9FAFB] align-top"
                   >
                     <td className="px-3 py-3 text-xs">
-                      <div className="font-semibold">{l.va_name || "—"}</div>
-                      <div className="text-[#4B5563]">{(l.va_user_id || "").slice(0, 18)}</div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold">{l.va_name || "—"}</div>
+                          <div className="text-[#4B5563]">{(l.va_user_id || "").slice(0, 18)}</div>
+                        </div>
+                        {l.va_user_id && (
+                          <MessageUserButton
+                            userId={l.va_user_id}
+                            name={l.va_name}
+                            variant="icon"
+                            testId={`pipeline-message-va-${l.lead_id}`}
+                          />
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-3">
                       <div className="font-semibold">{l.prospect_name}</div>
