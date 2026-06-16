@@ -502,6 +502,18 @@
 - **Action required for user**: redeploy production (the fix is in preview only).
 
 
+## Implemented — 2026-06 (Iter 37: Backend Modularization Phase 3f) — VERIFIED
+- **Projects, VA, PM, and Owner routes extracted from `server.py`** into dedicated modules. The monolith is now **1,534 lines** (down from 3,416 at the start of this iteration, or 9,011 at the very start of the refactor — **83% reduction**).
+- **New modules**:
+  - `va_commission.py` (396 lines) — shared deps + Pydantic models + commission calculation engine. Used by VA/PM/Owner routes.
+  - `routes/va.py` (218 lines) — VA portal (`/api/va/*`): dashboard, lead submission, earnings, commercial accounts.
+  - `routes/pm.py` (492 lines) — Program Manager (`/api/pm/*`): lead pipeline, commission queue, VA roster management, violations, commercial accounts, weekly report.
+  - `routes/owner.py` (228 lines) — Owner sign-off (`/api/owner/*`): payout queue, bulk approve, mark-paid (with double-pay guard).
+  - `routes/projects.py` (649 lines) — Projects CRUD + worker-view (PII-gated) + notes + gig linking + consolidated blast (background fan-out).
+- **Zero behavior change**: All URLs, payload shapes, and permission gates preserved exactly. Testing agent verified 108/108 tests pass (72 prior + 36 from `test_iter37_*.py` covering full VA-Commission lifecycle, Owner permission gate, projects worker-view PII gating, double-pay guard, order guards).
+- **Remaining in server.py**: Notifications, worker ratings, public/share endpoints, quote requests, admin user management, settings, startup/shutdown handlers. Phase 3g (optional) could split these further.
+
+
 ## Next steps
 1. **Backend modularization (P1)** — `server.py` still has ~3,378 lines: split `routes/projects.py`, `routes/va.py`, `routes/pm.py`, `routes/owner.py` (Phase 3f).
 2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).
