@@ -198,10 +198,14 @@ async def _log_blast(
     sent_by_id: str,
     sent_by_name: Optional[str] = None,
     extra: Optional[dict] = None,
-) -> None:
-    """Append a single send event to `blast_logs`. Powers the Blasts report."""
+) -> str:
+    """Append a single send event to `blast_logs`. Powers the Blasts report.
+
+    Returns the new `blast_id` so callers can reconcile counts later (e.g.
+    after the background email/sms/push fan-out completes)."""
+    blast_id = f"blast_{uuid.uuid4().hex[:12]}"
     doc = {
-        "blast_id": f"blast_{uuid.uuid4().hex[:12]}",
+        "blast_id": blast_id,
         "kind": kind,
         "gig_id": gig_id,
         "gig_title": gig_title,
@@ -225,3 +229,140 @@ async def _log_blast(
         await db.blast_logs.insert_one(doc)
     except Exception as e:
         logger.error(f"Failed to log blast: {e}")
+    return blast_id
+
+
+# ----------------------------------------------------------------------------
+# Background fan-out: email / sms / push to a list of workers.
+#
+# Cloudflare drops requests that take longer than ~100s. At ~150-300ms per
+# Resend HTTP call and one push call per device, blasting 500-1,000 workers
+# sequentially blows past that limit. We MUST not block the HTTP request on
+# the fan-out; the request returns immediately with in-app counts (which are
+# fast — one batched insert) and this helper runs concurrently in the
+# background.
+# ----------------------------------------------------------------------------
+# Background fan-out: email / sms / push to a list of workers.
+#
+# Cloudflare drops requests that take longer than ~100s. At ~150-300ms per
+# Resend HTTP call and one push call per device, blasting 500-1,000 workers
+# sequentially blows past that limit. We MUST not block the HTTP request on
+# the fan-out; the request returns immediately with in-app counts (which are
+# fast — one batched insert) and this helper runs concurrently in the
+# background.
+# ----------------------------------------------------------------------------
+async def fanout_blast_channels(
+    *,
+    workers: list,
+    channels: list,
+    subject: str,
+    html: str,
+    sms_body: str,
+    push_payload: dict,
+    blast_log_id: Optional[str] = None,
+    # Per-channel concurrency. Tuned for typical 3rd-party rate limits:
+    #   - Resend free tier: 25 req/s → serial with 50ms gap = ~20 req/s headroom
+    #   - Twilio: pace at ~1 SMS/s by default
+    #   - Web Push (our own VAPID): can fan out wider
+    email_concurrency: int = 5,
+    sms_concurrency: int = 1,
+    push_concurrency: int = 30,
+) -> dict:
+    """Send email / sms / push in parallel to many workers. Each channel has
+    its own concurrency cap so a slow provider can't stall the others, and
+    we stay under typical free-tier rate limits.
+
+    Push imports are deferred to avoid an import cycle
+    (notifications.py → push_service.py → config.py)."""
+    from push_service import _send_push_to_user
+    from config import VAPID_PRIVATE_KEY
+
+    email_creds = await _resolve_email_creds() if "email" in channels else None
+    sms_creds = await _resolve_sms_creds() if "sms" in channels else None
+    counts = {"email": 0, "sms": 0, "push": 0, "email_failed": 0, "sms_failed": 0}
+
+    # ---- Email channel (rate-limited) ---------------------------------------
+    async def send_one_email(w: dict, sem: asyncio.Semaphore) -> None:
+        async with sem:
+            if not (w.get("email") and email_creds):
+                return
+            try:
+                await asyncio.to_thread(
+                    _send_email_sync,
+                    email_creds["api_key"],
+                    email_creds["sender"],
+                    w["email"],
+                    subject,
+                    html,
+                )
+                counts["email"] += 1
+            except Exception as e:
+                # Resend 429 ("Too many requests") is the most common failure
+                # at scale. We log + count it and keep going — workers who
+                # missed an email still get in-app + push.
+                logger.error(f"blast email failed for {w.get('email')}: {e}")
+                counts["email_failed"] += 1
+
+    # ---- SMS channel (rate-limited) -----------------------------------------
+    async def send_one_sms(w: dict, sem: asyncio.Semaphore) -> None:
+        async with sem:
+            if not (w.get("phone") and sms_creds):
+                return
+            try:
+                await asyncio.to_thread(
+                    _send_sms_sync,
+                    sms_creds["sid"],
+                    sms_creds["token"],
+                    sms_creds["from_"],
+                    w["phone"],
+                    sms_body,
+                )
+                counts["sms"] += 1
+            except Exception as e:
+                logger.error(f"blast sms failed for {w.get('phone')}: {e}")
+                counts["sms_failed"] += 1
+
+    # ---- Push channel (in-house) --------------------------------------------
+    async def send_one_push(w: dict, sem: asyncio.Semaphore) -> None:
+        async with sem:
+            try:
+                sent = await _send_push_to_user(w["user_id"], push_payload)
+                counts["push"] += sent
+            except Exception as e:
+                logger.error(f"blast push failed for {w.get('user_id')}: {e}")
+
+    coros = []
+    if "email" in channels and email_creds:
+        sem_e = asyncio.Semaphore(max(1, int(email_concurrency)))
+        coros.extend(send_one_email(w, sem_e) for w in workers)
+    if "sms" in channels and sms_creds:
+        sem_s = asyncio.Semaphore(max(1, int(sms_concurrency)))
+        coros.extend(send_one_sms(w, sem_s) for w in workers)
+    if "push" in channels and VAPID_PRIVATE_KEY:
+        sem_p = asyncio.Semaphore(max(1, int(push_concurrency)))
+        coros.extend(send_one_push(w, sem_p) for w in workers)
+
+    if coros:
+        await asyncio.gather(*coros, return_exceptions=True)
+
+    # Reconcile counts on the persisted blast log entry so the Blasts report
+    # shows the real numbers once the background job finishes.
+    if blast_log_id:
+        try:
+            await db.blast_logs.update_one(
+                {"blast_id": blast_log_id},
+                {
+                    "$set": {
+                        "email": counts["email"],
+                        "sms": counts["sms"],
+                        "push": counts["push"],
+                        "email_failed": counts["email_failed"],
+                        "sms_failed": counts["sms_failed"],
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+            )
+        except Exception as e:
+            logger.error(f"failed to reconcile blast log {blast_log_id}: {e}")
+
+    return counts

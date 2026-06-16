@@ -146,9 +146,21 @@ export default function GigDetail() {
     try {
       const { data } = await api.post(`/gigs/${gigId}/blast`, { channels: arr });
       const c = data.counts;
-      toast.success(
-        `Blast sent — in-app ${c.in_app || 0}, push ${c.push || 0}, email ${c.email || 0}, SMS ${c.sms || 0}`
-      );
+      // When email/SMS/push are checked, the heavy fan-out runs in the
+      // background (Resend has a 25 req/s rate limit — sending serially in
+      // the request handler would blow past Cloudflare's 100s timeout).
+      // The counts shown are the *targeted* totals; the Blasts report shows
+      // the actual delivered numbers once the background job finishes.
+      if (data.queued) {
+        toast.success(
+          `Blast queued — in-app ${c.in_app || 0} sent now; ${c.email || 0} emails, ${c.push || 0} push + ${c.sms || 0} SMS delivering in the background.`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.success(
+          `Blast sent — in-app ${c.in_app || 0}, push ${c.push || 0}, email ${c.email || 0}, SMS ${c.sms || 0}`
+        );
+      }
       setBlastOpen(false);
       load();
     } catch (e) {

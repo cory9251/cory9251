@@ -83,11 +83,21 @@ export default function AdminProjectDetail() {
         channels: ["in_app", "push", "email", "sms"],
       });
       const c = data?.counts || {};
-      toast.success(
-        `Project blasted to ${data.workers_targeted || 0} workers · ` +
-          `Push: ${c.push || 0} · SMS: ${c.sms || 0} · Email: ${c.email || 0} · In-app: ${c.in_app || 0}`,
-        { duration: 5000 }
-      );
+      if (data.queued) {
+        toast.success(
+          `Project blast queued — ${data.workers_targeted || 0} workers. ` +
+            `In-app: ${c.in_app || 0} sent now. Push/Email/SMS (${
+              (c.push || 0) + (c.email || 0) + (c.sms || 0)
+            } total) delivering in the background.`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.success(
+          `Project blasted to ${data.workers_targeted || 0} workers · ` +
+            `Push: ${c.push || 0} · SMS: ${c.sms || 0} · Email: ${c.email || 0} · In-app: ${c.in_app || 0}`,
+          { duration: 5000 }
+        );
+      }
       load();
     } catch (e) {
       toast.error(getErr(e));

@@ -489,6 +489,19 @@
 - **Tests**: 9/9 pytest (`test_iter34_tz_and_availability.py` + `test_iter35_backcompat.py`). 100% E2E via the testing agent (iteration_35.json) — calendar timezone fix, robust feed formatting, and full Available-Now flow all verified.
 
 
+## Implemented — 2026-06 (Iter 36: Cloudflare 524 Blast Timeout — Hotfix) — VERIFIED
+- **Bug**: User reported a Cloudflare "origin took too long" 524 error in production when blasting a gig. Root cause: the blast endpoint sent emails + push + SMS **serially** to every worker (~1,900 in the user's case). Resend rate-limits at 25 req/s + push at ~100ms/call ⇒ ~10+ minutes of synchronous HTTP I/O inside one request, far past Cloudflare's 100s cap.
+- **Fix**:
+  - In-app notifications stay inline (single `insert_many` is fast — <1s for thousands).
+  - Email + SMS + Push moved into `BackgroundTasks` via the new helper `notifications.fanout_blast_channels(...)`. Endpoint returns `{ok, counts, queued: true, blast_id}` in well under 1s.
+  - **Per-channel concurrency caps** to stay within third-party rate limits: email=5 (≤25 req/s Resend), sms=1 (Twilio default), push=30 (in-house).
+  - Recipients now filtered to **active workers only** (`worker_status in approved/active/null`); pending/rejected/suspended are skipped — saves Resend quota.
+  - Blast log is persisted upfront with estimated counts, then **reconciled** with the actual delivered numbers on completion (new `completed_at`, `email_failed`, `sms_failed` fields on the log doc).
+  - Frontend toast distinguishes queued vs synchronous: "Blast queued — in-app X sent now; Y emails / Z push delivering in the background."
+- **Tests**: `test_iter36_blast_perf.py` (3/3) — verifies <10s response with all channels, `queued: true` flag, log row created. Full regression suite 72/72 still green.
+- **Action required for user**: redeploy production (the fix is in preview only).
+
+
 ## Next steps
 1. **Backend modularization (P1)** — `server.py` still has ~3,378 lines: split `routes/projects.py`, `routes/va.py`, `routes/pm.py`, `routes/owner.py` (Phase 3f).
 2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).

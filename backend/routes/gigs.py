@@ -24,7 +24,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from config import db, logger, VAPID_PRIVATE_KEY
 from auth_deps import (
@@ -41,6 +41,7 @@ from notifications import (
     _send_sms_sync,
     _send_gig_event_email,
     _log_blast,
+    fanout_blast_channels,
 )
 from push_service import _send_push_to_user
 from constants import GIG_TAG_VALUES, GIG_CATEGORY_TO_SKILLS
@@ -1473,20 +1474,27 @@ async def blast_gig(
     gig_id: str,
     payload: BlastIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     admin: dict = Depends(require_admin),
 ):
     gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
     if not gig:
         raise HTTPException(404, "Gig not found")
 
+    # Only blast to workers who can actually claim the gig — exclude pending,
+    # rejected, and suspended accounts. This prevents wasting Resend quota on
+    # workers who haven't been approved yet.
     workers = await db.users.find(
-        {"role": "worker"}, {"_id": 0, "password_hash": 0}
-    ).to_list(1000)
+        {
+            "role": "worker",
+            "$or": [
+                {"worker_status": {"$in": ["approved", "active", None]}},
+                {"worker_status": {"$exists": False}},
+            ],
+        },
+        {"_id": 0, "password_hash": 0},
+    ).to_list(5000)
 
-    email_creds = await _resolve_email_creds() if "email" in payload.channels else None
-    sms_creds = await _resolve_sms_creds() if "sms" in payload.channels else None
-
-    counts = {"in_app": 0, "email": 0, "sms": 0, "push": 0, "email_failed": 0, "sms_failed": 0}
     subject = f"New Gig: {gig['title']}"
     base_url = _resolve_public_base(request)
     html = _format_gig_email(gig, base_url)
@@ -1504,58 +1512,41 @@ async def blast_gig(
         "rush": True,
     }
 
-    notif_docs = []
-    for w in workers:
-        if "in_app" in payload.channels:
-            notif_docs.append(
-                {
-                    "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
-                    "user_id": w["user_id"],
-                    "gig_id": gig_id,
-                    "title": subject,
-                    "body": gig["description"][:140],
-                    "read": False,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-            counts["in_app"] += 1
-        if "email" in payload.channels and w.get("email") and email_creds:
-            try:
-                await asyncio.to_thread(
-                    _send_email_sync,
-                    email_creds["api_key"],
-                    email_creds["sender"],
-                    w["email"],
-                    subject,
-                    html,
-                )
-                counts["email"] += 1
-            except Exception as e:
-                logger.error(f"Email send failed for {w['email']}: {e}")
-                counts["email_failed"] += 1
-        if "sms" in payload.channels and w.get("phone") and sms_creds:
-            try:
-                await asyncio.to_thread(
-                    _send_sms_sync,
-                    sms_creds["sid"],
-                    sms_creds["token"],
-                    sms_creds["from_"],
-                    w["phone"],
-                    sms_body,
-                )
-                counts["sms"] += 1
-            except Exception as e:
-                logger.error(f"SMS send failed for {w.get('phone')}: {e}")
-                counts["sms_failed"] += 1
-        # Push notifications fan out alongside other channels. We always try
-        # push when configured — workers control their own opt-in via the
-        # browser permission prompt + subscription record.
-        if "push" in payload.channels and VAPID_PRIVATE_KEY:
-            sent = await _send_push_to_user(w["user_id"], push_payload)
-            counts["push"] += sent
+    # ---- In-app notifications (FAST: 1 batched insert) ----------------------
+    # In-app is the channel admins rely on for an instant feed update, so we
+    # do it inline so the API response can confirm the count. Even 1,000 docs
+    # is a single insert_many → typically < 500ms total.
+    counts = {"in_app": 0, "email": 0, "sms": 0, "push": 0, "email_failed": 0, "sms_failed": 0}
+    if "in_app" in payload.channels:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        notif_docs = [
+            {
+                "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+                "user_id": w["user_id"],
+                "gig_id": gig_id,
+                "title": subject,
+                "body": gig["description"][:140],
+                "read": False,
+                "created_at": now_iso,
+            }
+            for w in workers
+        ]
+        if notif_docs:
+            await db.notifications.insert_many(notif_docs)
+            counts["in_app"] = len(notif_docs)
 
-    if notif_docs:
-        await db.notifications.insert_many(notif_docs)
+    # Estimated counts for the API response — actual sent totals are reconciled
+    # on the blast log entry once the background task completes.
+    estimated_email = (
+        sum(1 for w in workers if w.get("email")) if "email" in payload.channels else 0
+    )
+    estimated_sms = (
+        sum(1 for w in workers if w.get("phone")) if "sms" in payload.channels else 0
+    )
+    estimated_push = len(workers) if "push" in payload.channels and VAPID_PRIVATE_KEY else 0
+    counts["email"] = estimated_email
+    counts["sms"] = estimated_sms
+    counts["push"] = estimated_push
 
     # Ensure 'rush' is included in tags after blast (idempotent merge)
     existing_tags = [t for t in (gig.get("tags") or []) if t in GIG_TAG_VALUES]
@@ -1580,7 +1571,10 @@ async def blast_gig(
     )
 
     # Persistent blast log — surfaces in Admin → Reports → Blasts.
-    await _log_blast(
+    # Counts include the inline in-app number plus estimates for the queued
+    # channels. The background task reconciles the email/sms/push values on
+    # this same doc once the fan-out finishes.
+    blast_log_id = await _log_blast(
         kind="gig",
         gig_id=gig_id,
         gig_title=gig.get("title"),
@@ -1593,7 +1587,32 @@ async def blast_gig(
         sent_by_name=admin.get("name") or admin.get("email"),
     )
 
-    return {"ok": True, "counts": counts, "workers_targeted": len(workers), "is_rush": True, "tags": existing_tags}
+    # ---- Heavy channels: run in the background --------------------------------
+    # Email + SMS + Push are slow (HTTP per worker). Queue them and return
+    # immediately so we don't hit the Cloudflare 100s timeout when blasting
+    # to hundreds of workers.
+    queued = any(c in payload.channels for c in ("email", "sms", "push"))
+    if queued:
+        background_tasks.add_task(
+            fanout_blast_channels,
+            workers=workers,
+            channels=payload.channels,
+            subject=subject,
+            html=html,
+            sms_body=sms_body,
+            push_payload=push_payload,
+            blast_log_id=blast_log_id,
+        )
+
+    return {
+        "ok": True,
+        "counts": counts,
+        "workers_targeted": len(workers),
+        "is_rush": True,
+        "tags": existing_tags,
+        "queued": queued,
+        "blast_id": blast_log_id,
+    }
 
 
 @router.put("/gigs/{gig_id}/rush")

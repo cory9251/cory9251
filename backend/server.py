@@ -57,6 +57,7 @@ from notifications import (
     _send_user_email,
     _send_gig_event_email,
     _log_blast,
+    fanout_blast_channels,
 )
 from routes.messages import router as messages_router, _message_digest_runner
 from routes.push import router as push_router
@@ -151,6 +152,7 @@ import resend
 from fastapi import (
     FastAPI,
     APIRouter,
+    BackgroundTasks,
     HTTPException,
     Depends,
     Request,
@@ -715,6 +717,7 @@ async def blast_project(
     project_id: str,
     payload: BlastIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     admin: dict = Depends(require_admin),
 ):
     """Send ONE consolidated notification about a multi-gig project to every
@@ -769,12 +772,17 @@ async def blast_project(
             f"Add a gig or reopen an existing one.",
         )
 
+    # Only blast to workers who can actually claim the gigs (active roster).
     workers = await db.users.find(
-        {"role": "worker"}, {"_id": 0, "password_hash": 0}
-    ).to_list(1000)
-
-    email_creds = await _resolve_email_creds() if "email" in payload.channels else None
-    sms_creds = await _resolve_sms_creds() if "sms" in payload.channels else None
+        {
+            "role": "worker",
+            "$or": [
+                {"worker_status": {"$in": ["approved", "active", None]}},
+                {"worker_status": {"$exists": False}},
+            ],
+        },
+        {"_id": 0, "password_hash": 0},
+    ).to_list(5000)
 
     counts = {"in_app": 0, "email": 0, "sms": 0, "push": 0, "email_failed": 0, "sms_failed": 0}
     subject = f"New Project: {project.get('title')}"
@@ -797,56 +805,35 @@ async def blast_project(
         "rush": True,
     }
 
-    notif_docs = []
-    for w in workers:
-        if "in_app" in payload.channels:
-            notif_docs.append(
-                {
-                    "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
-                    "user_id": w["user_id"],
-                    "project_id": project_id,
-                    "gig_id": None,
-                    "title": subject,
-                    "body": f"{len(blastable_gigs)} gigs available — {project.get('title')}",
-                    "read": False,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-            counts["in_app"] += 1
-        if "email" in payload.channels and w.get("email") and email_creds:
-            try:
-                await asyncio.to_thread(
-                    _send_email_sync,
-                    email_creds["api_key"],
-                    email_creds["sender"],
-                    w["email"],
-                    subject,
-                    html,
-                )
-                counts["email"] += 1
-            except Exception as e:
-                logger.error(f"Project email send failed for {w['email']}: {e}")
-                counts["email_failed"] += 1
-        if "sms" in payload.channels and w.get("phone") and sms_creds:
-            try:
-                await asyncio.to_thread(
-                    _send_sms_sync,
-                    sms_creds["sid"],
-                    sms_creds["token"],
-                    sms_creds["from_"],
-                    w["phone"],
-                    sms_body,
-                )
-                counts["sms"] += 1
-            except Exception as e:
-                logger.error(f"Project SMS send failed for {w.get('phone')}: {e}")
-                counts["sms_failed"] += 1
-        if "push" in payload.channels and VAPID_PRIVATE_KEY:
-            sent = await _send_push_to_user(w["user_id"], push_payload)
-            counts["push"] += sent
+    # ---- In-app notifications (FAST: 1 batched insert) ----------------------
+    if "in_app" in payload.channels:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        notif_docs = [
+            {
+                "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+                "user_id": w["user_id"],
+                "project_id": project_id,
+                "gig_id": None,
+                "title": subject,
+                "body": f"{len(blastable_gigs)} gigs available — {project.get('title')}",
+                "read": False,
+                "created_at": now_iso,
+            }
+            for w in workers
+        ]
+        if notif_docs:
+            await db.notifications.insert_many(notif_docs)
+            counts["in_app"] = len(notif_docs)
 
-    if notif_docs:
-        await db.notifications.insert_many(notif_docs)
+    # Estimated counts for the API response — final tallies land on the blast
+    # log entry once the background fan-out finishes.
+    counts["email"] = (
+        sum(1 for w in workers if w.get("email")) if "email" in payload.channels else 0
+    )
+    counts["sms"] = (
+        sum(1 for w in workers if w.get("phone")) if "sms" in payload.channels else 0
+    )
+    counts["push"] = len(workers) if "push" in payload.channels and VAPID_PRIVATE_KEY else 0
 
     # Auto-pin all blasted gigs to the top of the feed by flipping is_rush=True
     # and adding the "rush" tag (matches single-gig blast behavior).
@@ -879,7 +866,7 @@ async def blast_project(
     )
 
     # Persistent blast log — surfaces in Admin → Reports → Blasts.
-    await _log_blast(
+    blast_log_id = await _log_blast(
         kind="project",
         gig_id=None,
         gig_title=None,
@@ -893,11 +880,27 @@ async def blast_project(
         extra={"gigs_blasted": len(blastable_gigs)},
     )
 
+    # ---- Heavy channels: run in the background -------------------------------
+    queued = any(c in payload.channels for c in ("email", "sms", "push"))
+    if queued:
+        background_tasks.add_task(
+            fanout_blast_channels,
+            workers=workers,
+            channels=payload.channels,
+            subject=subject,
+            html=html,
+            sms_body=sms_body,
+            push_payload=push_payload,
+            blast_log_id=blast_log_id,
+        )
+
     return {
         "ok": True,
         "counts": counts,
         "workers_targeted": len(workers),
         "gigs_blasted": len(blastable_gigs),
+        "queued": queued,
+        "blast_id": blast_log_id,
     }
 
 
