@@ -1,0 +1,48 @@
+{
+  "summary": "Iter37 backend regression + new coverage for Phase 3f route extraction (Projects/VA/PM/Owner). All 9 prior test files (98 tests, 1 pre-existing skip) remain green AND new test_iter37_*.py adds 10 tests covering the gaps called out in the request: full VA-Commission lifecycle (booked → paid → pm_approved → owner_approved → paid), double-pay guard, owner-approve-requires-pm-approved, mark-paid-requires-owner-approved, Owner permission gate (admin without is_owner → 403 on all /owner/* routes — parametrized × 5), and projects worker-view PII gating (crew_visible flips False→True once the requesting worker is accepted on a project gig). Total: 108 passed, 1 skipped, 0 failed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_features": [
+    "[REGRESSION] All 9 prior pytest files still green after Projects/VA/PM/Owner extraction — 98 prior tests pass, 1 pre-existing skip (no behavior change).",
+    "[Import wiring] One session: POST /api/auth/login → 200, GET /api/projects → 200, GET /api/pm/leads → 200, GET /api/owner/dashboard → 200, GET /api/va/dashboard → 403 (expected — owner has role=admin not va; require_va correctly rejects). No 500s anywhere.",
+    "[VA lifecycle] booked → calculating commission; paid → pending_approval; PM approve → pm_approved; Owner approve → owner_approved; Owner mark-paid → paid; amount is correct ($25 flat for 'deep'); VA /va/dashboard.total_paid reflects the payment.",
+    "[Double-pay guard] Second POST /api/owner/payouts/{id}/mark-paid on a paid commission returns 400 with 'already' + 'paid' in detail (HTTPException raised by owner.owner_mark_paid).",
+    "[Order guards] POST /owner/payouts/{id}/approve requires current status == pm_approved (else 400). POST /owner/payouts/{id}/mark-paid requires current status == owner_approved (else 400).",
+    "[Owner permission gate] Mechie (admin, is_program_manager=true, is_owner=false) gets 403 on GET /owner/dashboard, GET /owner/payouts/queue, POST /owner/payouts/{id}/approve, POST /owner/payouts/bulk-approve, POST /owner/payouts/{id}/mark-paid. Owner (is_owner=true) gets 200 on /owner/dashboard with all expected keys (payout_queue_count/amount, month_total_commissions, top_by_volume, alerts).",
+    "[Projects worker-view PII] Two fresh workers; admin assigns worker A to a project-linked gig via POST /api/gigs/{id}/assign. Worker B (outsider) hits /api/projects/{id}/worker-view → 200, crew_visible=False, no 'crew' arrays leaked in linked_gigs. Worker A (approved) hits same endpoint → crew_visible=True. Title + linked_gigs structure visible to both.",
+    "[VA self-referral guard] still returns 400 'Self-referral blocked' when prospect_address normalizes to VA's va_address (covered by existing test_va_commission.py).",
+    "[VA duplicate-lead guard] still returns 409 with detail.code='duplicate_lead' inside the 90-day window (covered by existing test_va_commission.py)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter37_va_lifecycle_owner_gate_projects_pii.py",
+    "/app/test_reports/pytest/iter37_regression.xml",
+    "/app/test_reports/pytest/iter37_new.xml",
+    "/app/test_reports/pytest/iter37_all.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/owner.py mark-paid double-pay branch returns 400. Consider returning 409 (Conflict) since the resource state forbids the action — more idiomatic REST. Not blocking; current message is clear.",
+    "routes/pm.py pm_update_lead_stage allows direct stage='paid' without ever passing through 'booked'. _ensure_commission_for_lead handles the missing prior commission by creating it, so behavior is fine, but a stricter state-machine (must transition booked→completed→paid) would prevent accidental skips. Out of scope for this refactor.",
+    "routes/va.py va_create_lead address normalization compares stripped-lowercased strings; a VA could trivially bypass self-referral by appending an apartment number to the prospect address. Existing helper _normalize_address only strips punctuation/whitespace. Consider extracting just the numeric+street fragment for the check. Not a regression introduced by Phase 3f.",
+    "routes/projects.py worker-view: when there are no gigs linked, the response sets crew_visible=False — but the request shape always includes 'description' (empty string fallback) while the gig-present branch never explicitly sets 'description'. Minor inconsistency only; not failing any test.",
+    "va_commission._ensure_commission_for_lead treats already-frozen statuses ('approved','paid','owner_approved') as terminal and short-circuits — but 'pm_approved' is NOT in that frozen list, so re-transitioning a lead from paid → completed → paid would overwrite a pm_approved commission's amount/calc_notes. Recommend adding 'pm_approved' to the frozen set. Not exercised by current UI/tests.",
+    "server.py still 1,534 lines after Phase 3f. Profile/auth helpers and lifespan/startup logic are reasonable next-extraction candidates."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter37_va_lifecycle_owner_gate_projects_pii.py (new — 10 tests)"
+  ],
+  "success_rate": {"backend": "100% (108/108 active, 1 prior skip)", "frontend": "not tested (request was backend-only)"},
+  "test_credentials": "Owner admin@hcobcleaners.com / HcobAdmin2026! ; PM mechiebadlong77@gmail.com / Mechie2026! ; ephemeral VAs created via /api/auth/register + approved via /api/pm/vas/{id}/approve",
+  "seed_data_creation": "Each test creates its own VA(s), workers, leads, commissions, and (for the worker-view test) one project + one gig. Project is archived at end of worker-view test; other ephemeral data uses unique uuid suffixes and stays in DB but is isolated by user.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter37 (Phase 3f route extraction) is GREEN. New suite at /app/backend/tests/test_iter37_va_lifecycle_owner_gate_projects_pii.py covers: TestVACommissionFullLifecycle (3 tests — full happy path + 2 order guards), TestOwnerPermissionGate (6 tests — 5 parametrized 403s + 1 owner-200), TestProjectsWorkerViewPII (1 test — crew gating via gig acceptance). Run all 10 prior + new files with REACT_APP_BACKEND_URL set: `cd /app/backend && REACT_APP_BACKEND_URL=$URL python -m pytest tests/ -q` (skip the standalone backend_test.py / test_admin_settings / test_calendar / test_iter5..23 which are older and not part of the iter37 regression set used here). Reference command: `pytest tests/test_iter28_refactor_regression.py tests/test_iter25_breaks.py tests/test_iter_projects.py tests/test_iter34_tz_and_availability.py tests/test_iter35_backcompat.py tests/test_iter36_blast_perf.py tests/test_backups_and_cancel.py tests/test_messenger.py tests/test_va_commission.py tests/test_va_commission_extra.py tests/test_iter37_va_lifecycle_owner_gate_projects_pii.py`",
+  "rca of the issue": "No issues to RCA — refactor is regression-clean. One first-attempt false-positive in iter37 (gig POST 422 'location/scheduled_date/pay_rate/pay_type required') was due to my test using the new short-form gig payload from the request rather than the canonical GigIn schema. Fixed by mirroring the _make_gig_payload helper used in test_iter_projects.py."
+}
