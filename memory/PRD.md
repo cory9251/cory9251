@@ -548,6 +548,36 @@
 
 
 
+
+## Implemented — 2026-02 (Iter 40: One-click "Message user" + DM companion channels) — VERIFIED 24/24
+**Goal**: From any worker/VA surface, admins can DM the user in one click. Plus per-send email/SMS companion delivery.
+
+**New reusable component** — `/app/frontend/src/components/messages/MessageUserButton.jsx`:
+- Variants: `default` (full button), `icon` (28px square), `row` (table cell pill), `compact` (text link)
+- Calls `POST /api/messages/threads/dm` → navigates to portal-aware Messages route (`/ops/messages`, `/va/messages`, `/crew/messages`)
+- Stops event propagation so it can sit inside clickable cards/rows safely
+
+**Wired into**:
+- WorkerDetail (full button under Account management)
+- AdminWorkers list (icon top-right of each card; card body refactored from `<button>` to `<div role="button">` to allow nested interactivity)
+- AdminVAs table (row pill in actions cell — pending / approved / suspended)
+- AdminVAPipeline (icon button in VA column)
+- GigDetail — pending requests, backups, approved acceptances (icon next to WorkerLink)
+
+**Messages page enhancements** (admin + DM-thread only):
+- **Quick template chips**: Available? · ID reminder · Shift soon · Late · Thanks · Update lead — `{name}` token replaced with recipient first name on click
+- **Channel toggle row**: ☐ Email ☐ SMS checkboxes, persisted to localStorage (`hcob_dm_channels`)
+- After send, toast confirms: "Sent via in-app + email" when companion channels used
+
+**Backend** (`/app/backend/routes/messages.py`):
+- `MessageSendIn.channels: List[str]` (optional) accepts `["email", "sms"]`
+- `send_message` dispatches `_deliver_dm_companion()` via `asyncio.create_task()` (fire-and-forget — won't block HTTP response)
+- Gated by: sender role in (admin/owner/pm), thread.type == "dm" (NEVER on gig_group → avoids mass-spam), and `is_blast_disabled()` kill switch
+- Response now includes `companion_channels: []` so UI can confirm what was attempted
+
+**Tests**: `test_iter40_dm_companion.py` (10 new) covering admin sends with channels, worker sends silently ignored, kill-switch gates companion path, gig_group threads bypass companion, regressions on threads list/unread/mark-read/empty-body. Combined with iter39 = **24/24 GREEN**.
+
+
 ## Next steps
 1. **Backend modularization (P1)** — `server.py` still has ~3,378 lines: split `routes/projects.py`, `routes/va.py`, `routes/pm.py`, `routes/owner.py` (Phase 3f).
 2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).

@@ -282,13 +282,21 @@ export default function Messages() {
       : [];
     setSending(true);
     try {
-      await api.post(`/messages/threads/${activeThread.thread_id}/messages`, {
-        text: trimmed,
-        attachment_paths: attachments.map((a) => a.path),
-        channels,
-      });
+      const { data } = await api.post(
+        `/messages/threads/${activeThread.thread_id}/messages`,
+        {
+          text: trimmed,
+          attachment_paths: attachments.map((a) => a.path),
+          channels,
+        }
+      );
       setText("");
       setAttachments([]);
+      // Confirmation toast when admin used companion channels.
+      const sent = data?.companion_channels || [];
+      if (sent.length > 0) {
+        toast.success(`Sent via in-app + ${sent.join(" + ")}`);
+      }
       await loadActive(activeThread.thread_id, { silent: true });
       refreshThreads();
       window.dispatchEvent(new Event("hcob:messages-changed"));

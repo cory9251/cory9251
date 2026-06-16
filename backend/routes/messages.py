@@ -442,17 +442,27 @@ async def send_message(
     # Only admin/owner/pm may request extra channels. Workers/VAs setting
     # channels is silently ignored (in-app only).
     requested_channels = [c for c in (payload.channels or []) if c in ("email", "sms")]
+    companion_dispatched = []
     if requested_channels and user.get("role") in ("admin", "owner", "pm"):
         # Respect the kill switch — a runaway DM-flooder would be just as bad.
-        if not await is_blast_disabled():
-            await _deliver_dm_companion(
-                thread=thread,
-                sender=user,
-                text=text,
-                channels=requested_channels,
+        if not await is_blast_disabled() and thread.get("type") == "dm":
+            # Fire-and-forget so a slow Resend / Twilio call doesn't block
+            # the HTTP response. Errors are logged inside the helper.
+            asyncio.create_task(
+                _deliver_dm_companion(
+                    thread=thread,
+                    sender=user,
+                    text=text,
+                    channels=requested_channels,
+                )
             )
+            companion_dispatched = requested_channels
 
-    return _serialize_message(doc)
+    response = _serialize_message(doc)
+    # Surface what we actually attempted so the UI can confirm
+    # ('Sent via in-app, email' vs 'Sent via in-app').
+    response["companion_channels"] = companion_dispatched
+    return response
 
 
 async def _deliver_dm_companion(
