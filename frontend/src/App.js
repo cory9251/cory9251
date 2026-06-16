@@ -25,6 +25,7 @@ import AdminProjects from "@/pages/admin/AdminProjects";
 import AdminProjectDetail from "@/pages/admin/AdminProjectDetail";
 import AdminQuotes from "@/pages/admin/AdminQuotes";
 import AdminVAOverview from "@/pages/admin/AdminVAOverview";
+import AdminVAAnalytics from "@/pages/admin/AdminVAAnalytics";
 import AdminVAPipeline from "@/pages/admin/AdminVAPipeline";
 import AdminVACommissions from "@/pages/admin/AdminVACommissions";
 import AdminVAs from "@/pages/admin/AdminVAs";
@@ -113,6 +114,7 @@ function RouterShell() {
         <Route path="messages" element={<Messages />} />
         {/* VA Commission Program — admin / Program Manager / Owner */}
         <Route path="va-program" element={<AdminVAOverview />} />
+        <Route path="va-program/analytics" element={<AdminVAAnalytics />} />
         <Route path="va-program/pipeline" element={<AdminVAPipeline />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />

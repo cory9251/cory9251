@@ -8,6 +8,7 @@ import {
   Warning,
   Trophy,
   Buildings,
+  ChartLineUp,
 } from "@phosphor-icons/react";
 
 function fmtMoney(n) {
@@ -53,6 +54,14 @@ export default function AdminVAOverview() {
         <p className="text-sm text-[#4B5563]">
           Snapshot of this week&apos;s leads, bookings, commissions owed, and active commercial accounts.
         </p>
+        <Link
+          to="/ops/va-program/analytics"
+          data-testid="va-analytics-cta"
+          className="mt-3 inline-flex w-fit items-center gap-2 border-2 border-[#030712] bg-white px-4 py-2 text-xs font-bold uppercase tracking-widest text-[#030712] transition-colors hover:bg-[#030712] hover:text-white"
+        >
+          <ChartLineUp size={14} weight="bold" />
+          Open detailed analytics →
+        </Link>
       </div>
 
       {err && <div className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}

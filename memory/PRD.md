@@ -514,6 +514,19 @@
 - **Remaining in server.py**: Notifications, worker ratings, public/share endpoints, quote requests, admin user management, settings, startup/shutdown handlers. Phase 3g (optional) could split these further.
 
 
+## Implemented — 2026-06 (Iter 38: VA Commission Analytics) — VERIFIED
+- **New endpoint**: `GET /api/pm/analytics` (admin/PM/Owner) returns three datasets in one round-trip:
+  - **`velocity`** — Monthly commission totals, broken down by `paid` / `owner_approved` / `pm_approved` / `pending` / `rejected`. Configurable window (1-12 months, default 6).
+  - **`funnel`** — Per-VA conversion: leads → contacted → quoted → booked → paid + `conversion` % (paid/leads). Cumulative ("at-or-past" stage) so the pyramid is always monotonic.
+  - **`leaks`** — Leads stuck in a non-terminal stage longer than `leak_days` (default 7, configurable 1-60). Sorted oldest-first with `days_stuck` field.
+- **New page**: `/ops/va-program/analytics` (`AdminVAAnalytics.jsx`). Three sections:
+  - Stacked bar chart for velocity with 3mo / 6mo / 12mo window toggles. Legend distinguishes paid (green), approved-pending-payout (violet), pending PM review (amber).
+  - Per-VA funnel table — sortable, color-coded conversion rate (green ≥25%, amber 10-25%, red <10%). Totals footer + 25-row cap to keep it scannable.
+  - Leaks list — color-coded (rose for ≥21d, amber for ≥14d, neutral otherwise) with deep-link to the lead in the pipeline. Cash-flow summary strip at bottom.
+- **Discoverability**: New CTA button on `/ops/va-program` ("Open detailed analytics →") so PMs and the Owner can find it.
+- **Tests**: `test_iter38_va_analytics.py` (5/5) — shape, funnel monotonicity, leak threshold filter, params clamping (months 1-12), permission gate (worker → 403). Full regression: 71/71 + 1 skip green.
+
+
 ## Next steps
 1. **Backend modularization (P1)** — `server.py` still has ~3,378 lines: split `routes/projects.py`, `routes/va.py`, `routes/pm.py`, `routes/owner.py` (Phase 3f).
 2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).

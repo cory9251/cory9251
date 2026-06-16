@@ -490,3 +490,164 @@ async def pm_weekly_report(admin: dict = Depends(require_program_manager_or_owne
         "top_vas": by_va,
         "flags": flags,
     }
+
+
+# ---------------------------------------------------------------------------
+# Analytics — drives the dedicated VA analytics page.
+#   * velocity: commission dollar trend by calendar month (last 6 months)
+#   * funnel:   per-VA conversion through the lead stages
+#   * leaks:    leads stuck more than `leak_days` in a non-terminal stage,
+#               sorted oldest-first so Mechie can break the log-jam
+# ---------------------------------------------------------------------------
+@router.get("/pm/analytics")
+async def pm_analytics(
+    months: int = 6,
+    leak_days: int = 7,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    months = max(1, min(int(months), 12))
+    leak_days = max(1, min(int(leak_days), 60))
+    now = datetime.now(timezone.utc)
+    # Anchor each month bucket on the 1st (UTC) for consistent labelling.
+    # e.g. months=6 + today=2026-06-15 → buckets 2026-01..2026-06.
+    buckets: list = []
+    for i in range(months - 1, -1, -1):
+        year = now.year
+        month = now.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        buckets.append(f"{year:04d}-{month:02d}")
+    earliest = buckets[0] + "-01T00:00:00"
+
+    # ---- velocity ----------------------------------------------------------
+    # Group commissions by created month, separately summing paid / approved
+    # / pending so the chart shows the buckets stacked.
+    velocity_pipe = [
+        {"$match": {"created_at": {"$gte": earliest}}},
+        {"$project": {
+            "period": {"$substr": ["$created_at", 0, 7]},
+            "amount": {"$ifNull": ["$amount", 0]},
+            "status": 1,
+        }},
+        {"$group": {
+            "_id": "$period",
+            "paid":         {"$sum": {"$cond": [{"$eq": ["$status", "paid"]},                    "$amount", 0]}},
+            "owner_approved":{"$sum": {"$cond": [{"$eq": ["$status", "owner_approved"]},         "$amount", 0]}},
+            "pm_approved":  {"$sum": {"$cond": [{"$eq": ["$status", "pm_approved"]},             "$amount", 0]}},
+            "pending":      {"$sum": {"$cond": [{"$in": ["$status", ["calculating", "pending_approval", "flagged"]]}, "$amount", 0]}},
+            "rejected":     {"$sum": {"$cond": [{"$eq": ["$status", "rejected"]},                "$amount", 0]}},
+            "count":        {"$sum": 1},
+        }},
+    ]
+    by_period: dict = {}
+    async for row in db.commissions.aggregate(velocity_pipe):
+        by_period[row["_id"]] = row
+    velocity = []
+    for p in buckets:
+        row = by_period.get(p) or {}
+        paid = float(row.get("paid") or 0)
+        owner_approved = float(row.get("owner_approved") or 0)
+        pm_approved = float(row.get("pm_approved") or 0)
+        pending = float(row.get("pending") or 0)
+        rejected = float(row.get("rejected") or 0)
+        velocity.append({
+            "period": p,
+            "paid": round(paid, 2),
+            "owner_approved": round(owner_approved, 2),
+            "pm_approved": round(pm_approved, 2),
+            "pending": round(pending, 2),
+            "rejected": round(rejected, 2),
+            "total": round(paid + owner_approved + pm_approved + pending, 2),
+            "count": int(row.get("count") or 0),
+        })
+
+    # ---- funnel -----------------------------------------------------------
+    # For each VA: lead count broken down by *furthest stage reached*. Funnel
+    # stages are progressive — if a lead is at `paid`, it was also booked,
+    # quoted, contacted, etc. We compute the funnel by counting each stage
+    # threshold (count of leads whose stage is at-or-past stage X).
+    funnel_pipe = [
+        {"$group": {
+            "_id": "$va_user_id",
+            "va_name": {"$first": "$va_name"},
+            "stages": {"$push": "$stage"},
+            "leads": {"$sum": 1},
+            "lost": {"$sum": {"$cond": [{"$eq": ["$stage", "lost"]}, 1, 0]}},
+        }},
+    ]
+
+    # "At-or-past" ordering for the funnel pyramid
+    STAGE_ORDER = ["new_lead", "contacted", "quoted", "booked", "completed", "paid"]
+    funnel = []
+    async for row in db.va_leads.aggregate(funnel_pipe):
+        stages = row.get("stages") or []
+        # Count for each threshold: lead is "at_or_past" stage X if its stage
+        # index >= X's index. Lost leads are tracked separately — they never
+        # reach `paid` even if they were quoted at some point.
+        counts = {}
+        for idx, stage_name in enumerate(STAGE_ORDER):
+            counts[stage_name] = sum(
+                1 for s in stages
+                if s in STAGE_ORDER and STAGE_ORDER.index(s) >= idx
+            )
+        leads = int(row.get("leads") or 0)
+        paid_n = counts.get("paid", 0)
+        funnel.append({
+            "va_user_id": row["_id"],
+            "va_name": row.get("va_name"),
+            "leads": leads,
+            "contacted": counts.get("contacted", 0),
+            "quoted": counts.get("quoted", 0),
+            "booked": counts.get("booked", 0),
+            "completed": counts.get("completed", 0),
+            "paid": paid_n,
+            "lost": int(row.get("lost") or 0),
+            "conversion": round((paid_n / leads) * 100, 1) if leads else 0,
+        })
+    funnel.sort(key=lambda r: (-r["leads"], -r["conversion"]))
+
+    # ---- leaks ------------------------------------------------------------
+    # Leads stuck in a non-terminal stage for > leak_days. Use the most-recent
+    # stage transition timestamp so a lead that was contacted today doesn't
+    # show up even if it was created 30 days ago.
+    cutoff = (now - timedelta(days=leak_days)).isoformat()
+    NON_TERMINAL = ["new_lead", "contacted", "quoted", "booked"]
+    leak_cursor = db.va_leads.find(
+        {
+            "stage": {"$in": NON_TERMINAL},
+            "stage_changed_at": {"$lt": cutoff},
+        },
+        {
+            "_id": 0,
+            "lead_id": 1,
+            "va_user_id": 1,
+            "va_name": 1,
+            "prospect_name": 1,
+            "stage": 1,
+            "service_type": 1,
+            "stage_changed_at": 1,
+            "created_at": 1,
+        },
+    ).sort("stage_changed_at", 1).limit(50)
+    leaks = []
+    async for d in leak_cursor:
+        last = d.get("stage_changed_at") or d.get("created_at") or ""
+        try:
+            ts = datetime.fromisoformat(last.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            days_stuck = int((now - ts).total_seconds() / 86400)
+        except Exception:
+            days_stuck = leak_days
+        leaks.append({
+            **d,
+            "days_stuck": days_stuck,
+        })
+
+    return {
+        "velocity": velocity,
+        "funnel": funnel,
+        "leaks": leaks,
+        "params": {"months": months, "leak_days": leak_days},
+    }
