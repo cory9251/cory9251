@@ -527,6 +527,27 @@
 - **Tests**: `test_iter38_va_analytics.py` (5/5) — shape, funnel monotonicity, leak threshold filter, params clamping (months 1-12), permission gate (worker → 403). Full regression: 71/71 + 1 skip green.
 
 
+## Implemented — 2026-02 (Iter 39: Blast Safety — P0 SEV1 fix) — VERIFIED
+**Incident**: ~25,000 duplicate emails sent to the same test addresses after the Iter 36 BackgroundTask refactor, draining the Resend quota in preview and production.
+
+**Defense in depth — three layers**:
+1. **Owner-toggleable kill switch** (`/admin/blast-kill-switch`): When ON, every `/blast` endpoint returns 503 and any in-flight `fanout_blast_channels` re-checks and exits early. Toggleable via Owner UI (no redeploy) OR `BLAST_KILL_SWITCH` env var (emergency override). State persisted in `app_settings.blast_kill_switch` with `toggled_at` / `toggled_by` audit fields.
+2. **Per-gig / per-project cooldown** (default 300s via `BLAST_COOLDOWN_SECONDS`): Repeat blasts of the same gig or project within the cooldown window return 429 with a clear "wait Xs" message. Per-resource — blasting different gigs in the same window still works.
+3. **Dedupe by email (and phone)** in `fanout_blast_channels`: Worker list is lower-cased + deduped before any sends, so duplicate user docs can't multiply the send count. Also persists `sent_emails`/`sent_phones` on `blast_logs` so a retried fan-out skips already-mailed addresses.
+
+**New endpoints**:
+- `GET /api/admin/blast-kill-switch` — admin; returns `{enabled, source, toggled_at, toggled_by, cooldown_seconds}`
+- `POST /api/admin/blast-kill-switch` — Owner-only; body `{enabled: bool}`
+- `GET /api/admin/blast-audit?gig_id&project_id&hours` — admin; returns recent `blast_logs` rows + top email recipients in window (forensic tool for future incidents)
+
+**New UI** — Settings page (`/admin/settings`): `BlastKillSwitchPanel` between status cards and password panel. Big red "Disable all blasts" button (green "Re-enable" when ON). Shows last-toggled timestamp + by-whom. Read-only when env-var override is active.
+
+**Observability**: structured `[blast {blast_id}]` log lines at fanout start, completion, and abort. Reconciliation persists counts on `blast_logs` even on partial failures.
+
+**Tests**: `test_iter39_blast_safety.py` (6) + `test_iter39_blast_safety_extra.py` (8) = 14 new tests; combined with `test_iter36_blast_perf.py` regression = **17/17 green**. Resend is mocked / channel-restricted to `in_app` — zero quota consumed during tests.
+
+
+
 ## Next steps
 1. **Backend modularization (P1)** — `server.py` still has ~3,378 lines: split `routes/projects.py`, `routes/va.py`, `routes/pm.py`, `routes/owner.py` (Phase 3f).
 2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).
