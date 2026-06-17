@@ -11,6 +11,8 @@ import {
   X,
   WarningCircle,
   ChatCircleDots,
+  Trophy,
+  Lightbulb,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
@@ -20,6 +22,8 @@ const tabs = [
   { to: "/va/submit", label: "Submit Lead", icon: PlusCircle, end: false },
   { to: "/va/leads", label: "My Leads", icon: Kanban, end: false },
   { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false },
+  { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false },
+  { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false },
   { to: "/va/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
 ];
 

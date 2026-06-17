@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -179,7 +180,15 @@ export default function AdminVAs() {
                     data-testid={`va-row-${u.user_id}`}
                     className="border-t border-[#E5E7EB] hover:bg-[#F9FAFB]"
                   >
-                    <td className="px-3 py-3 font-semibold">{u.name}</td>
+                    <td className="px-3 py-3 font-semibold">
+                      <Link
+                        data-testid={`va-detail-link-${u.user_id}`}
+                        to={`/ops/va-program/vas/${u.user_id}`}
+                        className="text-[#0044FF] hover:underline"
+                      >
+                        {u.name}
+                      </Link>
+                    </td>
                     <td className="px-3 py-3 text-xs">{u.email}</td>
                     <td className="px-3 py-3"><StatusPill status={u.va_status || "pending"} /></td>
                     <td className="px-3 py-3 text-right font-mono">{u.lead_count}</td>

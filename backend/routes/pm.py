@@ -20,6 +20,11 @@ from va_commission import (
     LeadStageIn,
     LeadEditIn,
     LeadDeleteIn,
+    VAGoalIn,
+    PitchTemplateIn,
+    PitchTemplatePatch,
+    CoachingNoteIn,
+    CoachingNotePatch,
     CommissionActionIn,
     VAAccountAdminIn,
     VAStatusActionIn,
@@ -851,3 +856,323 @@ async def pm_analytics(
         "leaks": leaks,
         "params": {"months": months, "leak_days": leak_days},
     }
+
+
+# ---------------------------------------------------------------------------
+# Iter 42 — VA-success endpoints (goals, templates, coaching notes)
+# ---------------------------------------------------------------------------
+@router.get("/pm/va-goals/{va_user_id}")
+async def pm_get_va_goals(
+    va_user_id: str,
+    months: Optional[int] = 12,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """All goals for a VA, newest first. `months` caps how many rows."""
+    items = []
+    cur = db.va_goals.find({"va_user_id": va_user_id}).sort("month", -1).limit(max(1, int(months or 12)))
+    async for g in cur:
+        items.append({
+            "month": g["month"],
+            "target_leads": g.get("target_leads"),
+            "target_commission": g.get("target_commission"),
+            "note": g.get("note"),
+            "set_by": g.get("set_by"),
+            "set_at": g.get("set_at"),
+        })
+    return {"items": items}
+
+
+@router.post("/pm/va-goals/{va_user_id}")
+async def pm_set_va_goal(
+    va_user_id: str,
+    payload: VAGoalIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Upsert (set or replace) the goal for `va_user_id` for `payload.month`.
+    If both target_leads and target_commission are None, the goal row is
+    deleted instead (cleaner than leaving an empty target)."""
+    va = await db.users.find_one({"user_id": va_user_id, "role": "va"})
+    if not va:
+        raise HTTPException(404, "VA not found")
+
+    if payload.target_leads is None and payload.target_commission is None:
+        await db.va_goals.delete_one({"va_user_id": va_user_id, "month": payload.month})
+        return {"ok": True, "deleted": True}
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_goals.update_one(
+        {"va_user_id": va_user_id, "month": payload.month},
+        {"$set": {
+            "va_user_id": va_user_id,
+            "month": payload.month,
+            "target_leads": payload.target_leads,
+            "target_commission": payload.target_commission,
+            "note": payload.note,
+            "set_by": admin["user_id"],
+            "set_by_name": admin.get("name") or admin.get("email"),
+            "set_at": now,
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+# ---- Pitch templates -------------------------------------------------------
+@router.get("/pm/templates")
+async def pm_list_templates(
+    include_archived: Optional[bool] = False,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    q: dict = {"deleted_at": {"$in": [None, ""]}}
+    if not include_archived:
+        q["active"] = True
+    items = []
+    cur = db.pitch_templates.find(q).sort("created_at", -1).limit(500)
+    async for t in cur:
+        items.append({
+            "template_id": t["template_id"],
+            "title": t["title"],
+            "body": t["body"],
+            "category": t.get("category"),
+            "channel": t.get("channel") or "any",
+            "active": bool(t.get("active", True)),
+            "created_at": t.get("created_at"),
+            "created_by_name": t.get("created_by_name"),
+        })
+    return {"items": items}
+
+
+@router.post("/pm/templates")
+async def pm_create_template(
+    payload: PitchTemplateIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    now = datetime.now(timezone.utc).isoformat()
+    tid = f"tpl_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "template_id": tid,
+        "title": payload.title.strip(),
+        "body": payload.body.strip(),
+        "category": (payload.category or "").strip() or None,
+        "channel": payload.channel,
+        "active": True,
+        "created_at": now,
+        "created_by": admin["user_id"],
+        "created_by_name": admin.get("name") or admin.get("email"),
+        "updated_at": now,
+        "deleted_at": None,
+    }
+    await db.pitch_templates.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@router.patch("/pm/templates/{template_id}")
+async def pm_update_template(
+    template_id: str,
+    payload: PitchTemplatePatch,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    tpl = await db.pitch_templates.find_one({"template_id": template_id})
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    updates: dict = {}
+    if payload.title is not None:
+        updates["title"] = payload.title.strip()
+    if payload.body is not None:
+        updates["body"] = payload.body.strip()
+    if payload.category is not None:
+        updates["category"] = payload.category.strip() or None
+    if payload.channel is not None:
+        updates["channel"] = payload.channel
+    if payload.active is not None:
+        updates["active"] = bool(payload.active)
+    if not updates:
+        return {k: v for k, v in tpl.items() if k != "_id"}
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.pitch_templates.update_one({"template_id": template_id}, {"$set": updates})
+    fresh = await db.pitch_templates.find_one({"template_id": template_id})
+    return {k: v for k, v in fresh.items() if k != "_id"}
+
+
+@router.delete("/pm/templates/{template_id}")
+async def pm_delete_template(
+    template_id: str,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Soft-delete. Hidden from list endpoints; never re-listed even with
+    include_archived (use archive via active=false for that)."""
+    tpl = await db.pitch_templates.find_one({"template_id": template_id})
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.pitch_templates.update_one(
+        {"template_id": template_id},
+        {"$set": {"deleted_at": now, "active": False}},
+    )
+    return {"ok": True}
+
+
+# ---- Coaching notes --------------------------------------------------------
+@router.get("/pm/coaching-notes/{va_user_id}")
+async def pm_list_coaching_notes(
+    va_user_id: str,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Admin sees ALL notes (shared + private). VA endpoint /va/coaching-notes
+    only returns shared."""
+    items = []
+    cur = db.va_coaching_notes.find({
+        "va_user_id": va_user_id,
+        "deleted_at": {"$in": [None, ""]},
+    }).sort("created_at", -1).limit(500)
+    async for n in cur:
+        items.append({
+            "note_id": n["note_id"],
+            "text": n["text"],
+            "is_shared": bool(n.get("is_shared")),
+            "author_user_id": n.get("author_user_id"),
+            "author_name": n.get("author_name"),
+            "created_at": n["created_at"],
+            "updated_at": n.get("updated_at"),
+        })
+    return {"items": items}
+
+
+@router.post("/pm/coaching-notes/{va_user_id}")
+async def pm_create_coaching_note(
+    va_user_id: str,
+    payload: CoachingNoteIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    va = await db.users.find_one({"user_id": va_user_id, "role": "va"})
+    if not va:
+        raise HTTPException(404, "VA not found")
+    now = datetime.now(timezone.utc).isoformat()
+    nid = f"cn_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "note_id": nid,
+        "va_user_id": va_user_id,
+        "text": payload.text.strip(),
+        "is_shared": bool(payload.is_shared),
+        "author_user_id": admin["user_id"],
+        "author_name": admin.get("name") or admin.get("email"),
+        "created_at": now,
+        "updated_at": now,
+        "deleted_at": None,
+    }
+    await db.va_coaching_notes.insert_one(doc)
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@router.patch("/pm/coaching-notes/{note_id}")
+async def pm_update_coaching_note(
+    note_id: str,
+    payload: CoachingNotePatch,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    note = await db.va_coaching_notes.find_one({"note_id": note_id})
+    if not note:
+        raise HTTPException(404, "Note not found")
+    updates: dict = {}
+    if payload.text is not None:
+        updates["text"] = payload.text.strip()
+    if payload.is_shared is not None:
+        updates["is_shared"] = bool(payload.is_shared)
+    if not updates:
+        return {k: v for k, v in note.items() if k != "_id"}
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.va_coaching_notes.update_one({"note_id": note_id}, {"$set": updates})
+    fresh = await db.va_coaching_notes.find_one({"note_id": note_id})
+    return {k: v for k, v in fresh.items() if k != "_id"}
+
+
+@router.delete("/pm/coaching-notes/{note_id}")
+async def pm_delete_coaching_note(
+    note_id: str,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    note = await db.va_coaching_notes.find_one({"note_id": note_id})
+    if not note:
+        raise HTTPException(404, "Note not found")
+    await db.va_coaching_notes.update_one(
+        {"note_id": note_id},
+        {"$set": {"deleted_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
+
+
+# ---- Per-VA detail (admin) ------------------------------------------------
+@router.get("/pm/vas/{va_user_id}/detail")
+async def pm_va_detail(
+    va_user_id: str,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Single-page summary for the admin VA detail screen: profile + current
+    month goal/progress + paid-count + conversion + active lead count."""
+    va = await db.users.find_one({"user_id": va_user_id, "role": "va"})
+    if not va:
+        raise HTTPException(404, "VA not found")
+    not_deleted = {"deleted_at": {"$in": [None, ""]}}
+
+    active_stages = ["new_lead", "contacted", "quoted", "booked", "completed"]
+    active_count = await db.va_leads.count_documents({
+        "va_user_id": va_user_id, "stage": {"$in": active_stages}, **not_deleted,
+    })
+    total_lifetime = await db.va_leads.count_documents({"va_user_id": va_user_id, **not_deleted})
+    converted = await db.va_leads.count_documents({
+        "va_user_id": va_user_id,
+        "stage": {"$in": ["booked", "completed", "paid"]},
+        **not_deleted,
+    })
+    conversion = round((converted / total_lifetime) * 100, 1) if total_lifetime > 0 else 0.0
+
+    paid = 0.0
+    paid_count = 0
+    async for c in db.commissions.find({"va_user_id": va_user_id, "status": "paid"}):
+        paid += float(c.get("amount") or 0)
+        paid_count += 1
+
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    goal_doc = await db.va_goals.find_one(
+        {"va_user_id": va_user_id, "month": month}, {"_id": 0}
+    )
+    month_iso = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    mtd_leads = await db.va_leads.count_documents({
+        "va_user_id": va_user_id,
+        "created_at": {"$gte": month_iso},
+        **not_deleted,
+    })
+    mtd_commission = 0.0
+    async for c in db.commissions.find({
+        "va_user_id": va_user_id,
+        "status": "paid",
+        "paid_at": {"$gte": month_iso},
+    }):
+        mtd_commission += float(c.get("amount") or 0)
+
+    return {
+        "va": {
+            "user_id": va.get("user_id"),
+            "name": va.get("name"),
+            "email": va.get("email"),
+            "phone": va.get("phone"),
+            "va_status": va.get("va_status"),
+            "created_at": va.get("created_at"),
+        },
+        "stats": {
+            "active_leads": active_count,
+            "total_lifetime_leads": total_lifetime,
+            "conversion_rate": conversion,
+            "total_paid": round(paid, 2),
+            "paid_count": paid_count,
+        },
+        "month_goal": {
+            "month": month,
+            "target_leads": (goal_doc or {}).get("target_leads"),
+            "target_commission": (goal_doc or {}).get("target_commission"),
+            "note": (goal_doc or {}).get("note"),
+            "mtd_leads": mtd_leads,
+            "mtd_commission": round(mtd_commission, 2),
+        },
+    }
+

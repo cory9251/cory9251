@@ -21,6 +21,9 @@ from va_commission import (
     LeadIn,
     LeadEditIn,
     LeadDeleteIn,
+    CoachingNoteIn,
+    STALE_LEAD_DAYS,
+    STALE_LEAD_STAGES,
     _normalize_phone,
     _normalize_email,
     _normalize_address,
@@ -55,12 +58,14 @@ async def va_update_me(payload: VARegisterDetailsIn, user: dict = Depends(requir
 async def va_dashboard(user: dict = Depends(require_va)):
     va_id = user["user_id"]
     active_stages = ["new_lead", "contacted", "quoted", "booked", "completed"]
+    not_deleted = {"deleted_at": {"$in": [None, ""]}}
     active_count = await db.va_leads.count_documents(
-        {"va_user_id": va_id, "stage": {"$in": active_stages}}
+        {"va_user_id": va_id, "stage": {"$in": active_stages}, **not_deleted}
     )
     pending = 0.0
     approved = 0.0
     paid = 0.0
+    paid_count = 0
     async for c in db.commissions.find({"va_user_id": va_id}):
         amt = float(c.get("amount") or 0)
         s = c.get("status")
@@ -70,9 +75,12 @@ async def va_dashboard(user: dict = Depends(require_va)):
             approved += amt
         elif s == "paid":
             paid += amt
+            paid_count += 1
+
+    # ---- Leaderboard rank (last 30 days) -----------------------------------
     cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     pipeline = [
-        {"$match": {"created_at": {"$gte": cutoff}}},
+        {"$match": {"created_at": {"$gte": cutoff}, **not_deleted}},
         {"$group": {"_id": "$va_user_id", "leads": {"$sum": 1}}},
         {"$sort": {"leads": -1}},
     ]
@@ -80,6 +88,69 @@ async def va_dashboard(user: dict = Depends(require_va)):
     async for row in db.va_leads.aggregate(pipeline):
         ranks.append(row["_id"])
     rank = (ranks.index(va_id) + 1) if va_id in ranks else None
+
+    # ---- Conversion rate (booked or paid / total leads, lifetime) ----------
+    total_lifetime = await db.va_leads.count_documents({"va_user_id": va_id, **not_deleted})
+    converted = await db.va_leads.count_documents({
+        "va_user_id": va_id,
+        "stage": {"$in": ["booked", "completed", "paid"]},
+        **not_deleted,
+    })
+    conversion = round((converted / total_lifetime) * 100, 1) if total_lifetime > 0 else 0.0
+
+    # ---- Stale leads (need follow-up) --------------------------------------
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(days=STALE_LEAD_DAYS)).isoformat()
+    stale_count = await db.va_leads.count_documents({
+        "va_user_id": va_id,
+        "stage": {"$in": list(STALE_LEAD_STAGES)},
+        "updated_at": {"$lt": stale_cutoff},
+        **not_deleted,
+    })
+
+    # ---- Current month goal + progress -------------------------------------
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    goal_doc = await db.va_goals.find_one(
+        {"va_user_id": va_id, "month": month}, {"_id": 0}
+    )
+    # Month-to-date numbers for the progress bars
+    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_iso = month_start.isoformat()
+    mtd_leads = await db.va_leads.count_documents({
+        "va_user_id": va_id,
+        "created_at": {"$gte": month_iso},
+        **not_deleted,
+    })
+    mtd_commission = 0.0
+    async for c in db.commissions.find({
+        "va_user_id": va_id,
+        "status": "paid",
+        "paid_at": {"$gte": month_iso},
+    }):
+        mtd_commission += float(c.get("amount") or 0)
+    goal_payload = None
+    if goal_doc:
+        goal_payload = {
+            "month": goal_doc["month"],
+            "target_leads": goal_doc.get("target_leads"),
+            "target_commission": goal_doc.get("target_commission"),
+            "note": goal_doc.get("note"),
+            "mtd_leads": mtd_leads,
+            "mtd_commission": round(mtd_commission, 2),
+        }
+
+    # ---- Shared coaching notes (VA-visible only) ---------------------------
+    notes = []
+    cur = db.va_coaching_notes.find(
+        {"va_user_id": va_id, "is_shared": True, "deleted_at": {"$in": [None, ""]}}
+    ).sort("created_at", -1).limit(5)
+    async for n in cur:
+        notes.append({
+            "note_id": n["note_id"],
+            "text": n["text"],
+            "author_name": n.get("author_name"),
+            "created_at": n["created_at"],
+        })
+
     return {
         "va_user_id": va_id,
         "va_status": user.get("va_status"),
@@ -87,9 +158,142 @@ async def va_dashboard(user: dict = Depends(require_va)):
         "commissions_pending": round(pending, 2),
         "commissions_approved": round(approved, 2),
         "total_paid": round(paid, 2),
+        "paid_count": paid_count,
+        "conversion_rate": conversion,
+        "stale_leads_count": stale_count,
         "leaderboard_rank": rank,
         "leaderboard_total": len(ranks),
+        "goal": goal_payload,
+        "shared_notes": notes,
     }
+
+
+@router.get("/va/stale-leads")
+async def va_stale_leads(user: dict = Depends(require_va)):
+    """Leads in contacted/quoted stages that haven't been updated in 7+ days.
+    Surfaced as a 'needs follow-up' nudge on the VA dashboard."""
+    va_id = user["user_id"]
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=STALE_LEAD_DAYS)).isoformat()
+    items = []
+    cur = db.va_leads.find({
+        "va_user_id": va_id,
+        "stage": {"$in": list(STALE_LEAD_STAGES)},
+        "updated_at": {"$lt": cutoff},
+        "deleted_at": {"$in": [None, ""]},
+    }).sort("updated_at", 1).limit(50)
+    async for d in cur:
+        items.append(_serialize_lead(d))
+    return {"items": items, "threshold_days": STALE_LEAD_DAYS}
+
+
+@router.get("/va/leaderboard")
+async def va_leaderboard(
+    period: Optional[str] = "month",
+    user: dict = Depends(require_va),
+):
+    """Ranked list of VAs by activity. period: 'month' (default) | 'week' | 'all'.
+    Earnings are masked for everyone except the requesting VA's own row."""
+    va_id = user["user_id"]
+    now = datetime.now(timezone.utc)
+    if period == "week":
+        cutoff = (now - timedelta(days=7)).isoformat()
+    elif period == "all":
+        cutoff = "1970-01-01T00:00:00+00:00"
+    else:
+        cutoff = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    # Aggregate leads per VA
+    pipeline = [
+        {"$match": {"created_at": {"$gte": cutoff}, "deleted_at": {"$in": [None, ""]}}},
+        {"$group": {
+            "_id": "$va_user_id",
+            "leads": {"$sum": 1},
+            "booked": {"$sum": {"$cond": [{"$in": ["$stage", ["booked", "completed", "paid"]]}, 1, 0]}},
+        }},
+        {"$sort": {"leads": -1, "booked": -1}},
+        {"$limit": 50},
+    ]
+    rows: list = []
+    async for r in db.va_leads.aggregate(pipeline):
+        rows.append(r)
+    # Resolve VA names
+    va_ids = [r["_id"] for r in rows if r["_id"]]
+    name_map: dict = {}
+    async for u in db.users.find(
+        {"user_id": {"$in": va_ids}}, {"_id": 0, "user_id": 1, "name": 1}
+    ):
+        name_map[u["user_id"]] = u.get("name")
+
+    items = []
+    for idx, r in enumerate(rows):
+        is_self = r["_id"] == va_id
+        items.append({
+            "rank": idx + 1,
+            "va_user_id": r["_id"],
+            "va_name": name_map.get(r["_id"]) or "—",
+            "leads": r["leads"],
+            "booked": r["booked"],
+            "conversion": round((r["booked"] / r["leads"]) * 100, 1) if r["leads"] else 0,
+            "is_self": is_self,
+        })
+    return {"items": items, "period": period}
+
+
+@router.get("/va/templates")
+async def va_list_templates(user: dict = Depends(require_va)):
+    """Read-only pitch templates library for VAs."""
+    items = []
+    cur = db.pitch_templates.find(
+        {"active": True, "deleted_at": {"$in": [None, ""]}}
+    ).sort("created_at", -1).limit(200)
+    async for t in cur:
+        items.append({
+            "template_id": t["template_id"],
+            "title": t["title"],
+            "body": t["body"],
+            "category": t.get("category"),
+            "channel": t.get("channel") or "any",
+        })
+    return {"items": items}
+
+
+@router.get("/va/coaching-notes")
+async def va_list_coaching_notes(user: dict = Depends(require_va)):
+    """VAs only see notes their PM explicitly shared with them."""
+    va_id = user["user_id"]
+    items = []
+    cur = db.va_coaching_notes.find({
+        "va_user_id": va_id,
+        "is_shared": True,
+        "deleted_at": {"$in": [None, ""]},
+    }).sort("created_at", -1).limit(200)
+    async for n in cur:
+        items.append({
+            "note_id": n["note_id"],
+            "text": n["text"],
+            "author_name": n.get("author_name"),
+            "created_at": n["created_at"],
+        })
+    return {"items": items}
+
+
+@router.get("/va/goals")
+async def va_get_goals(
+    months: Optional[int] = 6,
+    user: dict = Depends(require_va),
+):
+    """Last N months of goals (default 6) so VA can see trend / past targets."""
+    va_id = user["user_id"]
+    items = []
+    cur = db.va_goals.find({"va_user_id": va_id}).sort("month", -1).limit(max(1, int(months or 6)))
+    async for g in cur:
+        items.append({
+            "month": g["month"],
+            "target_leads": g.get("target_leads"),
+            "target_commission": g.get("target_commission"),
+            "note": g.get("note"),
+        })
+    return {"items": items}
 
 
 @router.post("/va/leads")

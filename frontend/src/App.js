@@ -30,10 +30,14 @@ import AdminVAPipeline from "@/pages/admin/AdminVAPipeline";
 import LeadDetail from "@/pages/LeadDetail";
 import AdminVACommissions from "@/pages/admin/AdminVACommissions";
 import AdminVAs from "@/pages/admin/AdminVAs";
+import AdminVADetail from "@/pages/admin/AdminVADetail";
+import AdminTemplates from "@/pages/admin/AdminTemplates";
 import AdminCommercialAccounts from "@/pages/admin/AdminCommercialAccounts";
 import AdminOwnerPayouts from "@/pages/admin/AdminOwnerPayouts";
 import VALayout from "@/components/va/VALayout";
 import VADashboard from "@/pages/va/VADashboard";
+import VALeaderboard from "@/pages/va/VALeaderboard";
+import VATemplates from "@/pages/va/VATemplates";
 import VASubmitLead from "@/pages/va/VASubmitLead";
 import VAMyLeads from "@/pages/va/VAMyLeads";
 import VAEarnings from "@/pages/va/VAEarnings";
@@ -120,6 +124,8 @@ function RouterShell() {
         <Route path="va-program/pipeline/:leadId" element={<LeadDetail scope="admin" />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />
+        <Route path="va-program/vas/:vaUserId" element={<AdminVADetail />} />
+        <Route path="va-program/templates" element={<AdminTemplates />} />
         <Route path="va-program/commercial" element={<AdminCommercialAccounts />} />
         <Route path="payouts" element={<AdminOwnerPayouts />} />
       </Route>
@@ -166,6 +172,8 @@ function RouterShell() {
         <Route path="leads" element={<VAMyLeads />} />
         <Route path="leads/:leadId" element={<LeadDetail scope="va" />} />
         <Route path="earnings" element={<VAEarnings />} />
+        <Route path="leaderboard" element={<VALeaderboard />} />
+        <Route path="templates" element={<VATemplates />} />
         <Route path="messages" element={<Messages />} />
       </Route>
 

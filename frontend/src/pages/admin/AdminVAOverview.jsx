@@ -62,6 +62,21 @@ export default function AdminVAOverview() {
           <ChartLineUp size={14} weight="bold" />
           Open detailed analytics →
         </Link>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Link
+            to="/ops/va-program/templates"
+            data-testid="va-templates-cta"
+            className="inline-flex items-center gap-1 border border-[#030712] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest hover:bg-[#030712] hover:text-white"
+          >
+            Pitch templates →
+          </Link>
+          <Link
+            to="/ops/va-program/vas"
+            className="inline-flex items-center gap-1 border border-[#030712] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest hover:bg-[#030712] hover:text-white"
+          >
+            Manage VAs · Goals · Notes →
+          </Link>
+        </div>
       </div>
 
       {err && <div className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}

@@ -109,6 +109,57 @@ class LeadDeleteIn(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
+# ---------------------------------------------------------------------------
+# Batch-2 VA-success features (iter42)
+# ---------------------------------------------------------------------------
+class VAGoalIn(BaseModel):
+    """Admin sets a monthly target for a VA. Both numbers optional — admin may
+    only care about leads, or only commission. month format: 'YYYY-MM'."""
+    month: str = Field(..., pattern=r"^\d{4}-\d{2}$")
+    target_leads: Optional[int] = Field(default=None, ge=0, le=10000)
+    target_commission: Optional[float] = Field(default=None, ge=0)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+PitchTemplateChannel = Literal["dm", "email", "sms", "any"]
+
+
+class PitchTemplateIn(BaseModel):
+    """A reusable message a VA can copy when contacting prospects.
+    `body` may include {prospect_name}, {service_type} tokens for client-side
+    interpolation; the backend stores them as plain text."""
+    title: str = Field(..., min_length=2, max_length=120)
+    body: str = Field(..., min_length=4, max_length=4000)
+    category: Optional[str] = Field(default=None, max_length=60)
+    channel: PitchTemplateChannel = "any"
+
+
+class PitchTemplatePatch(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    body: Optional[str] = Field(default=None, min_length=4, max_length=4000)
+    category: Optional[str] = Field(default=None, max_length=60)
+    channel: Optional[PitchTemplateChannel] = None
+    active: Optional[bool] = None
+
+
+class CoachingNoteIn(BaseModel):
+    """Admin coaching note attached to a VA's profile. `is_shared=True` makes
+    the note visible to the VA; private notes are admin-only."""
+    text: str = Field(..., min_length=2, max_length=4000)
+    is_shared: bool = False
+
+
+class CoachingNotePatch(BaseModel):
+    text: Optional[str] = Field(default=None, min_length=2, max_length=4000)
+    is_shared: Optional[bool] = None
+
+
+# Stale-lead threshold — leads that have sat in 'contacted' / 'quoted' for
+# this long surface in the VA's dashboard "needs follow-up" panel.
+STALE_LEAD_DAYS = 7
+STALE_LEAD_STAGES = ("contacted", "quoted")
+
+
 class CommissionActionIn(BaseModel):
     """PM's approve / flag / reject action on a commission."""
     note: Optional[str] = None
