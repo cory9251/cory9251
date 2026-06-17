@@ -27,6 +27,8 @@ from auth_deps import (
     require_admin,
     _get_user_by_id,
     _profile_missing_fields,
+    _worker_approval_blockers,
+    _worker_is_fully_active,
     _worker_rating_stats,
 )
 from constants import (
@@ -153,6 +155,8 @@ async def list_workers(
         miss = _profile_missing_fields(w)
         w["profile_complete"] = len(miss) == 0
         w["profile_missing_fields"] = miss
+        w["approval_blockers"] = _worker_approval_blockers(w)
+        w["fully_active"] = _worker_is_fully_active(w)
         stats = await _worker_rating_stats(w["user_id"])
         w.update(stats)
 
@@ -343,6 +347,12 @@ async def get_worker(user_id: str, admin: dict = Depends(require_admin)):
     w["accepted_gigs"] = accepted
     # Attach rating aggregates so the WorkerDetail header can render stars.
     w.update(await _worker_rating_stats(user_id))
+    # Mirror enrichment from list endpoint so detail page badges are truthful
+    miss = _profile_missing_fields(w)
+    w["profile_complete"] = len(miss) == 0
+    w["profile_missing_fields"] = miss
+    w["approval_blockers"] = _worker_approval_blockers(w)
+    w["fully_active"] = _worker_is_fully_active(w)
     return w
 
 
@@ -530,6 +540,19 @@ async def admin_update_worker_profile(
         "approved", "pending", "rejected", "suspended"
     ):
         raise HTTPException(400, "worker_status must be approved|pending|rejected|suspended")
+    if "worker_status" in updates and updates["worker_status"] == "approved":
+        # Same gate as _set_worker_status — keep the two write paths in sync.
+        # Apply prospective updates first so admins can fix profile/id_verified
+        # in the SAME PATCH call without needing two round trips.
+        merged = {**user, **updates}
+        blockers = _worker_approval_blockers(merged)
+        if blockers:
+            raise HTTPException(
+                400,
+                "Cannot approve worker yet — "
+                + "; ".join(blockers)
+                + ". Complete profile + verify ID before approving.",
+            )
     if "email" in updates and updates["email"]:
         new_email = updates["email"].strip().lower()
         if "@" not in new_email or "." not in new_email:
@@ -590,6 +613,18 @@ async def _set_worker_status(
         raise HTTPException(404, "Worker not found")
     if user.get("role") == "admin":
         raise HTTPException(400, "Cannot change status of an admin user")
+    # Gate: workers can't be 'approved' until ID is on file + verified AND
+    # the required profile fields are filled in. Keeps the badge truthful and
+    # mirrors the gates enforced at /gigs/accept.
+    if status == "approved":
+        blockers = _worker_approval_blockers(user)
+        if blockers:
+            raise HTTPException(
+                400,
+                "Cannot approve worker yet — "
+                + "; ".join(blockers)
+                + ". Complete profile + verify ID before approving.",
+            )
     await db.users.update_one(
         {"user_id": user_id},
         {

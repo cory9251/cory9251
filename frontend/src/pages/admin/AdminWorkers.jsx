@@ -19,6 +19,7 @@ import {
   MapPin,
   Star,
   Lightning,
+  Warning,
 } from "@phosphor-icons/react";
 
 const TABS = [
@@ -61,14 +62,43 @@ const AVAIL_OPTIONS = [
   { value: "full_time", label: "Full-time" },
 ];
 
-function StatusBadge({ status }) {
-  const s = status || "approved";
+/**
+ * Truthful status badge. Renders:
+ *   • ACTIVE (green)   — admin-approved AND id-verified AND profile-complete.
+ *                        These are the only workers who can actually book a gig.
+ *   • SETUP NEEDED     — admin-approved but blocked by missing ID / profile.
+ *                        Visually distinct from PENDING so admins know it's a
+ *                        worker-side gap, not awaiting their review.
+ *   • PENDING / REJECTED / SUSPENDED — unchanged.
+ */
+function StatusBadge({ worker }) {
+  const status = worker?.worker_status || "approved";
+  const fullyActive = !!worker?.fully_active;
+  const blockers = worker?.approval_blockers || [];
+  // If the backend hasn't surfaced approval_blockers yet, fall back to the
+  // raw status so we don't paint everyone red on stale clients.
+  const inferredFullyActive =
+    worker?.fully_active === undefined
+      ? status === "approved"
+      : fullyActive;
+
+  if (status === "approved" && !inferredFullyActive) {
+    return (
+      <span
+        title={blockers.join(" · ") || "Profile or ID not complete"}
+        className="inline-flex items-center gap-1 bg-[#F59E0B] px-2 py-1 text-[10px] font-bold tracking-widest text-white"
+      >
+        <Warning size={10} weight="fill" /> SETUP NEEDED
+      </span>
+    );
+  }
+
   const m = {
     pending: { bg: "bg-[#F59E0B]", icon: ClockCounterClockwise, label: "PENDING" },
-    approved: { bg: "bg-[#10B981]", icon: CheckCircle, label: "APPROVED" },
+    approved: { bg: "bg-[#10B981]", icon: CheckCircle, label: "ACTIVE" },
     rejected: { bg: "bg-[#EF4444]", icon: Prohibit, label: "REJECTED" },
     suspended: { bg: "bg-[#4B5563]", icon: PauseCircle, label: "SUSPENDED" },
-  }[s] || { bg: "bg-[#4B5563]", icon: UserCircle, label: s.toUpperCase() };
+  }[status] || { bg: "bg-[#4B5563]", icon: UserCircle, label: status.toUpperCase() };
   const Icon = m.icon;
   return (
     <span
@@ -419,7 +449,7 @@ export default function AdminWorkers() {
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <StatusBadge status={w.worker_status} />
+                  <StatusBadge worker={w} />
                   {w.available_now && (
                     <span
                       data-testid={`available-badge-${w.user_id}`}

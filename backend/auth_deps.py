@@ -67,6 +67,34 @@ def _is_profile_complete(user: dict) -> bool:
     return len(_profile_missing_fields(user)) == 0
 
 
+def _worker_approval_blockers(user: dict) -> List[str]:
+    """Return human-readable reasons the worker can't be marked 'approved' yet.
+    Empty list = ready to approve. Mirrors the gates enforced on /gigs/accept
+    so admin approval and worker booking can't drift apart."""
+    if user.get("role") != "worker":
+        return []
+    blockers: List[str] = []
+    if not user.get("id_image_path"):
+        blockers.append("ID not uploaded")
+    elif not user.get("id_verified"):
+        blockers.append("ID awaiting verification")
+    missing = _profile_missing_fields(user)
+    if missing:
+        blockers.append(f"Profile incomplete ({len(missing)} field{'s' if len(missing) != 1 else ''} missing)")
+    return blockers
+
+
+def _worker_is_fully_active(user: dict) -> bool:
+    """True only when the worker is approved AND id-verified AND profile-complete —
+    the same conditions enforced on /gigs/accept. Used by API responses so the
+    frontend can render a truthful badge."""
+    if user.get("role") != "worker":
+        return False
+    if (user.get("worker_status") or "approved") != "approved":
+        return False
+    return not _worker_approval_blockers(user)
+
+
 # ---- User lookup + dependencies --------------------------------------------
 async def _worker_rating_stats(user_id: str) -> dict:
     """Return rating aggregates for a worker — combined avg + per-source

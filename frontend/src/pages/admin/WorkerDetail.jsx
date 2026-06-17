@@ -1061,6 +1061,14 @@ function StatusPill({ s }) {
 
 function ApplicationStatusCard({ worker, onAction }) {
   const status = worker.worker_status || "approved";
+  const blockers = worker.approval_blockers || [];
+  const fullyActive = worker.fully_active === undefined
+    ? status === "approved"
+    : !!worker.fully_active;
+  // Treat "approved-on-paper but missing ID/profile" as its own card state so
+  // admins immediately see the worker can't actually book gigs.
+  const isSetupNeeded = status === "approved" && !fullyActive;
+  const effectiveStatus = isSetupNeeded ? "setup_needed" : status;
   const meta = {
     pending: {
       bg: "bg-[#FFFBEB]",
@@ -1074,9 +1082,17 @@ function ApplicationStatusCard({ worker, onAction }) {
       bg: "bg-[#ECFDF5]",
       border: "border-[#10B981]/30",
       icon: CheckCircle,
-      title: "Approved",
-      desc: "Approved to claim gigs (subject to ID verification).",
+      title: "Active",
+      desc: "Approved AND profile-complete AND ID-verified. Can claim gigs.",
       tone: "text-[#065F46]",
+    },
+    setup_needed: {
+      bg: "bg-[#FFFBEB]",
+      border: "border-[#F59E0B]/50",
+      icon: ClockCounterClockwise,
+      title: "Setup needed",
+      desc: "Admin-approved but the worker still hasn't completed everything required to book a gig.",
+      tone: "text-[#92400E]",
     },
     rejected: {
       bg: "bg-[#FEF2F2]",
@@ -1094,15 +1110,18 @@ function ApplicationStatusCard({ worker, onAction }) {
       desc: "Account is suspended. Reinstate to re-enable.",
       tone: "text-[#374151]",
     },
-  }[status] || {
+  }[effectiveStatus] || {
     bg: "bg-[#F9FAFB]",
     border: "border-[#E5E7EB]",
     icon: CheckCircle,
-    title: status.toUpperCase(),
+    title: String(effectiveStatus).toUpperCase(),
     desc: "",
     tone: "text-[#030712]",
   };
   const Icon = meta.icon;
+  // Workers who are "pending" but have blockers can't be approved yet — disable
+  // the Approve button and surface the gap so the admin knows what to ask for.
+  const canApprove = blockers.length === 0;
   return (
     <div
       data-testid="application-status-card"
@@ -1115,12 +1134,30 @@ function ApplicationStatusCard({ worker, onAction }) {
       </div>
       <p className={`mt-2 text-xs ${meta.tone}/90`}>{meta.desc}</p>
 
+      {blockers.length > 0 && (
+        <div
+          data-testid="approval-blockers"
+          className="mt-3 border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900"
+        >
+          <div className="font-mono-label mb-1 text-[10px] uppercase tracking-widest">
+            Still needed
+          </div>
+          <ul className="list-disc space-y-0.5 pl-4">
+            {blockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap gap-2">
         {status !== "approved" && (
           <Button
             data-testid="approve-btn"
             onClick={() => onAction(status === "rejected" || status === "suspended" ? "reinstate" : "approve")}
-            className="h-9 rounded-none bg-[#10B981] text-white hover:bg-[#0e9971]"
+            disabled={!canApprove}
+            title={canApprove ? "" : `Cannot approve yet: ${blockers.join(" · ")}`}
+            className="h-9 rounded-none bg-[#10B981] text-white hover:bg-[#0e9971] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <ThumbsUp size={14} className="mr-1" weight="fill" />
             {status === "rejected" || status === "suspended" ? "Reinstate" : "Approve"}
