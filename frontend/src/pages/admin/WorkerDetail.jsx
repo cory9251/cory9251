@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { StarsDisplay } from "@/components/admin/RatingDialog";
 import MessageUserButton from "@/components/messages/MessageUserButton";
+import ShiftEditDialog from "@/components/admin/ShiftEditDialog";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +51,8 @@ export default function WorkerDetail() {
   const [newPassword, setNewPassword] = useState("");
   const [resetResult, setResetResult] = useState(null);
   const [resetting, setResetting] = useState(false);
+  // Shift-edit dialog (per-row "Manage" button in Gig history table)
+  const [editingShift, setEditingShift] = useState(null);
 
   const load = async () => {
     try {
@@ -185,6 +188,7 @@ export default function WorkerDetail() {
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Rate</th>
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Earned</th>
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">TS</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Edit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -231,6 +235,15 @@ export default function WorkerDetail() {
                               PENDING
                             </span>
                           )}
+                        </td>
+                        <td className="border-b border-[#E5E7EB] px-3 py-2">
+                          <button
+                            data-testid={`shift-manage-btn-${a.acceptance_id}`}
+                            onClick={() => setEditingShift(a)}
+                            className="font-mono-label inline-flex items-center gap-1 border border-[#030712] bg-white px-2 py-1 text-[10px] uppercase tracking-widest text-[#030712] transition-colors hover:bg-[#030712] hover:text-white"
+                          >
+                            Manage
+                          </button>
                         </td>
                       </tr>
                       );
@@ -427,6 +440,14 @@ export default function WorkerDetail() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Per-row shift edit dialog (opened from Gig history "Manage" button) */}
+      <ShiftEditDialog
+        acceptance={editingShift}
+        open={!!editingShift}
+        onOpenChange={(v) => !v && setEditingShift(null)}
+        onSaved={load}
+      />
     </div>
   );
 }

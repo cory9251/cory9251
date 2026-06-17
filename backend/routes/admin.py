@@ -46,6 +46,8 @@ from models import (
     AdminResetPasswordIn,
     TimesheetApproveIn,
     TimesheetEditIn,
+    AcceptanceNoShowIn,
+    AcceptanceMarkCompletedIn,
 )
 from notifications import _send_user_email, _public_base, is_blast_disabled, BLAST_COOLDOWN_SECONDS
 from va_commission import require_owner
@@ -1101,6 +1103,17 @@ async def edit_acceptance_timesheet(
     }
     unset_ops: dict = {}
 
+    if payload.admin_note is not None:
+        note_clean = payload.admin_note.strip()
+        if note_clean:
+            set_ops["admin_note"] = note_clean
+            set_ops["admin_note_at"] = datetime.now(timezone.utc).isoformat()
+            set_ops["admin_note_by"] = admin["email"]
+        else:
+            unset_ops["admin_note"] = ""
+            unset_ops["admin_note_at"] = ""
+            unset_ops["admin_note_by"] = ""
+
     if new_in is None:
         unset_ops["clock_in_at"] = ""
         unset_ops["hours_worked"] = ""
@@ -1168,6 +1181,183 @@ async def edit_acceptance_timesheet(
         "earnings": refreshed.get("earnings"),
         "status": refreshed.get("status"),
     }
+
+
+@router.post("/gigs/{gig_id}/acceptances/{acceptance_id}/no-show")
+async def mark_acceptance_no_show(
+    gig_id: str,
+    acceptance_id: str,
+    payload: AcceptanceNoShowIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin marks a worker as a no-show for this acceptance. Records the
+    reason + admin email + timestamp for the audit log. Clears any clock
+    times (worker wasn't there). The 'first no-show = auto-delete' rule
+    runs elsewhere — this endpoint only flips the status."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+    if acceptance.get("status") == "requested":
+        raise HTTPException(
+            400, "Approve the worker before marking them as a no-show"
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    set_ops: dict = {
+        "status": "no_show",
+        "no_show_at": now_iso,
+        "no_show_by": admin["email"],
+        "no_show_reason": payload.reason.strip(),
+        # Reset timesheet so it doesn't accidentally appear in earnings
+        "timesheet_approved": False,
+        "timesheet_approved_at": None,
+        "timesheet_approved_by": None,
+    }
+    if payload.admin_note:
+        note_clean = payload.admin_note.strip()
+        if note_clean:
+            set_ops["admin_note"] = note_clean
+            set_ops["admin_note_at"] = now_iso
+            set_ops["admin_note_by"] = admin["email"]
+
+    unset_ops = {
+        "clock_in_at": "",
+        "clock_out_at": "",
+        "hours_worked": "",
+        "paid_hours": "",
+        "earnings": "",
+    }
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id}, {"$set": set_ops, "$unset": unset_ops}
+    )
+
+    logger.info(
+        f"Admin {admin['email']} marked acceptance {acceptance_id} as no_show "
+        f"— reason: {payload.reason[:80]}"
+    )
+
+    # Notify the worker (no email — this is a sensitive event, in-app only)
+    gig = await db.gigs.find_one({"gig_id": gig_id}, {"title": 1})
+    await db.notifications.insert_one(
+        {
+            "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+            "user_id": acceptance["worker_id"],
+            "gig_id": gig_id,
+            "title": f"Marked no-show: {gig.get('title') if gig else 'gig'}",
+            "body": f"HCOB marked you as a no-show. Reason: {payload.reason.strip()}",
+            "read": False,
+            "created_at": now_iso,
+        }
+    )
+
+    return {"ok": True, "status": "no_show"}
+
+
+@router.post("/gigs/{gig_id}/acceptances/{acceptance_id}/mark-completed")
+async def mark_acceptance_completed(
+    gig_id: str,
+    acceptance_id: str,
+    payload: AcceptanceMarkCompletedIn,
+    admin: dict = Depends(require_admin),
+):
+    """Admin force-marks an acceptance as completed (worker forgot to clock in
+    or out but did finish). If clock_in_at / clock_out_at are passed, use
+    those. Otherwise fall back to the gig's scheduled_at + duration_hours.
+
+    Recomputes earnings via the standard pay-resolution pipeline."""
+    acceptance = await db.gig_acceptances.find_one(
+        {"acceptance_id": acceptance_id, "gig_id": gig_id}
+    )
+    if not acceptance:
+        raise HTTPException(404, "Acceptance not found")
+    if acceptance.get("status") == "requested":
+        raise HTTPException(
+            400, "Approve the worker before marking the gig completed"
+        )
+
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+
+    # Resolve clock-in: payload → existing → gig scheduled_at
+    in_str = payload.clock_in_at or acceptance.get("clock_in_at") or gig.get("scheduled_at")
+    if not in_str:
+        raise HTTPException(
+            400, "Cannot mark completed without a clock-in time. Set scheduled_at on the gig or pass clock_in_at."
+        )
+    new_in = _parse_admin_dt(in_str)
+
+    # Resolve clock-out: payload → existing → scheduled_at + duration_hours
+    out_str = payload.clock_out_at or acceptance.get("clock_out_at")
+    if out_str:
+        new_out = _parse_admin_dt(out_str)
+    else:
+        duration_h = float(gig.get("duration_hours") or 0)
+        if duration_h <= 0:
+            raise HTTPException(
+                400, "Gig has no duration_hours — pass clock_out_at explicitly."
+            )
+        from datetime import timedelta
+        new_out = new_in + timedelta(hours=duration_h)
+
+    if new_out <= new_in:
+        raise HTTPException(400, "Clock-out must be after clock-in")
+
+    worker = await db.users.find_one({"user_id": acceptance["worker_id"]})
+    pay = _resolve_pay(acceptance, worker, gig)
+    hours = round((new_out - new_in).total_seconds() / 3600.0, 2)
+    effective_break = _resolve_break_minutes(acceptance, gig)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    set_ops: dict = {
+        "status": "completed",
+        "clock_in_at": new_in.isoformat(),
+        "clock_out_at": new_out.isoformat(),
+        "hours_worked": hours,
+        "pay_rate_applied": pay["pay_rate"],
+        "pay_type_applied": pay["pay_type"],
+        "pay_rate_source": pay["pay_rate_source"],
+        "pay_type_source": pay["pay_type_source"],
+        "break_minutes_applied": effective_break,
+        "paid_hours": _compute_paid_hours(hours, effective_break),
+        "earnings": _compute_earnings(pay["pay_rate"], pay["pay_type"], hours, effective_break),
+        "earnings_manual_override": False,
+        "timesheet_approved": False,
+        "timesheet_approved_at": None,
+        "timesheet_approved_by": None,
+        "timesheet_edited_at": now_iso,
+        "timesheet_edited_by": admin["email"],
+        "marked_completed_at": now_iso,
+        "marked_completed_by": admin["email"],
+    }
+    if payload.admin_note:
+        note_clean = payload.admin_note.strip()
+        if note_clean:
+            set_ops["admin_note"] = note_clean
+            set_ops["admin_note_at"] = now_iso
+            set_ops["admin_note_by"] = admin["email"]
+
+    await db.gig_acceptances.update_one(
+        {"acceptance_id": acceptance_id}, {"$set": set_ops}
+    )
+
+    logger.info(
+        f"Admin {admin['email']} force-completed acceptance {acceptance_id} "
+        f"(hours={hours}, earnings={set_ops['earnings']})"
+    )
+
+    refreshed = await db.gig_acceptances.find_one({"acceptance_id": acceptance_id}, {"_id": 0})
+    return {
+        "ok": True,
+        "status": refreshed.get("status"),
+        "clock_in_at": refreshed.get("clock_in_at"),
+        "clock_out_at": refreshed.get("clock_out_at"),
+        "hours_worked": refreshed.get("hours_worked"),
+        "earnings": refreshed.get("earnings"),
+    }
+
 
 
 # ---------------------------------------------------------------------------

@@ -205,6 +205,35 @@ class TimesheetEditIn(BaseModel):
     clock_out_at: Optional[str] = None
     clear_clock_out: Optional[bool] = False
     break_minutes: Optional[int] = None
+    # Free-text admin note attached to the acceptance — visible to admins on
+    # the worker detail page. When provided, also recorded with the editing
+    # admin's email + ISO timestamp.
+    admin_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AcceptanceNoShowIn(BaseModel):
+    """Mark an acceptance as a no-show. Reason is required so the audit log
+    captures WHY (separate from the 'rule #1: first no-show = auto-delete'
+    rule, which fires elsewhere)."""
+    reason: str = Field(..., min_length=1, max_length=500)
+    admin_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AcceptanceMarkCompletedIn(BaseModel):
+    """Force-mark an acceptance as completed (worker forgot to clock out but
+    finished the gig). If clock_in_at is missing we'll fall back to the gig's
+    scheduled start. clock_out_at defaults to gig start + duration_hours."""
+    clock_in_at: Optional[str] = None
+    clock_out_at: Optional[str] = None
+    admin_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AcceptanceRemoveIn(BaseModel):
+    """Optional metadata sent when an admin removes a worker from a gig."""
+    reason: Optional[Literal[
+        "worker_requested", "no_show", "admin_decision", "scheduling_conflict", "other"
+    ]] = None
+    admin_note: Optional[str] = Field(default=None, max_length=2000)
 
 
 # ----- Projects --------------------------------------------------------------
