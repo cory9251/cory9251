@@ -1,0 +1,23 @@
+{
+  "summary": "Frontend-only verification of VA Training page wiring + VA portal regression. Logged in as approved VA (va.demo@hcobcleaners.com), confirmed Training tab appears in sidebar at correct index (Templates→Training→Messages), Training route /va/training renders VATraining.jsx with all 7 required section testids (section-required-fields, section-brand-rules, section-do, section-donot, section-tiers, section-checklist, section-outlets), 3 quick links navigate to /va/templates, /va/submit, /va/leaderboard. VA Submit Lead shows 5-required-fields banner + Month 1 callout; dropdowns include Deep clean, Move-out, Specialty, Commercial, Routine + sources LinkedIn/Craigslist/Nextdoor/Reddit/Yelp/Thumbtack/Angi/HomeAdvisor/Google Business/Cold Email/Facebook. All 6 other VA pages load without 404. Mobile drawer (390x844) shows va-mobile-nav-training and navigates to /va/training. No console errors aside from one expected 401 from an unauth poll prior to login.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "VATraining.jsx is 433 lines of hard-coded content — fine for MVP but plan to move OUTLETS + sections array to a JSON/MDX source so non-devs can edit without redeploying.",
+    "Spec mentioned 'Recurring' as a service type but actual enum exposes it indirectly via 'Maintenance bundle (multi-service)' (commission engine treats repeat visits as recurring). Not a bug, but consider adding an explicit 'Recurring service plan' label if PMs expect it verbatim.",
+    "Training playbook content (5-field rule, Month 1 brand rules, commission tiers) is duplicated between VATraining.jsx and VASubmitLead banner — consider extracting shared copy/constants to avoid drift."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "VA: va.demo@hcobcleaners.com / VaDemo2026! (worked)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "VA Training page is fully wired (App.js line 178, VALayout.jsx tabs index 6). All section-* testids verified. Submit Lead dropdowns are loaded via /api/va/options (working). No lead submission was performed (per request to avoid commission/dup writes)."
+}

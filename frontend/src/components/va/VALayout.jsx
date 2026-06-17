@@ -13,6 +13,7 @@ import {
   ChatCircleDots,
   Trophy,
   Lightbulb,
+  BookOpenText,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
@@ -24,6 +25,7 @@ const tabs = [
   { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false },
   { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false },
   { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false },
+  { to: "/va/training", label: "Training", icon: BookOpenText, end: false },
   { to: "/va/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
 ];
 

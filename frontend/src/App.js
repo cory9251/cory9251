@@ -41,6 +41,7 @@ import VATemplates from "@/pages/va/VATemplates";
 import VASubmitLead from "@/pages/va/VASubmitLead";
 import VAMyLeads from "@/pages/va/VAMyLeads";
 import VAEarnings from "@/pages/va/VAEarnings";
+import VATraining from "@/pages/va/VATraining";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
 import RatePage from "@/pages/RatePage";
@@ -174,6 +175,7 @@ function RouterShell() {
         <Route path="earnings" element={<VAEarnings />} />
         <Route path="leaderboard" element={<VALeaderboard />} />
         <Route path="templates" element={<VATemplates />} />
+        <Route path="training" element={<VATraining />} />
         <Route path="messages" element={<Messages />} />
       </Route>
 
