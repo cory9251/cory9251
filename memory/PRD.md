@@ -720,3 +720,27 @@ Rules stored as `WORKER_AGREEMENT_RULES_V1` constant in `models.py` so bumping t
 - Testing agent iter45.json: **100% backend + 100% frontend E2E**
 - Test fixtures: `worker.demo@hcobcleaners.com / WorkerDemo2026!` (id_verified, profile-complete, name='Worker Demo')
 
+
+
+## Implemented — 2026-06 (Iter 46: Admin Shift Edit from Worker Profile) — VERIFIED 100%
+**Goal**: Admin can edit any shift directly from the worker profile's Gig History (per user request "I need to be able to edit shifts from worker profiles" + standard combo: edit times, cancel, no-show, mark-completed, admin note).
+
+### Backend
+- Extended `TimesheetEditIn` with `admin_note: Optional[str]` — persisted with `admin_note_at` + `admin_note_by` audit fields; empty-string unsets the note.
+- New `AcceptanceNoShowIn` model + endpoint `POST /api/gigs/{gig_id}/acceptances/{acceptance_id}/no-show` — requires `reason`, optional `admin_note`. Clears clock_in/out + earnings, sets status='no_show', notifies worker via in-app notification.
+- New `AcceptanceMarkCompletedIn` model + endpoint `POST /api/gigs/{gig_id}/acceptances/{acceptance_id}/mark-completed` — force-marks completion. Resolves clock_in from payload → existing acceptance → gig.scheduled_at. Resolves clock_out from payload → existing → gig.scheduled_at + duration_hours. Recomputes hours + earnings via standard pay-resolution pipeline.
+- Existing DELETE endpoint reused for "Remove worker" — frees the slot, backup auto-promote handled by existing code.
+
+### Frontend
+- New component `/app/frontend/src/components/admin/ShiftEditDialog.jsx` — 3-tab modal (Edit times · No-show · Remove) with datetime-local pickers, admin-note textarea, contextual warnings, and disabled-button logic that prevents accidental destructive actions.
+- `/app/frontend/src/pages/admin/WorkerDetail.jsx` — added "Edit" column with per-row `Manage` button (data-testid `shift-manage-btn-{acceptance_id}`); dialog mounts once and is driven by `editingShift` state.
+
+### Tests
+- New `/app/backend/tests/test_iter46_shift_edit.py` — 10/10 pass
+- Regression: Iter45 (worker agreement) 8/8 still pass
+- Testing agent iter46.json: **100% backend + 100% frontend E2E**
+
+### Reviewer notes (non-blocking, deferred)
+- `WorkerDetail.jsx` is 1182 lines — split candidates: `AdminProfileEditor`, `DefaultPayCard`, `ApplicationStatusCard`
+- `ShiftEditDialog` uses custom view state instead of Radix `<Tabs>` — works visually but Radix would add keyboard a11y for free
+
