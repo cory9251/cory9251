@@ -1457,6 +1457,54 @@ async def on_startup():
     except Exception as e:  # noqa: BLE001
         logger.warning(f"pitch_templates auto-seed failed (non-fatal): {e}")
 
+    # Truthful-approval auto-migration — runs idempotently on every boot.
+    # Downgrades any worker who is currently marked `worker_status='approved'`
+    # but still has unresolved approval_blockers (missing ID, missing profile
+    # fields) back to `pending`. This brings the admin queue, the badge UI,
+    # and the booking gate at /gigs/accept into a single coherent state.
+    #
+    # Iter47 added the write-time gate; this auto-migration ensures historical
+    # data in newly-deployed environments (e.g. production after deploy) gets
+    # cleaned up without anyone having to SSH and run the migration manually.
+    # Safe to re-run: workers without blockers are skipped, so once the env
+    # is clean this loop just counts and exits.
+    try:
+        from auth_deps import _worker_approval_blockers
+        downgraded = 0
+        boot_iso = datetime.now(timezone.utc).isoformat()
+        cursor = db.users.find(
+            {"role": "worker", "worker_status": "approved"},
+            {
+                "user_id": 1, "_id": 1, "id_image_path": 1, "id_verified": 1,
+                "name": 1, "phone": 1, "address": 1, "skills": 1, "bio": 1,
+                "date_of_birth": 1, "availability": 1,
+                "emergency_contact_name": 1, "emergency_contact_phone": 1,
+                "zip_code": 1, "role": 1, "worker_status": 1, "email": 1,
+            },
+        )
+        async for w in cursor:
+            blockers = _worker_approval_blockers(w)
+            if not blockers:
+                continue
+            await db.users.update_one(
+                {"_id": w["_id"]},
+                {"$set": {
+                    "worker_status": "pending",
+                    "worker_status_at": boot_iso,
+                    "worker_status_by": "system:startup:iter47-truthful-approval",
+                    "auto_downgraded_at": boot_iso,
+                    "auto_downgrade_blockers": blockers,
+                }},
+            )
+            downgraded += 1
+        if downgraded:
+            logger.info(
+                f"truthful-approval auto-migration: downgraded {downgraded} "
+                f"workers from 'approved' → 'pending' (had unresolved blockers)"
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"truthful-approval auto-migration failed (non-fatal): {e}")
+
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gigblast.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "GigBlast2026!")
