@@ -42,6 +42,7 @@ import VASubmitLead from "@/pages/va/VASubmitLead";
 import VAMyLeads from "@/pages/va/VAMyLeads";
 import VAEarnings from "@/pages/va/VAEarnings";
 import VATraining from "@/pages/va/VATraining";
+import VAApprovedGuard from "@/components/va/VAApprovedGuard";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
 import RatePage from "@/pages/RatePage";
@@ -169,14 +170,14 @@ function RouterShell() {
         }
       >
         <Route index element={<VADashboard />} />
-        <Route path="submit" element={<VASubmitLead />} />
-        <Route path="leads" element={<VAMyLeads />} />
-        <Route path="leads/:leadId" element={<LeadDetail scope="va" />} />
-        <Route path="earnings" element={<VAEarnings />} />
+        <Route path="submit" element={<VAApprovedGuard featureLabel="Submit Lead"><VASubmitLead /></VAApprovedGuard>} />
+        <Route path="leads" element={<VAApprovedGuard featureLabel="My Leads"><VAMyLeads /></VAApprovedGuard>} />
+        <Route path="leads/:leadId" element={<VAApprovedGuard featureLabel="Lead detail"><LeadDetail scope="va" /></VAApprovedGuard>} />
+        <Route path="earnings" element={<VAApprovedGuard featureLabel="Earnings"><VAEarnings /></VAApprovedGuard>} />
         <Route path="leaderboard" element={<VALeaderboard />} />
         <Route path="templates" element={<VATemplates />} />
         <Route path="training" element={<VATraining />} />
-        <Route path="messages" element={<Messages />} />
+        <Route path="messages" element={<VAApprovedGuard featureLabel="Messages"><Messages /></VAApprovedGuard>} />
       </Route>
 
       {/* Legacy /app/* — redirect to /crew/* */}

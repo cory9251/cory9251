@@ -19,14 +19,14 @@ import { useAuth } from "@/context/AuthContext";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const tabs = [
-  { to: "/va", label: "Dashboard", icon: Gauge, end: true },
-  { to: "/va/submit", label: "Submit Lead", icon: PlusCircle, end: false },
-  { to: "/va/leads", label: "My Leads", icon: Kanban, end: false },
-  { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false },
-  { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false },
-  { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false },
-  { to: "/va/training", label: "Training", icon: BookOpenText, end: false },
-  { to: "/va/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
+  { to: "/va", label: "Dashboard", icon: Gauge, end: true, requiresApproved: false },
+  { to: "/va/submit", label: "Submit Lead", icon: PlusCircle, end: false, requiresApproved: true },
+  { to: "/va/leads", label: "My Leads", icon: Kanban, end: false, requiresApproved: true },
+  { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false, requiresApproved: true },
+  { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false, requiresApproved: false },
+  { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false, requiresApproved: false },
+  { to: "/va/training", label: "Training", icon: BookOpenText, end: false, requiresApproved: false },
+  { to: "/va/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages", requiresApproved: true },
 ];
 
 export default function VALayout() {
@@ -47,6 +47,9 @@ export default function VALayout() {
 
   const pending = user?.va_status === "pending";
   const suspended = user?.va_status === "suspended";
+  const approved = user?.va_status === "approved";
+  // While pending/suspended, only show tabs that don't require approval.
+  const visibleTabs = approved ? tabs : tabs.filter((t) => !t.requiresApproved);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#F8F7F4] md:flex-row" data-testid="va-layout">
@@ -64,7 +67,7 @@ export default function VALayout() {
         <nav className="flex-1 px-3 py-6">
           <div className="font-mono-label mb-3 px-3">Menu</div>
           <div className="space-y-1">
-            {tabs.map((t) => (
+            {visibleTabs.map((t) => (
               <NavLink
                 key={t.to}
                 to={t.to}
@@ -171,7 +174,7 @@ export default function VALayout() {
             </div>
             <nav className="flex-1 overflow-y-auto px-3 py-5">
               <div className="space-y-1">
-                {tabs.map((t) => (
+                {visibleTabs.map((t) => (
                   <NavLink
                     key={t.to}
                     to={t.to}
@@ -229,7 +232,7 @@ export default function VALayout() {
               {pending && (
                 <>
                   <span className="font-semibold">Pending approval.</span>{" "}
-                  Your account is awaiting Program Manager review. You can browse the dashboard, but lead submission is disabled until approved.
+                  While we review your account, you can study the Training playbook, browse Templates, and watch the Leaderboard. Submit Lead, My Leads, Earnings, and Messages unlock once your Program Manager approves you.
                 </>
               )}
               {suspended && (

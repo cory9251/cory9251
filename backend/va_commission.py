@@ -270,6 +270,21 @@ async def require_va_active(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+async def block_unapproved_va(user: dict = Depends(get_current_user)) -> dict:
+    """Allow everyone EXCEPT VAs whose status is not 'approved'. Apply to
+    cross-role endpoints (e.g. messaging) that pending/suspended VAs should
+    not have access to until the Program Manager approves them. Admins, owners,
+    customers, workers, and approved VAs all pass through unchanged."""
+    if user.get("role") == "va":
+        status = user.get("va_status") or "pending"
+        if status != "approved":
+            raise HTTPException(
+                403,
+                f"VA account is {status}. This feature unlocks once your Program Manager approves you.",
+            )
+    return user
+
+
 async def require_program_manager_or_owner(
     request: Request, user: dict = Depends(get_current_user)
 ) -> dict:

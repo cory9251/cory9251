@@ -408,7 +408,7 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
 
 
 @router.get("/va/leads")
-async def va_list_leads(stage: Optional[str] = None, user: dict = Depends(require_va)):
+async def va_list_leads(stage: Optional[str] = None, user: dict = Depends(require_va_active)):
     q: dict = {"va_user_id": user["user_id"], "deleted_at": {"$in": [None, ""]}}
     if stage:
         q["stage"] = stage
@@ -420,7 +420,7 @@ async def va_list_leads(stage: Optional[str] = None, user: dict = Depends(requir
 
 
 @router.get("/va/leads/{lead_id}")
-async def va_get_lead(lead_id: str, user: dict = Depends(require_va)):
+async def va_get_lead(lead_id: str, user: dict = Depends(require_va_active)):
     """VAs see their own lead detail + activity timeline. Other VAs' leads are 404."""
     lead = await db.va_leads.find_one({"lead_id": lead_id, "va_user_id": user["user_id"]})
     if not lead:
@@ -559,7 +559,7 @@ async def va_earnings(
     month: Optional[str] = None,  # "YYYY-MM"
     status: Optional[str] = None,
     service_type: Optional[str] = None,
-    user: dict = Depends(require_va),
+    user: dict = Depends(require_va_active),
 ):
     q: dict = {"va_user_id": user["user_id"]}
     if status:
@@ -589,7 +589,7 @@ async def va_earnings(
 
 
 @router.get("/va/commercial-accounts")
-async def va_my_commercial_accounts(user: dict = Depends(require_va)):
+async def va_my_commercial_accounts(user: dict = Depends(require_va_active)):
     items = []
     cur = db.commercial_accounts.find({"va_user_id": user["user_id"]}).sort("created_at", -1)
     async for d in cur:

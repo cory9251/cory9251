@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from config import db, logger, APP_NAME
-from auth_deps import get_current_user
+from va_commission import block_unapproved_va
 from storage import put_object, _ext_from
 from notifications import (
     _send_user_email,
@@ -267,7 +267,7 @@ def _serialize_message(msg: dict) -> dict:
 
 # ---- Endpoints -------------------------------------------------------------
 @router.get("/messages/threads")
-async def list_my_threads(user: dict = Depends(get_current_user)):
+async def list_my_threads(user: dict = Depends(block_unapproved_va)):
     """Threads I'm a participant of. Admins see every thread (oversight)."""
     if user.get("role") == "admin":
         q = {}
@@ -283,7 +283,7 @@ async def list_my_threads(user: dict = Depends(get_current_user)):
 
 
 @router.get("/messages/unread-count")
-async def messages_unread_count(user: dict = Depends(get_current_user)):
+async def messages_unread_count(user: dict = Depends(block_unapproved_va)):
     """Global unread badge count across all my threads. Polled by the navbar."""
     if user.get("role") == "admin":
         q = {}
@@ -297,7 +297,7 @@ async def messages_unread_count(user: dict = Depends(get_current_user)):
 
 
 @router.post("/messages/threads/dm")
-async def open_dm(payload: OpenDMIn, user: dict = Depends(get_current_user)):
+async def open_dm(payload: OpenDMIn, user: dict = Depends(block_unapproved_va)):
     """Open or create a DM with another user.
     Role gating:
       - Admins can DM anyone
@@ -332,7 +332,7 @@ async def open_dm(payload: OpenDMIn, user: dict = Depends(get_current_user)):
 
 
 @router.get("/messages/threads/gig/{gig_id}")
-async def open_gig_thread(gig_id: str, user: dict = Depends(get_current_user)):
+async def open_gig_thread(gig_id: str, user: dict = Depends(block_unapproved_va)):
     """Get or create the gig group thread. Approved-on-gig workers + admins."""
     if user.get("role") != "admin":
         ok = await db.gig_acceptances.find_one({
@@ -347,7 +347,7 @@ async def open_gig_thread(gig_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.get("/messages/threads/{thread_id}")
-async def get_thread(thread_id: str, user: dict = Depends(get_current_user)):
+async def get_thread(thread_id: str, user: dict = Depends(block_unapproved_va)):
     thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
     if not thread:
         raise HTTPException(404, "Thread not found")
@@ -360,7 +360,7 @@ async def list_thread_messages(
     thread_id: str,
     limit: int = Query(default=50, le=200),
     before: Optional[str] = Query(default=None, description="created_at < this ISO ts"),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(block_unapproved_va),
 ):
     thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
     if not thread:
@@ -379,7 +379,7 @@ async def list_thread_messages(
 async def send_message(
     thread_id: str,
     payload: MessageSendIn,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(block_unapproved_va),
 ):
     thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
     if not thread:
@@ -532,7 +532,7 @@ async def _deliver_dm_companion(
 
 
 @router.post("/messages/threads/{thread_id}/read")
-async def mark_thread_read(thread_id: str, user: dict = Depends(get_current_user)):
+async def mark_thread_read(thread_id: str, user: dict = Depends(block_unapproved_va)):
     thread = await db.threads.find_one({"thread_id": thread_id}, {"_id": 0})
     if not thread:
         raise HTTPException(404, "Thread not found")
@@ -556,7 +556,7 @@ async def mark_thread_read(thread_id: str, user: dict = Depends(get_current_user
 
 @router.post("/messages/attachments")
 async def upload_message_attachment(
-    file: UploadFile = File(...), user: dict = Depends(get_current_user)
+    file: UploadFile = File(...), user: dict = Depends(block_unapproved_va)
 ):
     """Upload an image attachment. Returns the storage path which the client
     then passes in attachment_paths on send_message."""
@@ -590,7 +590,7 @@ async def upload_message_attachment(
 @router.get("/messages/eligible-users")
 async def messages_eligible_users(
     q: Optional[str] = Query(default=None),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(block_unapproved_va),
 ):
     """Users I'm allowed to start a new DM with. Used by the New Message dialog.
     Workers see: every admin + every coworker (someone they've shared a gig with).
