@@ -628,6 +628,30 @@
 **Tests**: `test_iter40_dm_companion.py` (10 new) covering admin sends with channels, worker sends silently ignored, kill-switch gates companion path, gig_group threads bypass companion, regressions on threads list/unread/mark-read/empty-body. Combined with iter39 = **24/24 GREEN**.
 
 
+## Implemented — 2026-06 (Iter 43: VA Training Playbook Page) — VERIFIED 100%
+**Goal**: In-app playbook for VAs aligned with the 5 uploaded training PDFs (VA Role, Daily Operations, Marketing Outlets, Communication Scripts, Recovery Scripts).
+
+**New page**: `/app/frontend/src/pages/va/VATraining.jsx` (433 lines, hard-coded content) — accessible at `/va/training`.
+
+**Sections** (each with own `section-*` testid):
+- The 5 required fields (yellow callout): name · phone · service type · property size · preferred date/time
+- Month 1 Brand Ambassador rules (red callout): no company name/phone/website/brand assets; position as "I coordinate for a local Maryland property services team"
+- Do / Do NOT side-by-side grid (20-30 messages/day, 5-10 active conversations, no holding leads, no quoting, etc.)
+- Commission tier structure (3 tiers: 0/15/30 cumulative leads → unlocks $1.50/hr → $2.50/hr)
+- Daily closing checklist (7 yes/no questions)
+- 8 marketing outlets with collapsible Do/Don't lists: Facebook · LinkedIn · Craigslist · Nextdoor · Reddit · Yelp/Thumbtack/Angi · Google Business · Cold Email (CAN-SPAM compliant)
+- 3 quick links at bottom → Templates / Submit Lead / Leaderboard
+
+**Wired into**:
+- `App.js` — `<Route path="training" element={<VATraining />} />` under `/va` block + import statement
+- `VALayout.jsx` — "Training" tab (BookOpenText icon) between Templates and Messages; works on desktop sidebar and mobile drawer
+
+**Test credentials seeded**: `va.demo@hcobcleaners.com / VaDemo2026!` (approved VA) for future testing.
+
+**Tests**: Testing agent iter43.json — **100% frontend pass**. Verified Training tab visible, route navigates, all 7 sections render, mobile drawer has Training entry, all 6 other VA pages load clean, Submit Lead has expanded dropdowns (Routine/Deep/Move-out/Specialty/Commercial + LinkedIn/Craigslist/Nextdoor/Reddit/Yelp/Thumbtack/Angi/HomeAdvisor/Google Business/Cold Email).
+
+
+
 ## Next steps
 1. **Backend modularization (P1)** — `server.py` still has ~3,378 lines: split `routes/projects.py`, `routes/va.py`, `routes/pm.py`, `routes/owner.py` (Phase 3f).
 2. **Google Auth integration (P1)** via `integration_playbook_expert_v2` (Emergent-managed).
