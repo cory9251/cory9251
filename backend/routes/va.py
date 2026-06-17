@@ -6,6 +6,7 @@ Wiring in server.py:
     from routes.va import router as va_router
     api.include_router(va_router)
 """
+import asyncio
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -56,77 +57,126 @@ async def va_update_me(payload: VARegisterDetailsIn, user: dict = Depends(requir
 
 @router.get("/va/dashboard")
 async def va_dashboard(user: dict = Depends(require_va)):
+    """Single-call dashboard payload. Internally fans out the independent
+    aggregate queries with asyncio.gather() so total latency ≈ slowest single
+    query, not sum of all of them. Commission cursors aren't parallelized
+    inside (they share the same cursor pattern) — see comments below."""
     va_id = user["user_id"]
+    now = datetime.now(timezone.utc)
     active_stages = ["new_lead", "contacted", "quoted", "booked", "completed"]
     not_deleted = {"deleted_at": {"$in": [None, ""]}}
-    active_count = await db.va_leads.count_documents(
-        {"va_user_id": va_id, "stage": {"$in": active_stages}, **not_deleted}
+    cutoff_30 = (now - timedelta(days=30)).isoformat()
+    stale_cutoff = (now - timedelta(days=STALE_LEAD_DAYS)).isoformat()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_iso = month_start.isoformat()
+    month = now.strftime("%Y-%m")
+
+    # ---- Helpers run in parallel -------------------------------------------
+    async def _active_count():
+        return await db.va_leads.count_documents(
+            {"va_user_id": va_id, "stage": {"$in": active_stages}, **not_deleted}
+        )
+
+    async def _commission_totals():
+        pending = approved = paid = 0.0
+        paid_count = 0
+        async for c in db.commissions.find({"va_user_id": va_id}):
+            amt = float(c.get("amount") or 0)
+            s = c.get("status")
+            if s in ("calculating", "pending_approval", "pm_approved"):
+                pending += amt
+            elif s == "owner_approved":
+                approved += amt
+            elif s == "paid":
+                paid += amt
+                paid_count += 1
+        return pending, approved, paid, paid_count
+
+    async def _leaderboard_rank():
+        pipeline = [
+            {"$match": {"created_at": {"$gte": cutoff_30}, **not_deleted}},
+            {"$group": {"_id": "$va_user_id", "leads": {"$sum": 1}}},
+            {"$sort": {"leads": -1}},
+        ]
+        ranks = []
+        async for row in db.va_leads.aggregate(pipeline):
+            ranks.append(row["_id"])
+        return ranks
+
+    async def _lifetime_counts():
+        total = await db.va_leads.count_documents({"va_user_id": va_id, **not_deleted})
+        converted = await db.va_leads.count_documents({
+            "va_user_id": va_id,
+            "stage": {"$in": ["booked", "completed", "paid"]},
+            **not_deleted,
+        })
+        return total, converted
+
+    async def _stale_count():
+        return await db.va_leads.count_documents({
+            "va_user_id": va_id,
+            "stage": {"$in": list(STALE_LEAD_STAGES)},
+            "updated_at": {"$lt": stale_cutoff},
+            **not_deleted,
+        })
+
+    async def _goal_and_mtd():
+        goal_doc = await db.va_goals.find_one(
+            {"va_user_id": va_id, "month": month}, {"_id": 0}
+        )
+        mtd_leads = await db.va_leads.count_documents({
+            "va_user_id": va_id,
+            "created_at": {"$gte": month_iso},
+            **not_deleted,
+        })
+        mtd_commission = 0.0
+        async for c in db.commissions.find({
+            "va_user_id": va_id,
+            "status": "paid",
+            "paid_at": {"$gte": month_iso},
+        }):
+            mtd_commission += float(c.get("amount") or 0)
+        return goal_doc, mtd_leads, mtd_commission
+
+    async def _shared_notes():
+        notes = []
+        cur = db.va_coaching_notes.find(
+            {"va_user_id": va_id, "is_shared": True, "deleted_at": {"$in": [None, ""]}}
+        ).sort("created_at", -1).limit(5)
+        async for n in cur:
+            notes.append({
+                "note_id": n["note_id"],
+                "text": n["text"],
+                "author_name": n.get("author_name"),
+                "created_at": n["created_at"],
+            })
+        return notes
+
+    (
+        active_count,
+        commission_tuple,
+        ranks,
+        lifetime_tuple,
+        stale_count,
+        goal_tuple,
+        notes,
+    ) = await asyncio.gather(
+        _active_count(),
+        _commission_totals(),
+        _leaderboard_rank(),
+        _lifetime_counts(),
+        _stale_count(),
+        _goal_and_mtd(),
+        _shared_notes(),
     )
-    pending = 0.0
-    approved = 0.0
-    paid = 0.0
-    paid_count = 0
-    async for c in db.commissions.find({"va_user_id": va_id}):
-        amt = float(c.get("amount") or 0)
-        s = c.get("status")
-        if s in ("calculating", "pending_approval", "pm_approved"):
-            pending += amt
-        elif s == "owner_approved":
-            approved += amt
-        elif s == "paid":
-            paid += amt
-            paid_count += 1
 
-    # ---- Leaderboard rank (last 30 days) -----------------------------------
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-    pipeline = [
-        {"$match": {"created_at": {"$gte": cutoff}, **not_deleted}},
-        {"$group": {"_id": "$va_user_id", "leads": {"$sum": 1}}},
-        {"$sort": {"leads": -1}},
-    ]
-    ranks = []
-    async for row in db.va_leads.aggregate(pipeline):
-        ranks.append(row["_id"])
+    pending, approved, paid, paid_count = commission_tuple
+    total_lifetime, converted = lifetime_tuple
+    goal_doc, mtd_leads, mtd_commission = goal_tuple
+
     rank = (ranks.index(va_id) + 1) if va_id in ranks else None
-
-    # ---- Conversion rate (booked or paid / total leads, lifetime) ----------
-    total_lifetime = await db.va_leads.count_documents({"va_user_id": va_id, **not_deleted})
-    converted = await db.va_leads.count_documents({
-        "va_user_id": va_id,
-        "stage": {"$in": ["booked", "completed", "paid"]},
-        **not_deleted,
-    })
     conversion = round((converted / total_lifetime) * 100, 1) if total_lifetime > 0 else 0.0
 
-    # ---- Stale leads (need follow-up) --------------------------------------
-    stale_cutoff = (datetime.now(timezone.utc) - timedelta(days=STALE_LEAD_DAYS)).isoformat()
-    stale_count = await db.va_leads.count_documents({
-        "va_user_id": va_id,
-        "stage": {"$in": list(STALE_LEAD_STAGES)},
-        "updated_at": {"$lt": stale_cutoff},
-        **not_deleted,
-    })
-
-    # ---- Current month goal + progress -------------------------------------
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
-    goal_doc = await db.va_goals.find_one(
-        {"va_user_id": va_id, "month": month}, {"_id": 0}
-    )
-    # Month-to-date numbers for the progress bars
-    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    month_iso = month_start.isoformat()
-    mtd_leads = await db.va_leads.count_documents({
-        "va_user_id": va_id,
-        "created_at": {"$gte": month_iso},
-        **not_deleted,
-    })
-    mtd_commission = 0.0
-    async for c in db.commissions.find({
-        "va_user_id": va_id,
-        "status": "paid",
-        "paid_at": {"$gte": month_iso},
-    }):
-        mtd_commission += float(c.get("amount") or 0)
     goal_payload = None
     if goal_doc:
         goal_payload = {
@@ -137,19 +187,6 @@ async def va_dashboard(user: dict = Depends(require_va)):
             "mtd_leads": mtd_leads,
             "mtd_commission": round(mtd_commission, 2),
         }
-
-    # ---- Shared coaching notes (VA-visible only) ---------------------------
-    notes = []
-    cur = db.va_coaching_notes.find(
-        {"va_user_id": va_id, "is_shared": True, "deleted_at": {"$in": [None, ""]}}
-    ).sort("created_at", -1).limit(5)
-    async for n in cur:
-        notes.append({
-            "note_id": n["note_id"],
-            "text": n["text"],
-            "author_name": n.get("author_name"),
-            "created_at": n["created_at"],
-        })
 
     return {
         "va_user_id": va_id,

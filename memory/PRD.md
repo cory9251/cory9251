@@ -599,6 +599,31 @@
 **Tests**: `test_iter41_lead_crud.py` — 17 new tests (permission boundaries, edit + renormalize, reassign + commission move, soft-delete idempotency, restore, activity log, VA-side blocks). Regression: 24 (iter39 + iter40). **41/41 GREEN**.
 
 
+## Implemented — 2026-02 (Iter 42: VA-Success Batch 2 — Six Features) — VERIFIED 50/50
+**Goal**: Make every VA more effective with goals, leaderboard, pitch templates, stale-lead nudges, coaching notes, and richer dashboard analytics.
+
+**Backend** (`/app/backend/routes/va.py`, `routes/pm.py`, `va_commission.py`):
+- New models: `VAGoalIn`, `PitchTemplateIn`, `PitchTemplatePatch`, `CoachingNoteIn`, `CoachingNotePatch`. Constants: `STALE_LEAD_DAYS=7`, `STALE_LEAD_STAGES=('contacted','quoted')`
+- New collections: `va_goals`, `pitch_templates`, `va_coaching_notes`
+- Enhanced `GET /api/va/dashboard` — now includes `conversion_rate`, `stale_leads_count`, `paid_count`, `goal{month,target_leads,target_commission,mtd_leads,mtd_commission,note}`, `shared_notes[]`. Internally fan-out via `asyncio.gather()` so all 7 independent queries run in parallel.
+- New VA endpoints: `GET /va/stale-leads`, `GET /va/leaderboard?period=week|month|all`, `GET /va/templates`, `GET /va/coaching-notes` (shared only — private leaks blocked), `GET /va/goals?months=6`
+- New PM endpoints: `GET/POST /pm/va-goals/{va_user_id}` (POST with both targets null deletes), `GET/POST/PATCH/DELETE /pm/templates` (with `include_archived` and `active` toggle for soft-archive), `GET/POST/PATCH/DELETE /pm/coaching-notes/{va_user_id|note_id}`, `GET /pm/vas/{va_user_id}/detail` (combined profile + stats + month goal)
+
+**Frontend**:
+- `VADashboard.jsx` (rewritten) — stale-leads alert, monthly-goal card with progress bars, leaderboard rank card (links to leaderboard), pitch templates CTA, shared coaching notes from PM
+- `VALeaderboard.jsx` (NEW) — week/month/all toggle, crown on #1, "You" badge, earnings masked
+- `VATemplates.jsx` (NEW) — searchable + channel-filtered library, one-click copy to clipboard
+- `AdminTemplates.jsx` (NEW) — CRUD table with new-template dialog, archive toggle, soft-delete
+- `AdminVADetail.jsx` (NEW) — single page with stats + monthly-goal editor + coaching notes (private vs shared, edit-in-place, delete)
+- `AdminVAs.jsx` — VA name is now a Link to `/ops/va-program/vas/{user_id}`
+- `AdminVAOverview.jsx` — added "Pitch templates" and "Manage VAs · Goals · Notes" CTAs
+- `VALayout.jsx` — sidebar now has Leaderboard + Templates tabs
+- `App.js` — new routes: `/va/leaderboard`, `/va/templates`, `/ops/va-program/vas/:vaUserId`, `/ops/va-program/templates`
+
+**Tests**: `test_iter42_va_success.py` (17 new) covering: dashboard payload shape + parallel queries, stale-leads with mongo-backdated leads, leaderboard period toggle + is_self flag, templates CRUD with archive + soft-delete, coaching-notes private-vs-shared privacy boundary, va_goals upsert with delete-on-null-targets, /pm/vas/{id}/detail, full permission boundaries (VA can't hit /pm/* endpoints). Regression: 33 (iter39 + iter40 + iter41). **50/50 GREEN**.
+
+
+
 
 **Tests**: `test_iter40_dm_companion.py` (10 new) covering admin sends with channels, worker sends silently ignored, kill-switch gates companion path, gig_group threads bypass companion, regressions on threads list/unread/mark-read/empty-body. Combined with iter39 = **24/24 GREEN**.
 
