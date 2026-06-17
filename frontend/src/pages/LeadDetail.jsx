@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import MessageUserButton from "@/components/messages/MessageUserButton";
+import { SERVICE_TYPES, PROPERTY_SIZES, LEAD_SOURCES, serviceTypeLabel, leadSourceLabel } from "@/lib/leadOptions";
 
 /**
  * Lead detail page — shared by admin (/ops/va-program/leads/:id) and VA
@@ -335,15 +336,12 @@ export default function LeadDetail({ scope = "admin" }) {
                     onChange={(e) => setForm({ ...form, service_type: e.target.value })}
                     className="h-9 border border-[#030712] bg-white px-2 text-sm"
                   >
-                    <option value="routine">Routine</option>
-                    <option value="deep">Deep</option>
-                    <option value="moveout">Move-out</option>
-                    <option value="specialty">Specialty</option>
-                    <option value="commercial">Commercial</option>
-                    <option value="unknown">Unknown</option>
+                    {SERVICE_TYPES.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
                 ) : (
-                  <span className="capitalize">{lead.service_type}</span>
+                  <span>{serviceTypeLabel(lead.service_type)}</span>
                 )}
               </Field>
               <Field label="Size">
@@ -354,13 +352,9 @@ export default function LeadDetail({ scope = "admin" }) {
                     onChange={(e) => setForm({ ...form, property_size: e.target.value })}
                     className="h-9 border border-[#030712] bg-white px-2 text-sm"
                   >
-                    <option value="studio">Studio</option>
-                    <option value="1br">1 BR</option>
-                    <option value="2br">2 BR</option>
-                    <option value="3br">3 BR</option>
-                    <option value="4br">4 BR</option>
-                    <option value="5br">5 BR</option>
-                    <option value="commercial">Commercial</option>
+                    {PROPERTY_SIZES.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
                 ) : (
                   <span className="uppercase font-mono text-xs">{lead.property_size}</span>
@@ -374,15 +368,12 @@ export default function LeadDetail({ scope = "admin" }) {
                     onChange={(e) => setForm({ ...form, source: e.target.value })}
                     className="h-9 border border-[#030712] bg-white px-2 text-sm"
                   >
-                    <option value="facebook_marketplace">Facebook Marketplace</option>
-                    <option value="facebook_groups">Facebook Groups</option>
-                    <option value="craigslist">Craigslist</option>
-                    <option value="direct_message">Direct message</option>
-                    <option value="referral">Referral</option>
-                    <option value="other">Other</option>
+                    {LEAD_SOURCES.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
                 ) : (
-                  <span className="text-xs">{lead.source?.replace(/_/g, " ")}</span>
+                  <span className="text-xs">{leadSourceLabel(lead.source)}</span>
                 )}
               </Field>
               <Field label="Preferred datetime">

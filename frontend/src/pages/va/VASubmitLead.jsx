@@ -6,35 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { WarningCircle, PaperPlaneTilt } from "@phosphor-icons/react";
+import { WarningCircle, PaperPlaneTilt, CheckCircle } from "@phosphor-icons/react";
+import { SERVICE_TYPES, PROPERTY_SIZES, LEAD_SOURCES } from "@/lib/leadOptions";
 
-const SERVICE_TYPES = [
-  { value: "routine", label: "Routine cleaning" },
-  { value: "deep", label: "Deep cleaning" },
-  { value: "moveout", label: "Move-out cleaning" },
-  { value: "specialty", label: "Specialty cleaning" },
-  { value: "commercial", label: "Commercial" },
-  { value: "unknown", label: "Unknown / Other" },
-];
-
-const PROPERTY_SIZES = [
-  { value: "studio", label: "Studio" },
-  { value: "1br", label: "1 bedroom" },
-  { value: "2br", label: "2 bedroom" },
-  { value: "3br", label: "3 bedroom" },
-  { value: "4br", label: "4 bedroom" },
-  { value: "5br", label: "5 bedroom" },
-  { value: "commercial", label: "Commercial" },
-];
-
-const SOURCES = [
-  { value: "facebook_marketplace", label: "Facebook Marketplace" },
-  { value: "facebook_groups", label: "Facebook Groups" },
-  { value: "craigslist", label: "Craigslist" },
-  { value: "direct_message", label: "Direct Message" },
-  { value: "referral", label: "Referral" },
-  { value: "other", label: "Other" },
-];
+const SOURCES = LEAD_SOURCES;
 
 export default function VASubmitLead() {
   const nav = useNavigate();
@@ -88,6 +63,29 @@ export default function VASubmitLead() {
         <h1 className="font-display text-4xl font-black tracking-tight">New lead intake</h1>
         <p className="mt-2 text-sm text-[#4B5563]">
           Timestamp ownership locks to you on submit. Leads submitted outside this form aren&apos;t eligible for commission.
+        </p>
+      </div>
+
+      {/* The Five Required Fields callout — straight from HCOB_VA_Scripts_v2 */}
+      <div
+        data-testid="five-fields-callout"
+        className="mb-6 border-2 border-[#030712] bg-[#FEF3C7] p-4"
+      >
+        <div className="flex items-center gap-2 font-bold text-[#030712]">
+          <CheckCircle size={16} weight="duotone" /> The 5 required fields
+        </div>
+        <p className="mt-1 text-xs text-[#4B5563]">
+          Every qualified lead needs all five. <strong>No form = no commission.</strong>
+        </p>
+        <ol className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs font-mono sm:grid-cols-2">
+          <li>1. Full name</li>
+          <li>2. Phone number</li>
+          <li>3. Service type</li>
+          <li>4. Property size</li>
+          <li>5. Preferred date or timeframe</li>
+        </ol>
+        <p className="mt-2 text-[10px] uppercase tracking-widest text-[#92400E]">
+          Month 1 reminder · never mention company name, phone, website, or brand assets
         </p>
       </div>
 

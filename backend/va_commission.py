@@ -27,22 +27,65 @@ from auth_deps import get_current_user
 # Literals + constants
 # ---------------------------------------------------------------------------
 LeadStage = Literal["new_lead", "contacted", "quoted", "booked", "completed", "paid", "lost"]
-LeadServiceType = Literal["routine", "deep", "moveout", "specialty", "commercial", "unknown"]
+LeadServiceType = Literal[
+    # Residential cleaning
+    "routine",
+    "deep",
+    "moveout",
+    "apartment_turnover",
+    "carpet",
+    # Property services
+    "junk_removal",
+    "estate_cleanout",
+    "pressure_washing",
+    "landscaping",
+    "handyman",
+    "painting",
+    "maintenance_bundle",
+    # Commercial / specialty
+    "commercial",
+    "specialty_medical",
+    "specialty_funeral",
+    "specialty_construction",
+    "specialty",  # legacy bucket — kept so existing leads stay valid
+    "unknown",
+]
 LeadPropertySize = Literal["studio", "1br", "2br", "3br", "4br", "5br", "commercial"]
 LeadSource = Literal[
     "facebook_marketplace",
     "facebook_groups",
     "craigslist",
+    "nextdoor",
+    "linkedin",
+    "reddit",
+    "google_maps",
+    "cold_email",
+    "listing_marketplace",  # Yelp / Thumbtack / Angi / HomeAdvisor
     "direct_message",
     "referral",
     "other",
 ]
 
+# Commission rate buckets. New service types map to existing buckets so we
+# don't have to rewrite commission logic — each non-commercial residential
+# service falls into "routine" ($10 baseline) or "deep" ($25 premium) bucket.
 COMMISSION_RATES = {
     "routine": 10.0,
     "deep": 25.0,
     "moveout": 25.0,
+    "apartment_turnover": 25.0,
+    "carpet": 25.0,
+    "junk_removal": 10.0,
+    "estate_cleanout": 25.0,
+    "pressure_washing": 10.0,
+    "landscaping": 10.0,
+    "handyman": 10.0,
+    "painting": 25.0,
+    "maintenance_bundle": 25.0,
     "specialty": 25.0,
+    "specialty_medical": 25.0,
+    "specialty_funeral": 25.0,
+    "specialty_construction": 25.0,
     "commercial_pct": 0.05,
 }
 RECURRING_TIERS = {
@@ -402,14 +445,17 @@ async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = Non
     email = lead.get("prospect_email_norm") or ""
     va = lead.get("va_user_id")
 
-    if svc == "commercial":
+    if svc in ("commercial", "specialty_medical", "specialty_funeral", "specialty_construction", "maintenance_bundle"):
+        # All commercial-like services pay the 5% revenue cut. Specialty
+        # sub-types (medical/funeral/construction) and maintenance bundles
+        # are by nature commercial deals.
         rev = float(job_value or lead.get("job_value") or 0)
         amount = round(rev * COMMISSION_RATES["commercial_pct"], 2)
         return {
             "amount": amount,
             "kind": "commercial_one_time",
             "visit_number": None,
-            "notes": f"5% of ${rev:.2f} job value",
+            "notes": f"5% of ${rev:.2f} job value ({svc})",
         }
 
     if svc == "routine":
@@ -430,9 +476,12 @@ async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = Non
         return {"amount": amount, "kind": "recurring", "visit_number": visit,
                 "notes": f"Recurring visit {visit} (${per_visit:.0f}) · ${current_paid:.0f}/$100 lifetime cap"}
 
-    if svc in ("deep", "moveout", "specialty"):
-        return {"amount": COMMISSION_RATES[svc], "kind": "one_time", "visit_number": None,
-                "notes": f"{svc.title()} flat $25"}
+    # Flat one-time payouts. Bucketed at either $10 or $25 per the
+    # COMMISSION_RATES table at the top of this file.
+    if svc in COMMISSION_RATES:
+        amt = COMMISSION_RATES[svc]
+        return {"amount": amt, "kind": "one_time", "visit_number": None,
+                "notes": f"{svc.replace('_', ' ').title()} flat ${amt:.0f}"}
 
     return {"amount": 0.0, "kind": "unknown", "visit_number": None,
             "notes": "Service type unknown — manual review needed"}
