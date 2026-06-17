@@ -1432,6 +1432,25 @@ async def on_startup():
     await db.va_violations.create_index("va_user_id")
     await db.va_violations.create_index([("created_at", -1)])
 
+    # Pitch templates auto-seed — runs idempotently on every boot, so newly
+    # deployed environments (e.g. production after a fresh deploy) get the
+    # 80+ HCOB VA scripts without anyone having to remember to run the seed
+    # script manually. The seed function itself skips templates whose title
+    # already exists (case-insensitive), so re-runs are cheap and safe.
+    try:
+        active_count = await db.pitch_templates.count_documents(
+            {"active": True, "deleted_at": {"$in": [None, ""]}}
+        )
+        if active_count < 50:
+            from scripts.seed_pitch_templates import seed as _seed_pitch_templates
+            created, skipped = await _seed_pitch_templates()
+            logger.info(
+                f"pitch_templates auto-seed: {created} new, {skipped} skipped"
+                f" (had {active_count} active before)"
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"pitch_templates auto-seed failed (non-fatal): {e}")
+
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gigblast.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "GigBlast2026!")
