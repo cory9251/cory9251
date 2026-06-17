@@ -235,7 +235,11 @@ async def pm_edit_lead(
         # Reassign the related commission too so it follows the new owner.
         await db.commissions.update_many(
             {"lead_id": lead_id},
-            {"$set": {"va_user_id": new_owner["user_id"], "updated_at": now}},
+            {"$set": {
+                "va_user_id": new_owner["user_id"],
+                "va_name": new_owner.get("name"),
+                "updated_at": now,
+            }},
         )
 
     if not changes:

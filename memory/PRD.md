@@ -575,6 +575,31 @@
 - Gated by: sender role in (admin/owner/pm), thread.type == "dm" (NEVER on gig_group → avoids mass-spam), and `is_blast_disabled()` kill switch
 - Response now includes `companion_channels: []` so UI can confirm what was attempted
 
+## Implemented — 2026-02 (Iter 41: Editable VA Program — Batch 1) — VERIFIED 41/41
+**Goal**: Make leads fully editable + soft-deletable, with audit log.
+
+**Backend** (`/app/backend/routes/pm.py`, `routes/va.py`, `va_commission.py`):
+- `LeadEditIn`, `LeadDeleteIn` Pydantic models + `_log_lead_activity()` helper (writes to new `va_lead_activity` collection)
+- `PATCH /api/pm/leads/{lead_id}` — admin edits any field; auto-renormalizes phone/email/address; reassigns commission when `va_user_id` changes (commission.va_name also follows)
+- `DELETE /api/pm/leads/{lead_id}` — soft-delete (sets `deleted_at`, `deleted_by`, `deleted_reason`); idempotent; non-paid commissions auto-rejected; paid commissions LEFT INTACT
+- `POST /api/pm/leads/{lead_id}/restore` — clears `deleted_at`
+- `GET /api/pm/leads?trash=true|false&include_trashed=true` — Trash filter
+- `GET /api/pm/leads/{lead_id}` — returns `{lead, activity, commission}`
+- `PATCH /api/va/leads/{lead_id}` — VA edits OWN lead ONLY while `stage='new_lead'`; 403 otherwise; va_user_id/job_value blocked for VAs (admin-only)
+- `DELETE /api/va/leads/{lead_id}` — VA soft-deletes OWN lead ONLY while `stage='new_lead'` AND no commission exists
+- `GET /api/va/leads/{lead_id}` — VA detail (own only, 404 for others)
+- Activity log records every stage_change, edit, delete, restore — survives even when lead is trashed (audit trail)
+
+**Frontend**:
+- `/app/frontend/src/pages/LeadDetail.jsx` (NEW, ~600 lines) — shared by admin (`/ops/va-program/pipeline/:leadId`) and VA (`/va/leads/:leadId`). Form-with-edit-mode, activity timeline with diff renderer, commission sidebar, Trash banner
+- `AdminVAPipeline.jsx`: Active/Trash tabs, per-row Edit + Trash buttons, Restore button in Trash view, prospect names are blue links to detail page
+- `VAMyLeads.jsx`: rows are clickable → `/va/leads/{id}` detail
+- New routes registered in `App.js`: admin scope + va scope
+
+**Tests**: `test_iter41_lead_crud.py` — 17 new tests (permission boundaries, edit + renormalize, reassign + commission move, soft-delete idempotency, restore, activity log, VA-side blocks). Regression: 24 (iter39 + iter40). **41/41 GREEN**.
+
+
+
 **Tests**: `test_iter40_dm_companion.py` (10 new) covering admin sends with channels, worker sends silently ignored, kill-switch gates companion path, gig_group threads bypass companion, regressions on threads list/unread/mark-read/empty-body. Combined with iter39 = **24/24 GREEN**.
 
 
