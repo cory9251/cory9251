@@ -49,6 +49,13 @@ export default function WorkerGigDetail() {
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState("0:00:00");
 
+  // Worker agreement modal — workers must check + sign each accept.
+  const [agreementOpen, setAgreementOpen] = useState(false);
+  const [agreementRules, setAgreementRules] = useState([]);
+  const [agreementVersion, setAgreementVersion] = useState("v1");
+  const [agreementChecked, setAgreementChecked] = useState(false);
+  const [agreementTypedName, setAgreementTypedName] = useState("");
+
   const load = async () => {
     try {
       const { data } = await api.get(`/gigs/${gigId}`);
@@ -74,9 +81,33 @@ export default function WorkerGigDetail() {
   }, [gig]);
 
   const accept = async () => {
+    // First-time UX: fetch rules and open the agreement modal. The actual
+    // POST happens in submitAgreement() after the worker checks the box and
+    // types their full name to confirm.
     setBusy(true);
     try {
-      await api.post(`/gigs/${gigId}/accept`);
+      const { data } = await api.get("/worker/agreement-rules");
+      setAgreementRules(data.rules || []);
+      setAgreementVersion(data.version || "v1");
+      setAgreementTypedName("");
+      setAgreementChecked(false);
+      setAgreementOpen(true);
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitAgreement = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/gigs/${gigId}/accept`, {
+        typed_name: agreementTypedName.trim(),
+        agreed_rules: agreementRules,
+        version: agreementVersion,
+      });
+      setAgreementOpen(false);
       toast.success("Request sent — waiting for HCOB approval");
       load();
     } catch (e) {
@@ -761,6 +792,105 @@ export default function WorkerGigDetail() {
                 className="h-12 flex-1 rounded-2xl bg-[#EF4444] text-white hover:bg-[#dc2626]"
               >
                 {busy ? "Cancelling…" : "Cancel my shift"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Worker Agreement modal — required before requesting a gig */}
+      {agreementOpen && (
+        <div
+          data-testid="worker-agreement-modal"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+          onClick={() => !busy && setAgreementOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-5">
+              <div className="font-mono-label text-[10px] uppercase tracking-widest text-amber-900">
+                Worker Agreement · {agreementVersion}
+              </div>
+              <h2 className="mt-1 font-display text-2xl font-black tracking-tight text-[#030712]">
+                Before you request this gig
+              </h2>
+              <p className="mt-2 text-sm text-[#4B5563]">
+                Read each rule, then sign your name to confirm you agree. We log this with a timestamp every time you request a shift.
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              <ol
+                data-testid="worker-agreement-rules"
+                className="space-y-3"
+              >
+                {agreementRules.map((r, i) => (
+                  <li
+                    key={i}
+                    data-testid={`worker-agreement-rule-${i}`}
+                    className="flex gap-3 border border-[#030712]/10 bg-[#F9FAFB] px-3 py-2.5"
+                  >
+                    <span className="font-mono-label flex h-6 min-w-[24px] items-center justify-center bg-[#030712] text-[10px] font-bold text-white">
+                      {i + 1}
+                    </span>
+                    <span className="text-sm leading-relaxed text-[#030712]">{r}</span>
+                  </li>
+                ))}
+              </ol>
+
+              <label className="mt-5 flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  data-testid="worker-agreement-checkbox"
+                  type="checkbox"
+                  checked={agreementChecked}
+                  onChange={(e) => setAgreementChecked(e.target.checked)}
+                  className="mt-1 h-5 w-5 accent-[#0044FF]"
+                />
+                <span className="text-sm leading-snug text-[#030712]">
+                  I have read and agree to <strong>all {agreementRules.length} rules</strong> above. I understand that violations may result in immediate removal from the platform.
+                </span>
+              </label>
+
+              <div className="mt-5">
+                <Label className="font-mono-label text-[10px] uppercase tracking-widest text-[#4B5563]">
+                  Sign by typing your full name
+                </Label>
+                <input
+                  data-testid="worker-agreement-typed-name"
+                  type="text"
+                  value={agreementTypedName}
+                  onChange={(e) => setAgreementTypedName(e.target.value)}
+                  placeholder={user?.name || "Your full name"}
+                  className="mt-2 h-12 w-full rounded-2xl border border-[#030712] bg-white px-4 font-display text-base text-[#030712]"
+                />
+                <div className="mt-1.5 text-[11px] text-[#4B5563]">
+                  Must match the name on your profile: <strong>{user?.name}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-[#E5E7EB] bg-[#F9FAFB] px-6 py-4">
+              <Button
+                onClick={() => setAgreementOpen(false)}
+                variant="outline"
+                disabled={busy}
+                data-testid="worker-agreement-cancel"
+                className="h-12 flex-1 rounded-2xl border-[#030712]"
+              >
+                Never mind
+              </Button>
+              <Button
+                data-testid="worker-agreement-submit"
+                onClick={submitAgreement}
+                disabled={
+                  busy ||
+                  !agreementChecked ||
+                  agreementTypedName.trim().toLowerCase() !==
+                    (user?.name || "").trim().toLowerCase()
+                }
+                className="h-12 flex-1 rounded-2xl bg-[#0044FF] text-white hover:bg-[#0036cc] disabled:opacity-50"
+              >
+                {busy ? "Submitting…" : "I agree — request this gig"}
               </Button>
             </div>
           </div>

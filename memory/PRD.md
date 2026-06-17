@@ -661,3 +661,29 @@
 6. **VA Commission Phase 2** — stage-update email/SMS triggers, cleaner referral tracking.
 7. **Security**: Resend API key currently committed to `backend/.env` — rotate + move to secret manager.
 8. **Observability**: Add `logger.info` around `_send_email_sync` invocations (success/failure currently silent).
+
+
+## Implemented — 2026-06 (Iter 44: Pending VA Feature Gating) — VERIFIED 100%
+**Goal**: Restrict unapproved (pending/suspended) VAs from accessing revenue-generating features. User picked: keep **Dashboard, Leaderboard, Templates, Training** accessible; lock **Submit Lead, My Leads, Earnings, Messages** until PM approves.
+
+### Backend changes
+- **New dependency** `block_unapproved_va` in `/app/backend/va_commission.py` (lines ~273-285) — passes through everyone EXCEPT `va` users with status != `approved`, who get 403 with a clear message. Used for cross-role routes (e.g. messaging) where you can't just slap `require_va_active`.
+- **Switched 4 endpoints** in `/app/backend/routes/va.py` from `require_va` → `require_va_active`:
+  - `GET /api/va/leads` (list)
+  - `GET /api/va/leads/{lead_id}` (detail)
+  - `GET /api/va/earnings`
+  - `GET /api/va/commercial-accounts`
+- **Switched 8 messages endpoints** in `/app/backend/routes/messages.py` from `get_current_user` → `block_unapproved_va`:
+  - GET /threads · GET /unread-count · POST /threads/dm · GET /threads/gig/{gig_id} · GET /threads/{thread_id} · GET /threads/{thread_id}/messages · POST /threads/{thread_id}/messages · POST /threads/{thread_id}/read · POST /attachments · GET /eligible-users
+
+### Frontend changes
+- **New guard component** `/app/frontend/src/components/va/VAApprovedGuard.jsx` — wraps locked routes; if `user.va_status !== 'approved'`, renders a polished "Locked · Pending Approval" placeholder with 3 CTAs (Training, Templates, Leaderboard). Branches copy for `suspended` vs `pending` states.
+- **VALayout tabs** now carry a `requiresApproved` boolean; sidebar (desktop + mobile drawer) filters to `visibleTabs` based on `user.va_status === 'approved'`.
+- **Updated yellow banner** copy: "While we review your account, you can study the Training playbook, browse Templates, and watch the Leaderboard. Submit Lead, My Leads, Earnings, and Messages unlock once your Program Manager approves you."
+- **5 routes wrapped** in `<VAApprovedGuard>`: /va/submit, /va/leads, /va/leads/:leadId, /va/earnings, /va/messages.
+
+### Tests
+- Testing agent iter44 — **24/24 pytest pass** + frontend regression clean.
+- New reusable test at `/app/backend/tests/test_va_pending_gate_iter44.py` covers pending vs approved across all 12 endpoints plus admin-messaging regression.
+- Pending VA fixture: `va.pending@hcobcleaners.com / Pending2026!`.
+

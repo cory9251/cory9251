@@ -1328,6 +1328,12 @@ async def on_startup():
     await db.gig_acceptances.create_index([("gig_id", 1), ("worker_id", 1)], unique=True)
     await db.notifications.create_index("user_id")
 
+    # Worker agreement audit log — one doc per gig accept submission.
+    await db.worker_agreements.create_index("agreement_id", unique=True)
+    await db.worker_agreements.create_index("worker_id")
+    await db.worker_agreements.create_index("gig_id")
+    await db.worker_agreements.create_index([("accepted_at", -1)])
+
     # Messenger indexes
     await db.threads.create_index("thread_id", unique=True)
     await db.threads.create_index("participant_ids")

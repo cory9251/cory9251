@@ -173,7 +173,21 @@ def test_accept_blocked_for_unverified_worker(created_gig):
     assert r.status_code == 200, f"register failed: {r.status_code} {r.text}"
 
     s = _login(email, password)
-    r = s.post(f"{API}/gigs/{created_gig['gig_id']}/accept", timeout=20)
+    # Iter45: /accept now requires an agreement body. Send a valid one so the
+    # request progresses past schema validation and hits the ID-verified gate.
+    r = s.post(
+        f"{API}/gigs/{created_gig['gig_id']}/accept",
+        json={
+            "typed_name": "Iter29 Unverified",
+            "agreed_rules": [
+                "No-shows on first gigs are an automatic deletion from the platform.",
+                "You will be professional when on your gig site.",
+                "You must clock in on your shift, or you may not be paid.",
+            ],
+            "version": "v1",
+        },
+        timeout=20,
+    )
     assert r.status_code == 403, (
         f"Expected 403 for unverified worker; got {r.status_code} {r.text}"
     )
@@ -196,8 +210,21 @@ def test_request_approve_clock_cycle(admin_session, created_gig):
     me = s.get(f"{API}/auth/me", timeout=20)
     assert me.status_code == 200 and me.json()["user_id"] == worker_id
 
-    # 1) request
-    r = s.post(f"{API}/gigs/{gig_id}/accept", timeout=20)
+    # 1) request — Iter45: must include signed agreement body
+    worker_name = f"Iter29 Worker {worker_id[-6:]}"
+    r = s.post(
+        f"{API}/gigs/{gig_id}/accept",
+        json={
+            "typed_name": worker_name,
+            "agreed_rules": [
+                "No-shows on first gigs are an automatic deletion from the platform.",
+                "You will be professional when on your gig site.",
+                "You must clock in on your shift, or you may not be paid.",
+            ],
+            "version": "v1",
+        },
+        timeout=20,
+    )
     assert r.status_code == 200, f"accept failed: {r.status_code} {r.text}"
     acc = r.json()
     assert acc["status"] == "requested"

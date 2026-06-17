@@ -55,6 +55,9 @@ from models import (
     GigTagsIn,
     AssignWorkerIn,
     CancelShiftIn,
+    WorkerAgreementIn,
+    WORKER_AGREEMENT_RULES_V1,
+    WORKER_AGREEMENT_VERSION,
 )
 
 router = APIRouter()
@@ -892,8 +895,20 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
 
 
 @router.post("/gigs/{gig_id}/accept")
-async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
-    """Worker REQUESTS a gig. Admin must approve before slot is reserved."""
+async def accept_gig(
+    gig_id: str,
+    agreement: WorkerAgreementIn,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Worker REQUESTS a gig. Admin must approve before slot is reserved.
+
+    Workers MUST agree to the platform rules on every accept — the body must
+    include `typed_name` (matching their account name) and `agreed_rules` (the
+    canonical rules text). An audit doc is written to `worker_agreements`
+    capturing IP, timestamp, version, and verbatim rules so we can later prove
+    in a dispute exactly what they agreed to.
+    """
     if user.get("role") != "worker":
         raise HTTPException(403, "Only workers can request gigs")
 
@@ -928,6 +943,24 @@ async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
             + ", ".join(missing),
         )
 
+    # Agreement gate — typed name must match account name, and the rules echoed
+    # back must match the canonical set the server expects for this version.
+    expected_name = (user.get("name") or "").strip().lower()
+    typed = (agreement.typed_name or "").strip().lower()
+    if not expected_name:
+        raise HTTPException(400, "Your account is missing a name — update your profile before requesting gigs.")
+    if typed != expected_name:
+        raise HTTPException(
+            400,
+            "Typed name doesn't match your account name. Type your full name exactly as it appears on your profile.",
+        )
+    canonical_rules = WORKER_AGREEMENT_RULES_V1
+    if agreement.version != WORKER_AGREEMENT_VERSION:
+        raise HTTPException(400, "Agreement version is outdated. Refresh the page to load the latest rules.")
+    submitted = [(r or "").strip() for r in (agreement.agreed_rules or [])]
+    if submitted != canonical_rules:
+        raise HTTPException(400, "Agreement rules don't match the platform's current ruleset. Refresh and try again.")
+
     gig = await db.gigs.find_one({"gig_id": gig_id})
     if not gig:
         raise HTTPException(404, "Gig not found")
@@ -946,18 +979,69 @@ async def accept_gig(gig_id: str, user: dict = Depends(get_current_user)):
     if existing:
         raise HTTPException(400, "You've already requested or been approved for this gig")
 
+    # Persist the audit record FIRST so we never accept a gig without a
+    # signed agreement on file.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # Best-effort client IP — honor X-Forwarded-For (set by the ingress) over
+    # the direct socket peer so we capture the real user behind the proxy.
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    client_ip = fwd or (request.client.host if request.client else "")
+    user_agent = (request.headers.get("user-agent") or "")[:500]
+    agreement_doc = {
+        "agreement_id": f"agr_{uuid.uuid4().hex[:12]}",
+        "worker_id": user["user_id"],
+        "worker_name": user.get("name") or "",
+        "worker_email": user.get("email") or "",
+        "gig_id": gig_id,
+        "typed_name": agreement.typed_name.strip(),
+        "version": WORKER_AGREEMENT_VERSION,
+        "rules": canonical_rules,
+        "accepted_at": now_iso,
+        "ip": client_ip,
+        "user_agent": user_agent,
+    }
+    await db.worker_agreements.insert_one(agreement_doc)
+
     acceptance = {
         "acceptance_id": f"acc_{uuid.uuid4().hex[:12]}",
         "gig_id": gig_id,
         "worker_id": user["user_id"],
         # NEW model: worker requests, admin approves. Slot is NOT reserved on request.
         "status": "requested",
-        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "requested_at": now_iso,
         "accepted_at": None,
+        "agreement_id": agreement_doc["agreement_id"],
     }
     await db.gig_acceptances.insert_one(acceptance)
     acceptance.pop("_id", None)
     return acceptance
+
+
+@router.get("/worker/agreement-rules")
+async def worker_agreement_rules(_user: dict = Depends(get_current_user)):
+    """Return the current worker agreement ruleset + version. The accept-gig
+    modal renders these and echoes them back on submit so the server can detect
+    a stale client / tampering. Public to any authenticated user."""
+    return {
+        "version": WORKER_AGREEMENT_VERSION,
+        "rules": WORKER_AGREEMENT_RULES_V1,
+    }
+
+
+@router.get("/worker/my-agreements")
+async def worker_my_agreements(user: dict = Depends(get_current_user)):
+    """List all agreements signed by the current worker (one per gig request).
+    Used to surface audit trail in the worker's profile if needed."""
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Workers only")
+    items = []
+    cur = db.worker_agreements.find(
+        {"worker_id": user["user_id"]}, {"_id": 0}
+    ).sort("accepted_at", -1)
+    async for d in cur:
+        items.append(d)
+    return {"items": items}
+
 
 
 @router.post("/gigs/{gig_id}/requests/{acceptance_id}/approve")

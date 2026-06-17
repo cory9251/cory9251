@@ -338,3 +338,28 @@ class MessageSendIn(BaseModel):
 
 class OpenDMIn(BaseModel):
     user_id: str
+
+
+
+# ----- Worker Agreement (gig accept gate) ------------------------------------
+# Canonical, versioned set of rules a worker must agree to EVERY time they
+# request a gig. Bumping the version (v2, v3, …) forces the frontend to surface
+# the new ruleset and stores the version on each agreement record so we always
+# know which rules a worker actually signed.
+WORKER_AGREEMENT_VERSION = "v1"
+WORKER_AGREEMENT_RULES_V1 = [
+    "No-shows on first gigs are an automatic deletion from the platform.",
+    "You will be professional when on your gig site.",
+    "You must clock in on your shift, or you may not be paid.",
+]
+
+
+class WorkerAgreementIn(BaseModel):
+    """Body the worker submits when requesting a gig. The frontend renders the
+    rules returned by GET /worker/agreement-rules and echoes them back here so
+    we can detect tampering. Typed name must match the worker's account name
+    (case-insensitive, whitespace-trimmed)."""
+
+    typed_name: str = Field(..., min_length=1, max_length=200)
+    agreed_rules: List[str] = Field(..., min_items=1, max_items=20)
+    version: str = Field(default=WORKER_AGREEMENT_VERSION, max_length=10)
