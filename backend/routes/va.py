@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from config import db
 from auth_deps import _get_user_by_id
@@ -19,10 +19,13 @@ from va_commission import (
     require_va_active,
     VARegisterDetailsIn,
     LeadIn,
+    LeadEditIn,
+    LeadDeleteIn,
     _normalize_phone,
     _normalize_email,
     _normalize_address,
     _log_violation,
+    _log_lead_activity,
     _find_duplicate_lead,
     _serialize_lead,
     _serialize_commission,
@@ -165,7 +168,7 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
 
 @router.get("/va/leads")
 async def va_list_leads(stage: Optional[str] = None, user: dict = Depends(require_va)):
-    q: dict = {"va_user_id": user["user_id"]}
+    q: dict = {"va_user_id": user["user_id"], "deleted_at": {"$in": [None, ""]}}
     if stage:
         q["stage"] = stage
     items = []
@@ -173,6 +176,141 @@ async def va_list_leads(stage: Optional[str] = None, user: dict = Depends(requir
     async for d in cur:
         items.append(_serialize_lead(d))
     return {"items": items}
+
+
+@router.get("/va/leads/{lead_id}")
+async def va_get_lead(lead_id: str, user: dict = Depends(require_va)):
+    """VAs see their own lead detail + activity timeline. Other VAs' leads are 404."""
+    lead = await db.va_leads.find_one({"lead_id": lead_id, "va_user_id": user["user_id"]})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    activity = []
+    cur = db.va_lead_activity.find({"lead_id": lead_id}).sort("created_at", -1).limit(200)
+    async for a in cur:
+        activity.append({k: v for k, v in a.items() if k != "_id"})
+    commission = await db.commissions.find_one({"lead_id": lead_id})
+    return {
+        "lead": _serialize_lead(lead),
+        "activity": activity,
+        "commission": _serialize_commission(commission) if commission else None,
+    }
+
+
+@router.patch("/va/leads/{lead_id}")
+async def va_edit_lead(
+    lead_id: str,
+    payload: LeadEditIn,
+    user: dict = Depends(require_va_active),
+):
+    """VA can edit their own lead ONLY while it's still in stage='new_lead'.
+    Once admin has touched the pipeline (contacted/quoted/etc.), the lead is
+    locked for VAs and must be edited by an admin."""
+    lead = await db.va_leads.find_one({"lead_id": lead_id, "va_user_id": user["user_id"]})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        raise HTTPException(400, "Lead is deleted")
+    if lead.get("stage") != "new_lead":
+        raise HTTPException(
+            403,
+            "This lead has already been picked up by admin. Ask your Program Manager to edit it.",
+        )
+    # VAs cannot reassign owner or set job_value — those are admin-only.
+    if payload.va_user_id or payload.job_value is not None:
+        raise HTTPException(403, "Only admins can change ownership or job value")
+
+    now = datetime.now(timezone.utc).isoformat()
+    updates: dict = {}
+    changes: dict = {}
+
+    def _add(field: str, new_val):
+        old_val = lead.get(field)
+        if new_val is not None and new_val != old_val:
+            updates[field] = new_val
+            changes[field] = {"from": old_val, "to": new_val}
+
+    if payload.prospect_name is not None:
+        _add("prospect_name", payload.prospect_name.strip())
+    if payload.prospect_phone is not None:
+        phone = payload.prospect_phone.strip()
+        _add("prospect_phone", phone)
+        updates["prospect_phone_norm"] = _normalize_phone(phone)
+    if payload.prospect_email is not None:
+        em = payload.prospect_email.strip()
+        _add("prospect_email", em)
+        updates["prospect_email_norm"] = _normalize_email(em)
+    if payload.prospect_address is not None:
+        ad = payload.prospect_address.strip()
+        _add("prospect_address", ad)
+        updates["prospect_address_norm"] = _normalize_address(ad)
+    if payload.service_type is not None:
+        _add("service_type", payload.service_type)
+    if payload.property_size is not None:
+        _add("property_size", payload.property_size)
+    if payload.preferred_datetime is not None:
+        _add("preferred_datetime", payload.preferred_datetime)
+    if payload.source is not None:
+        _add("source", payload.source)
+    if payload.notes is not None:
+        _add("notes", payload.notes.strip())
+
+    if not changes:
+        return _serialize_lead(lead)
+
+    updates["updated_at"] = now
+    await db.va_leads.update_one({"lead_id": lead_id}, {"$set": updates})
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="edited",
+        actor=user,
+        detail={"changes": changes, "reason": payload.reason},
+    )
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
+
+
+@router.delete("/va/leads/{lead_id}")
+async def va_delete_lead(
+    lead_id: str,
+    payload: LeadDeleteIn = Body(default=LeadDeleteIn()),
+    user: dict = Depends(require_va_active),
+):
+    """VA can soft-delete their own lead ONLY while it's still in stage='new_lead'.
+    Once it moves past 'new_lead' (or any commission has been generated), only
+    an admin can delete it."""
+    lead = await db.va_leads.find_one({"lead_id": lead_id, "va_user_id": user["user_id"]})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        return _serialize_lead(lead)  # idempotent
+    if lead.get("stage") != "new_lead":
+        raise HTTPException(
+            403,
+            "This lead has already been picked up by admin. Ask your Program Manager to delete it.",
+        )
+    # Extra safety: if a commission exists, block (commissions only exist post-'booked').
+    existing_commission = await db.commissions.find_one({"lead_id": lead_id})
+    if existing_commission:
+        raise HTTPException(403, "Cannot delete — a commission has been generated. Contact admin.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "deleted_at": now,
+            "deleted_by": user["user_id"],
+            "deleted_reason": (payload.reason or "").strip() or None,
+            "updated_at": now,
+        }},
+    )
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="deleted",
+        actor=user,
+        detail={"reason": payload.reason},
+    )
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
 
 
 @router.get("/va/earnings")

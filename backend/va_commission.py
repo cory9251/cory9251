@@ -86,6 +86,29 @@ class LeadStageIn(BaseModel):
     note: Optional[str] = None
 
 
+class LeadEditIn(BaseModel):
+    """Partial lead edit. Admin can edit anything; VA can edit only their own
+    lead while it's still in stage='new_lead' (enforced in the route)."""
+    prospect_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    prospect_phone: Optional[str] = Field(default=None, min_length=7, max_length=40)
+    prospect_email: Optional[str] = None
+    prospect_address: Optional[str] = None
+    service_type: Optional[LeadServiceType] = None
+    property_size: Optional[LeadPropertySize] = None
+    preferred_datetime: Optional[str] = None
+    source: Optional[LeadSource] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    job_value: Optional[float] = None  # admin only — enforced in route
+    # Reassign owner — admin only — enforced in route
+    va_user_id: Optional[str] = None
+    # Free-text reason saved to activity log
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class LeadDeleteIn(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
 class CommissionActionIn(BaseModel):
     """PM's approve / flag / reject action on a commission."""
     note: Optional[str] = None
@@ -215,6 +238,30 @@ def _serialize_commission(c: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Violation log + duplicate detection
 # ---------------------------------------------------------------------------
+async def _log_lead_activity(
+    *,
+    lead_id: str,
+    kind: str,
+    actor: dict,
+    detail: dict,
+) -> None:
+    """Append an activity row to a lead. Visible to admin + VA owner.
+    `kind` examples: 'edited', 'stage_changed', 'deleted', 'restored',
+    'reassigned', 'note_added'. Never deletable — even when a lead is
+    soft-deleted, its activity log survives for audit."""
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_lead_activity.insert_one({
+        "activity_id": f"act_{uuid.uuid4().hex[:12]}",
+        "lead_id": lead_id,
+        "kind": kind,
+        "actor_user_id": actor.get("user_id"),
+        "actor_name": actor.get("name") or actor.get("email"),
+        "actor_role": actor.get("role"),
+        "detail": detail,
+        "created_at": now,
+    })
+
+
 async def _log_violation(
     va_user_id: Optional[str],
     kind: str,

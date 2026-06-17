@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { Briefcase, PlusCircle } from "@phosphor-icons/react";
 
@@ -25,6 +25,7 @@ function StageBadge({ stage }) {
 }
 
 export default function VAMyLeads() {
+  const nav = useNavigate();
   const [items, setItems] = useState(null);
   const [err, setErr] = useState("");
   const [stageFilter, setStageFilter] = useState("all");
@@ -58,7 +59,8 @@ export default function VAMyLeads() {
           <div className="font-mono-label">My pipeline</div>
           <h1 className="font-display text-4xl font-black tracking-tight">My leads</h1>
           <p className="mt-2 text-sm text-[#4B5563]">
-            Stage updates are made by Ops. You&apos;re locked in as the owner of every lead you&apos;ve submitted.
+            Click any lead to view details, edit (while it&apos;s still <strong>New Lead</strong>), or delete it.
+            Once Ops picks it up, stage changes are made for you.
           </p>
         </div>
         <Link
@@ -143,10 +145,11 @@ export default function VAMyLeads() {
                 <tr
                   key={l.lead_id}
                   data-testid={`lead-row-${l.lead_id}`}
-                  className="border-t border-[#E5E7EB] hover:bg-[#F9FAFB]"
+                  onClick={() => nav(`/va/leads/${l.lead_id}`)}
+                  className="cursor-pointer border-t border-[#E5E7EB] hover:bg-[#F9FAFB]"
                 >
                   <td className="px-4 py-3">
-                    <div className="font-semibold">{l.prospect_name}</div>
+                    <div className="font-semibold text-[#0044FF]">{l.prospect_name}</div>
                     {l.notes && (
                       <div className="mt-1 line-clamp-2 text-xs text-[#4B5563]">{l.notes}</div>
                     )}

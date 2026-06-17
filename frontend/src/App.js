@@ -27,6 +27,7 @@ import AdminQuotes from "@/pages/admin/AdminQuotes";
 import AdminVAOverview from "@/pages/admin/AdminVAOverview";
 import AdminVAAnalytics from "@/pages/admin/AdminVAAnalytics";
 import AdminVAPipeline from "@/pages/admin/AdminVAPipeline";
+import LeadDetail from "@/pages/LeadDetail";
 import AdminVACommissions from "@/pages/admin/AdminVACommissions";
 import AdminVAs from "@/pages/admin/AdminVAs";
 import AdminCommercialAccounts from "@/pages/admin/AdminCommercialAccounts";
@@ -116,6 +117,7 @@ function RouterShell() {
         <Route path="va-program" element={<AdminVAOverview />} />
         <Route path="va-program/analytics" element={<AdminVAAnalytics />} />
         <Route path="va-program/pipeline" element={<AdminVAPipeline />} />
+        <Route path="va-program/pipeline/:leadId" element={<LeadDetail scope="admin" />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />
         <Route path="va-program/commercial" element={<AdminCommercialAccounts />} />
@@ -162,6 +164,7 @@ function RouterShell() {
         <Route index element={<VADashboard />} />
         <Route path="submit" element={<VASubmitLead />} />
         <Route path="leads" element={<VAMyLeads />} />
+        <Route path="leads/:leadId" element={<LeadDetail scope="va" />} />
         <Route path="earnings" element={<VAEarnings />} />
         <Route path="messages" element={<Messages />} />
       </Route>

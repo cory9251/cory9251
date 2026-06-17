@@ -18,6 +18,8 @@ from notifications import _send_user_email, _public_base
 from va_commission import (
     require_program_manager_or_owner,
     LeadStageIn,
+    LeadEditIn,
+    LeadDeleteIn,
     CommissionActionIn,
     VAAccountAdminIn,
     VAStatusActionIn,
@@ -25,7 +27,9 @@ from va_commission import (
     CommercialAccountPatch,
     _normalize_phone,
     _normalize_email,
+    _normalize_address,
     _log_violation,
+    _log_lead_activity,
     _serialize_lead,
     _serialize_commission,
     _ensure_commission_for_lead,
@@ -40,6 +44,8 @@ async def pm_list_leads(
     stage: Optional[str] = None,
     service_type: Optional[str] = None,
     q: Optional[str] = None,
+    trash: Optional[bool] = False,  # ?trash=true → show only soft-deleted
+    include_trashed: Optional[bool] = False,  # ?include_trashed=true → include trashed in result
     admin: dict = Depends(require_program_manager_or_owner),
 ):
     query: dict = {}
@@ -55,11 +61,37 @@ async def pm_list_leads(
             {"prospect_phone_norm": _normalize_phone(q)},
             {"prospect_email_norm": _normalize_email(q)},
         ]
+    # Soft-delete filter (default: hide trashed).
+    # `deleted_at` is set to ISO timestamp on soft delete, null otherwise.
+    if trash:
+        query["deleted_at"] = {"$nin": [None, ""]}
+    elif not include_trashed:
+        query["deleted_at"] = {"$in": [None, ""]}
     items = []
     cur = db.va_leads.find(query).sort("created_at", -1).limit(500)
     async for d in cur:
         items.append(_serialize_lead(d))
     return {"items": items}
+
+
+@router.get("/pm/leads/{lead_id}")
+async def pm_get_lead(
+    lead_id: str,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    lead = await db.va_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    activity = []
+    cur = db.va_lead_activity.find({"lead_id": lead_id}).sort("created_at", -1).limit(200)
+    async for a in cur:
+        activity.append({k: v for k, v in a.items() if k != "_id"})
+    commission = await db.commissions.find_one({"lead_id": lead_id})
+    return {
+        "lead": _serialize_lead(lead),
+        "activity": activity,
+        "commission": _serialize_commission(commission) if commission else None,
+    }
 
 
 @router.put("/pm/leads/{lead_id}/stage")
@@ -83,6 +115,17 @@ async def pm_update_lead_stage(
     await db.va_leads.update_one(
         {"lead_id": lead_id},
         {"$set": updates, "$push": {"stage_history": history_entry}},
+    )
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="stage_changed",
+        actor=admin,
+        detail={
+            "from": lead.get("stage"),
+            "to": payload.stage,
+            "note": payload.note,
+            "job_value": payload.job_value,
+        },
     )
     fresh = await db.va_leads.find_one({"lead_id": lead_id})
 
@@ -116,6 +159,159 @@ async def pm_update_lead_stage(
                 {"commission_id": existing["commission_id"]},
                 {"$set": {"status": "rejected", "calc_notes": "Lead marked lost", "updated_at": now}},
             )
+    return _serialize_lead(fresh)
+
+
+# ---------------------------------------------------------------------------
+# Lead edit / soft-delete / restore (admin)
+# ---------------------------------------------------------------------------
+TRASH_AUTO_PURGE_DAYS = 30  # for future cleanup cron; UI shows "kept for N days"
+
+
+@router.patch("/pm/leads/{lead_id}")
+async def pm_edit_lead(
+    lead_id: str,
+    payload: LeadEditIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Admin edits any field on a lead. Activity logged. Phone/email/address
+    are auto-renormalized so duplicate detection keeps working. Reassigning
+    `va_user_id` also rewrites `va_name` and creates an audit row."""
+    lead = await db.va_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        raise HTTPException(400, "Lead is in Trash. Restore it before editing.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    updates: dict = {}
+    changes: dict = {}  # for activity log: field -> {from, to}
+
+    def _add(field: str, new_val):
+        old_val = lead.get(field)
+        if new_val is not None and new_val != old_val:
+            updates[field] = new_val
+            changes[field] = {"from": old_val, "to": new_val}
+
+    if payload.prospect_name is not None:
+        _add("prospect_name", payload.prospect_name.strip())
+    if payload.prospect_phone is not None:
+        phone = payload.prospect_phone.strip()
+        _add("prospect_phone", phone)
+        updates["prospect_phone_norm"] = _normalize_phone(phone)
+    if payload.prospect_email is not None:
+        em = payload.prospect_email.strip()
+        _add("prospect_email", em)
+        updates["prospect_email_norm"] = _normalize_email(em)
+    if payload.prospect_address is not None:
+        ad = payload.prospect_address.strip()
+        _add("prospect_address", ad)
+        updates["prospect_address_norm"] = _normalize_address(ad)
+    if payload.service_type is not None:
+        _add("service_type", payload.service_type)
+    if payload.property_size is not None:
+        _add("property_size", payload.property_size)
+    if payload.preferred_datetime is not None:
+        _add("preferred_datetime", payload.preferred_datetime)
+    if payload.source is not None:
+        _add("source", payload.source)
+    if payload.notes is not None:
+        _add("notes", payload.notes.strip())
+    if payload.job_value is not None:
+        _add("job_value", float(payload.job_value))
+
+    # Reassign owner (rare but useful when a lead was misattributed).
+    if payload.va_user_id and payload.va_user_id != lead.get("va_user_id"):
+        new_owner = await db.users.find_one(
+            {"user_id": payload.va_user_id, "role": "va"},
+            {"_id": 0, "user_id": 1, "name": 1},
+        )
+        if not new_owner:
+            raise HTTPException(400, "Target VA not found")
+        changes["va_user_id"] = {"from": lead.get("va_user_id"), "to": new_owner["user_id"]}
+        changes["va_name"] = {"from": lead.get("va_name"), "to": new_owner.get("name")}
+        updates["va_user_id"] = new_owner["user_id"]
+        updates["va_name"] = new_owner.get("name")
+        # Reassign the related commission too so it follows the new owner.
+        await db.commissions.update_many(
+            {"lead_id": lead_id},
+            {"$set": {"va_user_id": new_owner["user_id"], "updated_at": now}},
+        )
+
+    if not changes:
+        return _serialize_lead(lead)
+
+    updates["updated_at"] = now
+    await db.va_leads.update_one({"lead_id": lead_id}, {"$set": updates})
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="edited",
+        actor=admin,
+        detail={"changes": changes, "reason": payload.reason},
+    )
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
+
+
+@router.delete("/pm/leads/{lead_id}")
+async def pm_delete_lead(
+    lead_id: str,
+    payload: LeadDeleteIn = Body(default=LeadDeleteIn()),
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Soft-delete a lead. Kept in Trash for review/restore. If a commission
+    is already PAID, the lead can be soft-deleted (for org hygiene) but the
+    paid commission is left intact — that money was already disbursed."""
+    lead = await db.va_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        return _serialize_lead(lead)  # idempotent
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "deleted_at": now,
+            "deleted_by": admin["user_id"],
+            "deleted_reason": (payload.reason or "").strip() or None,
+            "updated_at": now,
+        }},
+    )
+    # Cancel any non-paid commissions tied to this lead (paid stays — already disbursed)
+    await db.commissions.update_many(
+        {"lead_id": lead_id, "status": {"$nin": ["paid"]}},
+        {"$set": {"status": "rejected", "calc_notes": "Lead soft-deleted", "updated_at": now}},
+    )
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="deleted",
+        actor=admin,
+        detail={"reason": payload.reason},
+    )
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
+
+
+@router.post("/pm/leads/{lead_id}/restore")
+async def pm_restore_lead(
+    lead_id: str,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Restore a soft-deleted lead. The Trash auto-purges after 30 days
+    (handled by a future cleanup cron — not yet wired)."""
+    lead = await db.va_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if not lead.get("deleted_at"):
+        raise HTTPException(400, "Lead is not in Trash")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {"deleted_at": None, "deleted_by": None, "deleted_reason": None, "updated_at": now}},
+    )
+    await _log_lead_activity(lead_id=lead_id, kind="restored", actor=admin, detail={})
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
     return _serialize_lead(fresh)
 
 

@@ -1,0 +1,33 @@
+{
+  "summary": "Iter41 lead edit/soft-delete/restore + LeadDetail page tested end-to-end. 17 new backend tests written covering PM trash filters, PM edit (normalization, va reassign + commission move, bad VA 400, trashed-lead 400), PM soft-delete (idempotency, non-paid commission rejection), PM restore + non-trashed 400, stage_changed activity logging, VA permission boundaries (own-only access, edit/delete only while stage='new_lead', admin-only fields blocked, commission blocks delete). All 17 pass. Regression suite (iter39 blast safety x14 + iter40 DM companion x10) = 24/24 pass. Frontend admin pipeline verified visually: Active/Trash tabs render, Trash tab shows Restore button + 'Trashed <date>' label, Active tab shows Edit & Trash row actions, prospect names are blue links to detail page.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminVAPipeline stage dropdown", "issues": ["Minor React hydration warning: '<span> cannot be a child of <option>' — caused by emergent dev-tool x-* attribute injection wrapping option text in a span. Not a code defect in the app source; cosmetic console warning only."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter41_lead_crud.py",
+    "/app/test_reports/pytest/iter41_lead_crud.xml",
+    "/app/test_reports/pytest/iter41_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "pm_delete_lead default factory: `payload: LeadDeleteIn = Body(default=LeadDeleteIn())` — using a mutable default. FastAPI handles this but consider `Body(default_factory=LeadDeleteIn)` for clarity.",
+    "VA delete with commission test required moving stage back to new_lead via admin to bypass the stage-check; this is unreachable in real workflow (stage moves are forward), so the commission-block branch is theoretically dead code — acceptable defensive guard.",
+    "LeadDetail.jsx is ~600 lines but reasonably structured; passes the 700-line threshold. Inline ActivityRow/Detail subcomponents are fine.",
+    "pm_edit_lead reassign updates commission `va_user_id` but NOT `va_name` on the commission record — minor cosmetic drift between lead.va_name and commission.va_name."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter41_lead_crud.py (new)"
+  ],
+  "success_rate": {"backend": "100% (41/41 - 17 new + 24 regression)", "frontend": "100% visual confirmation of pipeline/tabs/buttons"},
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026! (from /app/memory/test_credentials.md). VA accounts seeded fresh per test run via /api/pm/vas with @example.com (Pydantic EmailStr rejects .local TLDs).",
+  "seed_data_creation": "Each test run seeds 2 fresh VAs (iter41-va-*@example.com, iter41-va2-*@example.com) and ~10-15 prospect leads (prefix 'TEST Prospect'). Active leads remain in DB; some converted to Trash. Cleanup not implemented in this iteration (would require a cleanup fixture deleting by va_user_id at module teardown).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Tests in /app/backend/tests/test_iter41_lead_crud.py use module-scoped fixtures (admin_session, va_session, va2_session). Each test seeds its own lead. Reassignment test creates a commission via stage→booked then PATCHes va_user_id, verifying commission.va_user_id follows. Note: pydantic EmailStr rejects .local TLDs — always use @example.com for seeded test users.",
+  "rca of the issue": "N/A — no functional issues found. All 17 iter41 tests + 24 regression tests pass on first green run after fixing test fixture email domain (.local → .example.com)."
+}
