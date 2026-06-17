@@ -687,3 +687,36 @@
 - New reusable test at `/app/backend/tests/test_va_pending_gate_iter44.py` covers pending vs approved across all 12 endpoints plus admin-messaging regression.
 - Pending VA fixture: `va.pending@hcobcleaners.com / Pending2026!`.
 
+
+
+## Implemented — 2026-06 (Iter 45: Worker Agreement Gate) — VERIFIED 100%
+**Goal**: Workers must agree to a 3-rule checklist EVERY time they request a gig, with full legal-grade audit trail (typed name + timestamp + IP + verbatim rules) — per user choice (3 rules, every-accept frequency, audit option A).
+
+### The 3 rules (versioned `v1`)
+1. No-shows on first gigs are an automatic deletion from the platform.
+2. You will be professional when on your gig site.
+3. You must clock in on your shift, or you may not be paid.
+
+Rules stored as `WORKER_AGREEMENT_RULES_V1` constant in `models.py` so bumping to v2 is a one-line change; the version is stored on every audit doc.
+
+### Backend
+- New Pydantic model `WorkerAgreementIn` (typed_name, agreed_rules, version)
+- `POST /api/gigs/{gig_id}/accept` now **requires** an agreement body; validates typed_name matches `user.name` (case-insensitive, whitespace-trimmed), agreed_rules matches canonical set verbatim, version matches `v1`. On success writes a doc to `worker_agreements` collection (indices on agreement_id, worker_id, gig_id, accepted_at).
+- New `GET /api/worker/agreement-rules` — returns canonical rules + version
+- New `GET /api/worker/my-agreements` — worker's audit trail (worker-role gated)
+- Audit doc shape: `{agreement_id, worker_id, worker_name, worker_email, gig_id, typed_name, version, rules, accepted_at, ip, user_agent}` — IP honors `x-forwarded-for` header for ingress proxy
+
+### Frontend (`WorkerGigDetail.jsx`)
+- Clicking "Request this gig" now fetches `/worker/agreement-rules` and opens a modal
+- Modal shows 3 numbered rules in a clean stack, "I have read and agree to all 3 rules" checkbox, "Sign by typing your full name" input with the worker's profile name as both placeholder and validation target
+- Submit button disabled until BOTH checkbox checked AND typed name matches (case + whitespace tolerant)
+- "Never mind" and modal-backdrop click both close without submitting
+- All data-testids in place: `worker-agreement-modal`, `worker-agreement-rule-{0,1,2}`, `worker-agreement-checkbox`, `worker-agreement-typed-name`, `worker-agreement-submit`, `worker-agreement-cancel`
+
+### Tests
+- New `/app/backend/tests/test_iter45_worker_agreement.py` — 8/8 pass
+- Updated `/app/backend/tests/test_iter29_gigs_router.py` to send agreement body — 15/15 pass
+- Combined regression: 47/47 pytest pass (iter45 + iter29 + iter44)
+- Testing agent iter45.json: **100% backend + 100% frontend E2E**
+- Test fixtures: `worker.demo@hcobcleaners.com / WorkerDemo2026!` (id_verified, profile-complete, name='Worker Demo')
+
