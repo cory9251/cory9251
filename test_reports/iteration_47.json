@@ -1,0 +1,34 @@
+{
+  "summary": "Iter47 — Truthful Worker Approval gate fully validated. All 8 new backend tests pass covering enriched list/detail responses (approval_blockers + fully_active), 400 guards on /approve + PUT /profile + /reinstate, prospective-merge success path, fully-active worker approval, and migration idempotency. Regression: iter44 (24) + iter45 (8) + iter46 (10) all still pass = 50/50 total. Frontend verified end-to-end: AdminWorkers list renders truthful ACTIVE/PENDING/REJECTED/SUSPENDED badges. WorkerDetail for a pending incomplete worker correctly shows the approval-blockers bulleted list ('ID not uploaded' + 'Profile incomplete (7 fields missing)') and the approve-btn is disabled with a precise tooltip.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter47_truthful_approval.py",
+    "/app/test_reports/pytest/iter47.xml",
+    "/app/test_reports/pytest/iter47_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PUT /admin/workers/{id}/profile response is built by _get_user_by_id() which does NOT inject approval_blockers / fully_active. Only the LIST endpoint and the explicit GET /admin/workers/{id} enrich those flags. After an admin saves a PATCH, the WorkerDetail page must refetch the detail endpoint to update the badge — if it relies on the PUT response alone the badge will look stale. Worth centralizing the enrichment in _get_user_by_id (or a shared wrapper) so all read paths return the same truthful shape.",
+    "WorkerDetail.jsx is now 1219 lines — split ApplicationStatusCard, AdminProfileEditor, DefaultPayCard into their own files (>700 line guideline still applies after Iter46).",
+    "Minor: StatusBadge's fallback (`worker?.fully_active === undefined ? status === 'approved' : ...`) protects against stale clients, but if the backend ever returns `fully_active: null` for a non-worker row the truthy-ness check passes through the legacy logic. Fine for now — workers list is worker-only — but worth a defensive type check if reused.",
+    "Migration script imports `_worker_approval_blockers` from auth_deps which in turn imports `db` from config — meaning running the migration as `python -m scripts.migrate_downgrade_incomplete_approvals` initializes a SECOND Motor client on top of the one inside the helper module. Works because helpers don't touch their own client, but consider passing an explicit `db` to the helper or factoring `_worker_approval_blockers` out of auth_deps to avoid the indirect coupling."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter47_truthful_approval.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 new iter47 + 42/42 regression iter44/45/46)",
+    "frontend": "100% — badges, blockers list, disabled approve button all verified"
+  },
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026!  ·  worker.demo@hcobcleaners.com / WorkerDemo2026!  ·  pending UI test used user_id user_89204501e576 (no ID, profile 7-fields-missing).",
+  "seed_data_creation": "Two temporary TEST_iter47_* worker rows inserted directly via Motor for the incomplete-worker + reinstate tests. Both deleted in fixture teardown. After the test that fixes all blockers in one PUT, the seed worker briefly becomes 'approved' before teardown — short-lived test data with TEST_iter47_ prefix, easy to spot.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "DB state after migration: 300 approved (all fully_active), 1556 pending (most are from prior iter test runs that never finished setup), 53 rejected, 46 suspended. SETUP NEEDED badge count is 0 across all tabs because the migration cleaned the drift — the badge LOGIC exists and is exercised via the truthful merge in PUT /profile but you won't see it in the UI without manually constructing such a worker. Worker.demo is fully active and re-approvable.",
+  "rca_of_the_issue": "N/A — feature working as designed. Two test-fix iterations were needed: (1) the test seeded skills=['cleaning_general'] which isn't in WORKER_SKILLS so the admin PUT silently dropped it → profile-incomplete 400; switched to 'routine_cleaning'. (2) PUT /admin/workers/{id}/profile response uses _get_user_by_id() which omits approval_blockers/fully_active; assertion moved to a follow-up GET. Both were test bugs, not product bugs (though see code review note re: enrichment consistency)."
+}
