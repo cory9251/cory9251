@@ -579,7 +579,17 @@ async def admin_update_worker_profile(
         f"Admin {admin['email']} edited worker {user.get('email')} profile: "
         f"{list(updates.keys())}"
     )
-    return await _get_user_by_id(user_id)
+    # Enrich the response so the frontend's WorkerDetail page sees truthful
+    # approval state immediately after save (no stale badge between save and
+    # the next list refetch).
+    fresh = await _get_user_by_id(user_id)
+    if fresh:
+        miss = _profile_missing_fields(fresh)
+        fresh["profile_complete"] = len(miss) == 0
+        fresh["profile_missing_fields"] = miss
+        fresh["approval_blockers"] = _worker_approval_blockers(fresh)
+        fresh["fully_active"] = _worker_is_fully_active(fresh)
+    return fresh
 
 
 @router.post("/admin/workers/{user_id}/id-upload")

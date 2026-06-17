@@ -744,3 +744,27 @@ Rules stored as `WORKER_AGREEMENT_RULES_V1` constant in `models.py` so bumping t
 - `WorkerDetail.jsx` is 1182 lines — split candidates: `AdminProfileEditor`, `DefaultPayCard`, `ApplicationStatusCard`
 - `ShiftEditDialog` uses custom view state instead of Radix `<Tabs>` — works visually but Radix would add keyboard a11y for free
 
+
+
+## Implemented — 2026-06 (Iter 47: Truthful Worker Approval Gate) — VERIFIED 100%
+**Goal**: An "approved" worker must genuinely be able to book a shift. Workers cannot be approved (and the green badge can't render) unless ID is uploaded + verified AND every required profile field is filled. The booking gate at `/gigs/accept` was already correct; this iteration brings the admin approval + UI badge in sync with it.
+
+### Backend
+- New helpers in `auth_deps.py`: `_worker_approval_blockers(user)` returns human-readable reasons (e.g. "ID not uploaded", "Profile incomplete (7 fields missing)"); `_worker_is_fully_active(user)` returns True only when status=approved AND ID-verified AND profile-complete.
+- `_set_worker_status` in `routes/admin.py`: refuses to set status='approved' when blockers exist → returns 400 with detailed message. Affects `/approve`, `/reinstate` paths.
+- `PUT /admin/workers/{id}/profile`: same guard applied to `worker_status='approved'` edits. Uses **prospective merge** so admins can fix profile fields AND set approved in ONE call (still validates the merged future state).
+- All worker read endpoints (`GET /admin/workers`, `GET /admin/workers/{id}`, `PUT /admin/workers/{id}/profile`) now return `approval_blockers` and `fully_active`. Centralized enrichment ensures the badge is truthful immediately after any save.
+
+### Frontend
+- `AdminWorkers.jsx` — `StatusBadge` rebuilt to take the full worker object. Renders "ACTIVE" (green) only when `fully_active=true`. Edge case: worker_status='approved' but blockers present → "SETUP NEEDED" (yellow) instead. PENDING/REJECTED/SUSPENDED unchanged.
+- `WorkerDetail.jsx` — `ApplicationStatusCard` adds a new "setup_needed" state; surfaces a bulleted **Still needed** list (data-testid `approval-blockers`); the Approve button disables with a tooltip when blockers exist.
+
+### One-time migration
+- `/app/backend/scripts/migrate_downgrade_incomplete_approvals.py` — auto-downgrades workers whose `worker_status='approved'` but who actually have blockers. **Run on preview**: examined 1,825 approved workers → downgraded 1,526 → 299 remained ACTIVE. Idempotent; safe to re-run on production after redeploy.
+- **Production**: redeploy + then run `cd /app/backend && python -m scripts.migrate_downgrade_incomplete_approvals` to clean the production DB.
+
+### Tests
+- New `/app/backend/tests/test_iter47_truthful_approval.py` — 8/8 pass
+- Regression: iter44 (24) + iter45 (8) + iter46 (10) = **50/50 GREEN**
+- Testing agent iter47.json: **100% backend + 100% frontend E2E**
+
