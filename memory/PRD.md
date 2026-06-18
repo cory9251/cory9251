@@ -820,3 +820,34 @@ Refactored the query builder in `/app/backend/routes/admin.py` (lines 82-145) to
 ### 🚨 Production
 Redeploy once. Search will work correctly across all workers, all status tabs.
 
+
+
+## Implemented — 2026-06 (Iter 50: Founder Welcome Email) — VERIFIED 100%
+**Goal**: Send a one-shot founder-voiced welcome email when a new worker signs up. User explicitly chose welcome-only (no 24h/72h reminder cadence).
+
+### Backend
+- New helper `send_worker_welcome_email(user)` in `/app/backend/notifications.py` — renders a personalized HTML email from Cory (founder), with a CTA pushing the worker to `/crew/profile` to finish setup.
+- Wired into both signup write paths:
+  1. `POST /api/auth/register` (email signup) — fires `asyncio.create_task(send_worker_welcome_email(user))` after session is issued
+  2. `POST /api/auth/google/session` (Google OAuth) — fires only on `is_new=True` so existing users don't get re-greeted on every login
+- Errors are logged inside `_send_user_email` and never raised — registration always succeeds even if Resend is down.
+- Email layout uses the standard `_email_layout` template, branded "HCOB Network" header.
+
+### Email content (Cory's verbatim message, light cleanup)
+> Hey [first name], my name is **Cory**, and I'm the founder of The HCOB Network. I created this platform to bring value to customers and more opportunities to smaller businesses — established and non-established alike. Either way, we structure the unstructured. There are so many talented professionals in Baltimore, and we want to bring amazing people like you the work you deserve. Thank you for signing up.
+>
+> *Quick next step*: Finish your profile and upload a photo of your ID. The moment those are in, we'll review and activate your account so you can start claiming shifts.
+
+Subject: `Welcome to The HCOB Network, [first name]`
+
+### Tests
+- `/app/backend/tests/test_iter50_welcome_email.py` — 4/4 pass:
+  - HTML body contains Cory's introduction + Baltimore + "structure the unstructured"
+  - Empty-name fallback ("Hey there,")
+  - register() endpoint imports and calls the welcome function
+  - google_session() endpoint imports and calls it only for new users
+- Full regression: 38 tests across iter45/46/47/48/49/50 pass
+
+### 🚨 Production
+Already redeployed (per prior iterations). The email will send automatically on production via your Resend creds (in preview the API key is invalid so emails are logged-as-skipped without crashing).
+
