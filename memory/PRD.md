@@ -794,3 +794,29 @@ Rules stored as `WORKER_AGREEMENT_RULES_V1` constant in `models.py` so bumping t
 
 No SSH, no manual scripts, no database migration commands needed beyond the existing auto-migration.
 
+
+
+## Implemented — 2026-06 (Iter 49: Workers Search Bug — `$or` collision) — VERIFIED 100%
+**Goal**: Fix the broken search box on `/ops/workers` where typing "Cory" returned every approved worker (not just Cory).
+
+### Root cause
+`GET /admin/workers` builds the MongoDB filter by stacking multiple `$or`-style conditions (status back-compat, vehicle="any", free-text search) into a SINGLE `$or` key. MongoDB treats those as DISJUNCTS — so the query for "approved + Cory" actually said *"`worker_status=approved` OR `worker_status` missing OR `name~Cory` OR `email~Cory` OR `phone~Cory`"*. Every approved worker matched on the status clause regardless of the search term.
+
+### Fix
+Refactored the query builder in `/app/backend/routes/admin.py` (lines 82-145) to collect each disjunctive filter as a separate `or_blocks` entry, then combine them at the end:
+- 0 blocks → no $or
+- 1 block → top-level `$or`
+- 2+ blocks → wrap in `$and: [{$or: ob1}, {$or: ob2}, ...]` so each block is independently required
+
+### Tests
+- New `/app/backend/tests/test_iter49_workers_search.py` — 5 dedicated tests:
+  - Search alone returns only matches
+  - Search + status intersects (regression target)
+  - Search by phone with status
+  - Status alone still returns the full set
+  - Search + status + vehicle="any" — three disjunctive filters all AND together
+- Combined regression: **89/89 backend pytest pass** (iter28/29/44/45/46/47/48/49)
+
+### 🚨 Production
+Redeploy once. Search will work correctly across all workers, all status tabs.
+

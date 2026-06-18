@@ -79,15 +79,23 @@ async def list_workers(
     search: Optional[str] = Query(None, description="Free-text search across name/email/phone"),
     admin: dict = Depends(require_admin),
 ):
+    # Build the MongoDB filter. CRITICAL: every "this OR that" filter (status
+    # back-compat, vehicle 'any', free-text search) needs its OWN $or block —
+    # writing them all into a single $or key would just append disjuncts, which
+    # is why the search box was returning every worker before. We collect each
+    # disjunctive filter as a separate list and AND them all together at the
+    # bottom.
     query: dict = {"role": "worker"}
+    or_blocks: list[list[dict]] = []
+
     if status == "pending":
         query["worker_status"] = "pending"
     elif status == "approved":
         # Treat missing field as approved for back-compat
-        query["$or"] = [
+        or_blocks.append([
             {"worker_status": "approved"},
             {"worker_status": {"$exists": False}},
-        ]
+        ])
     elif status in ("rejected", "suspended"):
         query["worker_status"] = status
 
@@ -114,18 +122,25 @@ async def list_workers(
     elif vehicle == "cdl":
         query["has_cdl"] = True
     elif vehicle == "any":
-        query["$or"] = (query.get("$or") or []) + [
+        or_blocks.append([
             {"has_car": True}, {"has_truck": True}, {"has_cdl": True}
-        ]
+        ])
 
     if search:
         s = re.escape(search.strip())
         if s:
-            query["$or"] = (query.get("$or") or []) + [
+            or_blocks.append([
                 {"name": {"$regex": s, "$options": "i"}},
                 {"email": {"$regex": s, "$options": "i"}},
                 {"phone": {"$regex": s, "$options": "i"}},
-            ]
+            ])
+
+    # Collapse the disjunctive blocks: 0 blocks → no $or; 1 block → top-level
+    # $or; 2+ blocks → wrap in $and so each block is independently required.
+    if len(or_blocks) == 1:
+        query["$or"] = or_blocks[0]
+    elif len(or_blocks) > 1:
+        query["$and"] = [{"$or": ob} for ob in or_blocks]
 
     workers = await db.users.find(
         query, {"_id": 0, "password_hash": 0}
