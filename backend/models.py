@@ -73,6 +73,11 @@ class ProfileUpdateIn(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     tshirt_size: Optional[str] = None
+    # Payout method — one preferred per worker. We don't validate identifier
+    # format strictly (Zelle accepts phone OR email, Chime uses $username) —
+    # admin eyeballs it before sending money.
+    payout_method: Optional[Literal["zelle", "apple_cash", "chime"]] = None
+    payout_handle: Optional[str] = Field(default=None, max_length=120)
 
 
 # ----- Gigs ------------------------------------------------------------------

@@ -20,6 +20,7 @@ import {
   ListChecks,
   CalendarBlank,
   TShirt,
+  CurrencyDollar,
 } from "@phosphor-icons/react";
 
 // Pretty labels for the profile-complete checklist
@@ -89,6 +90,8 @@ export default function WorkerProfile() {
         emergency_contact_name: user.emergency_contact_name || "",
         emergency_contact_phone: user.emergency_contact_phone || "",
         tshirt_size: user.tshirt_size || "",
+        payout_method: user.payout_method || "",
+        payout_handle: user.payout_handle || "",
         bio: user.bio || "",
       });
     }
@@ -418,6 +421,54 @@ export default function WorkerProfile() {
               required
             />
           </Field>
+        </Section>
+
+        {/* Section: Payout — how HCOB sends you money */}
+        <Section title="How we pay you" icon={CurrencyDollar}>
+          <div className="text-xs leading-relaxed text-[#4B5563]">
+            Pick ONE method. We pay every shift via Zelle, Apple Cash, or Chime — same identifier you&apos;d give a friend to send you money.
+          </div>
+          <Field label="Payout method">
+            <select
+              data-testid="profile-payout-method"
+              value={form.payout_method}
+              onChange={(e) => set("payout_method", e.target.value)}
+              className="h-11 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 text-sm"
+            >
+              <option value="">Pick one…</option>
+              <option value="zelle">Zelle</option>
+              <option value="apple_cash">Apple Cash</option>
+              <option value="chime">Chime</option>
+            </select>
+          </Field>
+          {form.payout_method && (
+            <Field
+              label={
+                form.payout_method === "zelle"
+                  ? "Zelle (phone or email)"
+                  : form.payout_method === "apple_cash"
+                  ? "Apple Cash (phone number)"
+                  : "Chime ($username or phone)"
+              }
+            >
+              <Input
+                data-testid="profile-payout-handle"
+                value={form.payout_handle}
+                onChange={(e) => set("payout_handle", e.target.value)}
+                placeholder={
+                  form.payout_method === "zelle"
+                    ? "(410) 555-0123 or you@email.com"
+                    : form.payout_method === "apple_cash"
+                    ? "(410) 555-0123"
+                    : "$YourChimeName"
+                }
+                inputMode={form.payout_method === "chime" ? "text" : "tel"}
+              />
+              <div className="mt-1 text-[11px] text-[#4B5563]">
+                Double-check this — money goes here on payday.
+              </div>
+            </Field>
+          )}
         </Section>
 
         {/* Section: Bio + gear */}

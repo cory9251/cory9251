@@ -66,6 +66,26 @@ async def update_profile(payload: ProfileUpdateIn, user: dict = Depends(get_curr
             raise HTTPException(400, "zip_code must be a 5-digit US ZIP code")
         updates["zip_code"] = z
 
+    # Payout: clear handle if method is cleared, and vice versa, so we never
+    # store an orphan "zelle but no number" record.
+    if "payout_method" in updates and not updates["payout_method"]:
+        updates["payout_method"] = None
+        updates["payout_handle"] = None
+    if "payout_handle" in updates and updates["payout_handle"] is not None:
+        updates["payout_handle"] = updates["payout_handle"].strip()
+        if updates["payout_handle"] == "":
+            updates["payout_handle"] = None
+    if updates.get("payout_method") and not updates.get("payout_handle"):
+        # Allow saving method without handle? No — they go together. Reject so
+        # the worker has to enter the identifier before saving.
+        # If they already had a handle on file and only updated the method
+        # (handle not in payload), the existing handle stays — only enforce
+        # when both fields are in this payload.
+        if "payout_handle" in updates:
+            raise HTTPException(400, "Payout handle (phone/email/$username) is required when payout method is set.")
+    if updates.get("payout_method"):
+        updates["payout_updated_at"] = datetime.now(timezone.utc).isoformat()
+
     if updates:
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     return await _get_user_by_id(user["user_id"])

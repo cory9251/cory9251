@@ -1640,6 +1640,8 @@ async def on_startup():
 
     # Kick off background tasks
     asyncio.create_task(_message_digest_runner())
+    from reminders import reminders_runner
+    asyncio.create_task(reminders_runner())
 
 
 @app.on_event("shutdown")
