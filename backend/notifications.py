@@ -206,6 +206,47 @@ async def _send_gig_event_email(
     )
 
 
+async def send_worker_welcome_email(user: dict) -> bool:
+    """Founder welcome message — fired once when a new worker registers.
+    Voiced as Cory (founder); never auto-resent. The CTA deep-links to the
+    profile page so the worker can finish their setup and unlock booking."""
+    first_name = (user.get("name") or "").split(" ")[0] or "there"
+    body_html = f"""
+      <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#030712">
+        Hey {first_name},
+      </p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#030712">
+        My name is <strong>Cory</strong>, and I&rsquo;m the founder of The HCOB Network. I created this
+        platform to bring value to customers and more opportunities to smaller businesses &mdash;
+        established and non-established alike. Either way, we structure the unstructured.
+      </p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#030712">
+        There are so many talented professionals in Baltimore, and we want to bring amazing people
+        like you the work you deserve.
+      </p>
+      <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#030712">
+        Thank you for signing up.
+      </p>
+      <div style="border:1px solid #E5E7EB;background:#FFFBEB;padding:16px;margin:0 0 8px">
+        <div style="font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:#92400E;margin-bottom:8px">
+          Quick next step
+        </div>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#030712">
+          Finish your profile and upload a photo of your ID. The moment those are in, we&rsquo;ll
+          review and activate your account so you can start claiming shifts.
+        </p>
+      </div>
+    """
+    return await _send_user_email(
+        user,
+        kind="welcome_worker",
+        subject=f"Welcome to The HCOB Network, {first_name}",
+        body_html=body_html,
+        cta_label="Finish your profile",
+        cta_url=f"{_public_base()}/crew/profile",
+    )
+
+
 
 async def _log_blast(
     *,

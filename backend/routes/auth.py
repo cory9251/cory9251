@@ -117,6 +117,14 @@ async def register(payload: RegisterIn, response: Response):
     await db.users.insert_one(doc)
     await _issue_session(user_id, response)
     user = await _get_user_by_id(user_id)
+    # Founder welcome email — fire-and-forget so the signup response stays
+    # snappy even if Resend is slow. Errors are logged inside the helper.
+    try:
+        from notifications import send_worker_welcome_email
+        import asyncio as _asyncio
+        _asyncio.create_task(send_worker_welcome_email(user))
+    except Exception:
+        logger.exception("welcome email enqueue failed (non-fatal)")
     return user
 
 
@@ -182,6 +190,7 @@ async def google_session(payload: GoogleSessionIn, response: Response):
         raise HTTPException(400, "No email returned from Google")
 
     user = await db.users.find_one({"email": email})
+    is_new = False
     if not user:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         await db.users.insert_one(
@@ -206,11 +215,20 @@ async def google_session(payload: GoogleSessionIn, response: Response):
                 "google_id": data.get("id"),
             }
         )
+        is_new = True
     else:
         user_id = user["user_id"]
 
     await _issue_session(user_id, response)
-    return await _get_user_by_id(user_id)
+    fresh = await _get_user_by_id(user_id)
+    if is_new and fresh:
+        try:
+            from notifications import send_worker_welcome_email
+            import asyncio as _asyncio
+            _asyncio.create_task(send_worker_welcome_email(fresh))
+        except Exception:
+            logger.exception("welcome email enqueue failed (non-fatal)")
+    return fresh
 
 
 @router.post("/auth/forgot-password")
