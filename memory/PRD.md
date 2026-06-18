@@ -959,3 +959,37 @@ New `on_startup` task in `server.py` — **slot-count reconciliation**. Walks ev
 - `/app/backend/server.py` — `asyncio.create_task(reminders_runner())` on startup
 - `/app/frontend/src/pages/worker/WorkerProfile.jsx` — payment section UI
 - `/app/backend/tests/test_iter53_payouts_reminders.py` — 11 tests
+
+
+## Implemented — 2026-02 (Iter 54: Startup Refactor — `startup.py`) — VERIFIED
+
+**Goal**: `server.py`'s `@app.on_event("startup")` had grown to 313 lines of intertwined concerns — Mongo indices, legacy backfills, idempotent seeds, env-var failsafes, and background-task kickoff. Moved everything into a focused `startup.py` module.
+
+### New file `/app/backend/startup.py` (373 lines)
+Four ordered phases, each idempotent and individually testable:
+
+1. **`ensure_indices()`** — all Mongo indices (users, sessions, gigs, acceptances, worker_agreements, messenger, projects, blast_logs, password reset tokens, VA commission program).
+2. **`run_migrations()`** — legacy backfills + healing passes:
+   - `_backfill_gigs()` — `is_rush`, `tags`, `break_minutes`, `payment_timeline`, `project_id`.
+   - `_backfill_scheduled_local()` — derive wall-clock string from UTC `scheduled_at` for pre-Iter34 docs.
+   - `_migrate_truthful_approvals()` — downgrade any historically-approved worker with unresolved blockers (Iter47 data healing).
+   - `_reconcile_slot_counts()` — rebuild `slots_filled` / `backups_filled` / `status` from actual acceptance docs (Iter52 race healing).
+3. **`seed_accounts_and_templates()`** — idempotent seeds:
+   - `_seed_pitch_templates()` — auto-runs when active count < 50.
+   - `_seed_admin()` — legacy GigBlast admin (env-var rotatable).
+   - `_owner_reset_failsafe()` — `OWNER_RESET_EMAIL` + `OWNER_RESET_PASSWORD` boot-time lockout recovery.
+   - `_seed_hcob_owner_and_pm()` — Owner flag on `admin@hcobcleaners.com` + Mechie PM seed.
+4. **`start_background_tasks()`** — `_message_digest_runner` + `reminders_runner` via `asyncio.create_task` with lazy imports to avoid circular import.
+
+### server.py: 1,649 → 1,351 lines (-298, -18%)
+`@app.on_event("startup")` is now a 19-line orchestrator that calls the 4 phases in order with `init_storage()` sandwiched between phase 3 and 4. The intent of each phase is now visible from the function name; the implementation is a click away in `startup.py`.
+
+### Verified
+- Backend boots clean — startup logs show `Object storage initialized` and zero errors
+- `admin@hcobcleaners.com` (Owner) and `mechiebadlong77@gmail.com` (PM) login + flags both confirmed via curl
+- 27/27 regression tests pass across iter48/49/50/52/53 (workers search, welcome emails, slot overbooking, payouts/reminders, pending defaults)
+- Zero behavior change — pure code organization
+
+### Files touched
+- `/app/backend/startup.py` — NEW
+- `/app/backend/server.py` — `on_startup` slimmed to a 19-line orchestrator
