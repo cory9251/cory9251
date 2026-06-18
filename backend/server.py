@@ -1025,7 +1025,11 @@ async def update_admin_user(
             raise HTTPException(400, "Not an admin")
         updates["role"] = "worker"
         updates["is_read_only"] = False
-        updates["worker_status"] = "approved"
+        # Iter47: demoted admins start as 'pending' worker. They haven't
+        # completed a worker profile (DOB, phone, address, skills, ID upload)
+        # yet, so auto-approving would falsely mark them bookable. Admin can
+        # re-approve once they finish their profile + ID verification.
+        updates["worker_status"] = "pending"
     elif payload.is_read_only is not None:
         if target.get("role") != "admin":
             raise HTTPException(400, "Read-only flag only applies to admins")

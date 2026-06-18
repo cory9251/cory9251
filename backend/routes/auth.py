@@ -87,10 +87,11 @@ async def register(payload: RegisterIn, response: Response):
         "name": payload.name,
         # Public registration is always worker — admins are seeded server-side only.
         "role": "worker",
-        # Workers are auto-approved at registration. Admin still has Suspend/Reject
-        # to ban bad actors, but the per-gig request flow is where actual approval
-        # happens.
-        "worker_status": "approved",
+        # Iter47: New workers start as `pending`. Admin approval is gated on
+        # ID-verified + profile-complete (see _worker_approval_blockers), so
+        # auto-approving here would be a lie that breaks the badge UI and
+        # the booking gate alike.
+        "worker_status": "pending",
         "phone": "",
         "address": "",
         "bio": "",
@@ -189,7 +190,9 @@ async def google_session(payload: GoogleSessionIn, response: Response):
                 "email": email,
                 "name": data.get("name") or email.split("@")[0],
                 "role": "worker",
-                "worker_status": "approved",
+                # Iter47: see register() above — new workers must complete
+                # profile + ID verification before admin can approve them.
+                "worker_status": "pending",
                 "phone": "",
                 "address": "",
                 "bio": "",

@@ -768,3 +768,29 @@ Rules stored as `WORKER_AGREEMENT_RULES_V1` constant in `models.py` so bumping t
 - Regression: iter44 (24) + iter45 (8) + iter46 (10) = **50/50 GREEN**
 - Testing agent iter47.json: **100% backend + 100% frontend E2E**
 
+
+
+## Implemented — 2026-06 (Iter 48: Sealed the leaks — new workers default to pending) — VERIFIED 100%
+**Goal**: Iter47 added the badge logic and the approval gate, but new signups were STILL flowing in as `worker_status="approved"`. Production showed 83 fresh workers in the APPROVED tab with "SETUP NEEDED" pills. Iter48 closes the remaining write paths.
+
+### 4 write paths sealed
+1. `POST /api/auth/register` — `worker_status="approved"` → **`"pending"`**
+2. `POST /api/auth/oauth/google/callback` (social login) — `worker_status="approved"` → **`"pending"`**
+3. Admin → worker demotion in `server.py:1028` — `worker_status="approved"` → **`"pending"`**
+4. On-startup auto-migration in `server.py:1462` — already idempotent; catches any historical or "leaked" approved records on every boot. **Now redundant for net-new traffic since signups can't leak — but still defends against legacy data.**
+
+### Tests
+- New `/app/backend/tests/test_iter48_new_signups_pending.py` — 3 dedicated tests:
+  - Email signup defaults to pending (response + DB check)
+  - Fresh signup appears in PENDING tab, NOT in APPROVED tab (the exact regression target)
+  - Fresh signup cannot be admin-approved until profile + ID complete (400 with reason)
+- Combined regression: **65/65 pytest pass** across iter28, iter29, iter44, iter45, iter46, iter47, iter48.
+
+### 🚨 Production fix path
+**Redeploy once.** On the next backend boot:
+1. The on-startup auto-migration sweeps the 83 currently-misleading "approved" workers → flips them to `pending`.
+2. From that moment on, new signups default to `pending` (verified on preview: `worker_status: pending` in the actual register response).
+3. The APPROVED tab will only ever contain truly bookable workers.
+
+No SSH, no manual scripts, no database migration commands needed beyond the existing auto-migration.
+
