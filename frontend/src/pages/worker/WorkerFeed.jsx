@@ -1,15 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Broom,
   Wrench,
@@ -25,14 +18,15 @@ import {
 } from "@phosphor-icons/react";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
-import { formatGigWhen, isGigToday } from "@/lib/gigDate";
+import { formatGigFull, isGigToday } from "@/lib/gigDate";
 import AvailableNowToggle from "@/components/worker/AvailableNowToggle";
+import FeedFilters, { DEFAULT_FILTERS, applyFeedFilters } from "@/components/worker/FeedFilters";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
 export default function WorkerFeed() {
   const [gigs, setGigs] = useState([]);
-  const [category, setCategory] = useState("all");
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const nav = useNavigate();
   const { user } = useAuth();
   const status = user?.worker_status || "approved";
@@ -76,9 +70,9 @@ export default function WorkerFeed() {
 
   const load = async () => {
     try {
-      const params = {};
-      if (category !== "all") params.category = category;
-      const { data } = await api.get("/gigs", { params });
+      // Always fetch the full open + coming_soon feed; client-side filters
+      // narrow it down. Keeps the network round trip simple.
+      const { data } = await api.get("/gigs");
       setGigs(data);
     } catch (e) {
       toast.error(getErr(e));
@@ -88,7 +82,15 @@ export default function WorkerFeed() {
   useEffect(() => {
     load();
     // eslint-disable-next-line
-  }, [category]);
+  }, []);
+
+  // Apply filters/sort client-side — the feed is bounded at 500 gigs so this
+  // is cheap and avoids round-trip latency every time a worker tweaks a
+  // dropdown.
+  const visibleGigs = useMemo(
+    () => applyFeedFilters(gigs, filters, (user?.zip_code || "").trim()),
+    [gigs, filters, user?.zip_code],
+  );
 
   return (
     <div className="px-5 py-6" data-testid="worker-feed">
@@ -149,29 +151,24 @@ export default function WorkerFeed() {
       )}
 
       <div className="mt-4">
-        <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger
-            data-testid="worker-category-filter"
-            className="h-11 w-full rounded-xl border-[#E5E7EB] bg-white"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
-            <SelectItem value="cleaning">Cleaning</SelectItem>
-            <SelectItem value="labor">Labor</SelectItem>
-            <SelectItem value="driver">Driver / Ride</SelectItem>
-          </SelectContent>
-        </Select>
+        <FeedFilters
+          value={filters}
+          onChange={setFilters}
+          resultCount={visibleGigs.length}
+          totalCount={gigs.length}
+          testIdPrefix="worker-feed-filters"
+        />
       </div>
 
       <div className="mt-5 space-y-4">
-        {gigs.length === 0 ? (
+        {visibleGigs.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[#E5E7EB] bg-white p-10 text-center text-sm text-[#4B5563]">
-            No open gigs right now. Check back soon.
+            {gigs.length === 0
+              ? "No open gigs right now. Check back soon."
+              : "No gigs match your filters. Try clearing some."}
           </div>
         ) : (
-          gigs.map((g) => {
+          visibleGigs.map((g) => {
             const Icon = CAT_ICON[g.category];
             const acc = g.my_acceptance;
             const isRequested = acc?.status === "requested";
@@ -283,7 +280,7 @@ export default function WorkerFeed() {
                   ) : null}
                 </div>
 
-                <div className="mt-4 grid grid-cols-3 gap-3 border-t border-[#E5E7EB] pt-3 text-xs">
+                <div className="mt-4 grid grid-cols-1 gap-2 border-t border-[#E5E7EB] pt-3 text-xs sm:grid-cols-2">
                   <Bit
                     icon={CurrencyDollar}
                     value={`$${Number(g.pay_rate).toFixed(0)}${
@@ -293,9 +290,10 @@ export default function WorkerFeed() {
                   <Bit icon={MapPin} value={g.location} />
                   <Bit
                     icon={Clock}
-                    value={formatGigWhen(g)}
+                    value={formatGigFull(g)}
                     highlight={isGigToday(g)}
                     testId={`feed-when-${g.gig_id}`}
+                    className="sm:col-span-2"
                   />
                 </div>
               </div>
@@ -307,16 +305,16 @@ export default function WorkerFeed() {
   );
 }
 
-const Bit = ({ icon: I, value, highlight, testId }) => (
+const Bit = ({ icon: I, value, highlight, testId, className }) => (
   <div
     data-testid={testId}
     className={`flex items-start gap-1.5 ${
       highlight ? "text-[#0044FF]" : "text-[#4B5563]"
-    }`}
+    } ${className || ""}`}
   >
     <I size={14} weight={highlight ? "fill" : "duotone"} className="mt-px shrink-0" />
     <span
-      className={`truncate font-semibold ${
+      className={`font-semibold ${
         highlight ? "text-[#0044FF]" : "text-[#030712]"
       }`}
     >

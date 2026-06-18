@@ -851,3 +851,26 @@ Subject: `Welcome to The HCOB Network, [first name]`
 ### 🚨 Production
 Already redeployed (per prior iterations). The email will send automatically on production via your Resend creds (in preview the API key is invalid so emails are logged-as-skipped without crashing).
 
+
+
+## Implemented — 2026-06 (Iter 51: Worker Feed Cleanup — Full Date + Filters/Sort) — VERIFIED
+**Goal**: Workers see the full date AND time of every gig, with a powerful filter/sort bar across all worker-facing feeds (Open gigs feed + My Gigs).
+
+### New components / helpers
+- `formatGigFull(gig)` in `/app/frontend/src/lib/gigDate.js` — e.g. "Today · Thu, Jun 18, 2026 · 10:25 AM – 2:25 PM". Adds Today/Tomorrow word prefix where applicable.
+- New shared component `/app/frontend/src/components/worker/FeedFilters.jsx` — reusable across any worker feed:
+  - **Sort**: Newest · Soonest start · Highest pay · Closest (zip)
+  - **Filters**: Category · When (Today / Tomorrow / This week / Next 7d / Next 30d) · Minimum pay ($) · ZIP starts with · Rush only · Open slots only
+  - Active-filter **chips** with one-tap clear + "Clear all"
+  - **Result count** ("42 / 466 SHOWN")
+- New `applyFeedFilters(gigs, filters, workerZip)` pure helper — single source of truth for filter+sort logic. Used by both feeds for identical semantics.
+
+### Pages updated
+- `/app/frontend/src/pages/worker/WorkerFeed.jsx` — replaced single-category Select with FeedFilters; full date now shown on every card.
+- `/app/frontend/src/pages/worker/WorkerAccepted.jsx` ("My Gigs") — same FeedFilters bar; defaults sort to "Soonest start" since these are the worker's own upcoming commitments.
+
+### Notes
+- Filtering is client-side. The /gigs endpoint already returns up to 500 gigs ordered by rush/created_at — instant filter response, no extra round trip.
+- Mobile-first layout: filter bar collapses to a single row; expanded panel uses native select elements (best mobile UX).
+- 33/33 backend regression tests pass (iter29 + iter45 + iter46) — no API surface changed.
+

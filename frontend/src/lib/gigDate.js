@@ -139,3 +139,33 @@ export function isGigTomorrow(gig) {
   const d = getGigDate(gig);
   return d ? isTomorrow(d) : false;
 }
+
+
+/**
+ * Full date + time for feed cards — what workers want to see at a glance.
+ * Example: "Fri, Mar 14, 2026 · 9:00 AM – 5:00 PM" or "Today · 9:00 AM – 5:00 PM".
+ * Today/Tomorrow get word labels prepended so the worker doesn't have to
+ * mentally translate the date.
+ */
+export function formatGigFull(gig) {
+  const d = getGigDate(gig);
+  if (!d) return gig?.scheduled_date || "Flexible";
+  const end = maybeEnd(gig, d);
+  const day = isToday(d)
+    ? `Today · ${format(d, "EEE, MMM d, yyyy")}`
+    : isTomorrow(d)
+    ? `Tomorrow · ${format(d, "EEE, MMM d, yyyy")}`
+    : format(d, "EEE, MMM d, yyyy");
+  const startTxt = format(d, "h:mm a");
+  if (end) return `${day} · ${startTxt} – ${format(end, "h:mm a")}`;
+  return `${day} · ${startTxt}`;
+}
+
+/**
+ * Pure numeric epoch (ms) for the gig start time. Returns Infinity when no
+ * date can be parsed so undated gigs sort to the END of "Soonest first".
+ */
+export function gigStartMs(gig) {
+  const d = getGigDate(gig);
+  return d ? d.getTime() : Number.POSITIVE_INFINITY;
+}

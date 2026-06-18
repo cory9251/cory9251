@@ -1,13 +1,19 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { CheckCircle, CurrencyDollar, MapPin, Clock, Hourglass } from "@phosphor-icons/react";
-import { formatGigWhen, isGigToday, isGigTomorrow } from "@/lib/gigDate";
+import { formatGigFull, isGigToday, isGigTomorrow } from "@/lib/gigDate";
+import FeedFilters, { DEFAULT_FILTERS, applyFeedFilters } from "@/components/worker/FeedFilters";
+
+const ACCEPTED_DEFAULT_FILTERS = { ...DEFAULT_FILTERS, sort: "soonest" };
 
 export default function WorkerAccepted() {
   const [items, setItems] = useState([]);
   const [earnings, setEarnings] = useState(null);
+  const [filters, setFilters] = useState(ACCEPTED_DEFAULT_FILTERS);
+  const { user } = useAuth();
   const nav = useNavigate();
 
   useEffect(() => {
@@ -25,6 +31,11 @@ export default function WorkerAccepted() {
       }
     })();
   }, []);
+
+  const visibleItems = useMemo(
+    () => applyFeedFilters(items, filters, (user?.zip_code || "").trim()),
+    [items, filters, user?.zip_code],
+  );
 
   return (
     <div className="px-5 py-6" data-testid="worker-accepted">
@@ -66,13 +77,23 @@ export default function WorkerAccepted() {
         </div>
       )}
 
+      <FeedFilters
+        value={filters}
+        onChange={setFilters}
+        resultCount={visibleItems.length}
+        totalCount={items.length}
+        testIdPrefix="worker-accepted-filters"
+      />
+
       <div className="mt-5 space-y-4">
-        {items.length === 0 ? (
+        {visibleItems.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[#E5E7EB] bg-white p-10 text-center text-sm text-[#4B5563]">
-            You haven't accepted any gigs yet.
+            {items.length === 0
+              ? "You haven't accepted any gigs yet."
+              : "No gigs match your filters. Try clearing some."}
           </div>
         ) : (
-          items.map((g) => {
+          visibleItems.map((g) => {
             const acc = g.my_acceptance || {};
             const isRequested = acc.status === "requested";
             const onClock = acc.clock_in_at && !acc.clock_out_at;
@@ -119,10 +140,15 @@ export default function WorkerAccepted() {
                   </span>
                 )}
               </div>
-              <div className="mt-3 flex flex-wrap gap-3 border-t border-[#E5E7EB] pt-3 text-xs">
+              <div className="mt-3 grid grid-cols-1 gap-2 border-t border-[#E5E7EB] pt-3 text-xs sm:grid-cols-2">
                 <Tag icon={CurrencyDollar} v={`$${Number(g.pay_rate).toFixed(0)}${g.pay_type === "hourly" ? "/hr" : ""}`} />
                 <Tag icon={MapPin} v={g.location} />
-                <Tag icon={Clock} v={formatGigWhen(g)} highlight={isGigToday(g) || isGigTomorrow(g)} />
+                <Tag
+                  icon={Clock}
+                  v={formatGigFull(g)}
+                  highlight={isGigToday(g) || isGigTomorrow(g)}
+                  className="sm:col-span-2"
+                />
               </div>
               {completed && (
                 <div
@@ -169,13 +195,13 @@ export default function WorkerAccepted() {
     </div>
   );
 }
-const Tag = ({ icon: I, v, highlight }) => (
+const Tag = ({ icon: I, v, highlight, className }) => (
   <span
-    className={`inline-flex items-center gap-1 ${
+    className={`inline-flex items-start gap-1 ${
       highlight ? "font-bold text-[#0044FF]" : "text-[#030712]"
-    }`}
+    } ${className || ""}`}
   >
-    <I size={12} weight={highlight ? "fill" : "duotone"} /> {v}
+    <I size={12} weight={highlight ? "fill" : "duotone"} className="mt-0.5 shrink-0" /> {v}
   </span>
 );
 
