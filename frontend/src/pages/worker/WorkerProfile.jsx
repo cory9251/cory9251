@@ -552,7 +552,7 @@ function CompletionBanner({ missing, needsId, idPending, idVerified, progressPct
             Finish your profile to request gigs
           </div>
           <div className="mt-0.5 text-xs text-[#92400E]/80">
-            HCOB needs this info before you can claim a gig.
+            HCOB needs this info before you can claim an assignment.
           </div>
         </div>
       </div>

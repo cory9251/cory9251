@@ -219,7 +219,7 @@ export default function AdminRequests() {
 
                   {/* Gig block */}
                   <button
-                    onClick={() => nav(`/ops/gigs/${r.gig_id}`)}
+                    onClick={() => nav(`/ops/assignments/${r.gig_id}`)}
                     className="text-left lg:col-span-5"
                   >
                     <div className="font-mono-label flex items-center gap-2">

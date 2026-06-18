@@ -259,7 +259,7 @@ export default function AdminCalendar() {
             }}
             className="ml-auto h-9 rounded-none bg-[#0044FF] px-3 text-white hover:bg-[#0036cc] md:ml-2 md:h-10 md:px-4"
           >
-            <Plus size={16} className="md:mr-1" /> <span className="hidden sm:inline">New gig</span>
+            <Plus size={16} className="md:mr-1" /> <span className="hidden sm:inline">New assignment</span>
           </Button>
         </div>
       </div>
@@ -486,7 +486,7 @@ function DaySheet({ day, gigs, totals, onClose, nav, openCreateFor }) {
           </button>
         </div>
         <div className="grid grid-cols-3 gap-2 border-b border-[#E5E7EB] bg-[#F9FAFB] px-5 py-3 text-center">
-          <Stat label="Gigs" value={gigs.length} />
+          <Stat label="Assignments" value={gigs.length} />
           <Stat label="Pay" value={`$${Math.round(totals.totalPay).toLocaleString()}`} />
           <Stat label="Slots" value={`${totals.totalFilled}/${totals.totalSlots}`} />
         </div>
@@ -501,7 +501,7 @@ function DaySheet({ day, gigs, totals, onClose, nav, openCreateFor }) {
                 data-testid={`cal-day-sheet-gig-${g.gig_id}`}
                 onClick={() => {
                   onClose();
-                  nav(`/ops/gigs/${g.gig_id}`);
+                  nav(`/ops/assignments/${g.gig_id}`);
                 }}
                 className="flex items-start gap-3 px-5 py-3 active:bg-[#F0F4FF]"
               >
@@ -570,7 +570,7 @@ function MonthChip({ gig, nav }) {
       data-testid={`cal-chip-${gig.gig_id}`}
       onClick={(e) => {
         e.stopPropagation();
-        nav(`/ops/gigs/${gig.gig_id}`);
+        nav(`/ops/assignments/${gig.gig_id}`);
       }}
       className={`flex cursor-pointer items-center gap-1 truncate px-2 py-1 text-[11px] font-semibold ${c.bg} ${c.text}`}
       title={`${format(gig._date, "h:mm a")} — ${gig.title}`}
@@ -723,7 +723,7 @@ function WeekCard({ gig, nav }) {
   return (
     <button
       data-testid={`cal-week-chip-${gig.gig_id}`}
-      onClick={() => nav(`/ops/gigs/${gig.gig_id}`)}
+      onClick={() => nav(`/ops/assignments/${gig.gig_id}`)}
       className="block w-full overflow-hidden bg-white text-left shadow-sm transition-transform hover:-translate-y-0.5"
     >
       <div className={`flex items-center gap-2 px-2 py-1.5 ${c.bg} ${c.text}`}>
@@ -776,7 +776,7 @@ function DayView({ day, gigs, nav, openCreateFor }) {
       <div className="lg:col-span-3 border-r-0 lg:border-r border-[#E5E7EB]">
         {/* Day summary banner */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 md:gap-x-6 md:px-10">
-          <Stat label="Gigs" value={gigs.length} />
+          <Stat label="Assignments" value={gigs.length} />
           <Stat
             label="Pay"
             value={`$${Math.round(totals.totalPay).toLocaleString()}`}
@@ -861,7 +861,7 @@ function DayView({ day, gigs, nav, openCreateFor }) {
             value={`${totals.totalFilled}/${totals.totalSlots}`}
             icon={Users}
           />
-          <BigStat label="Gigs" value={gigs.length} icon={Plus} />
+          <BigStat label="Assignments" value={gigs.length} icon={Plus} />
         </div>
 
         <div className="mt-6">
@@ -875,7 +875,7 @@ function DayView({ day, gigs, nav, openCreateFor }) {
               gigs.map((g) => (
                 <li
                   key={g.gig_id}
-                  onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
+                  onClick={() => nav(`/ops/assignments/${g.gig_id}`)}
                   className="cursor-pointer border border-[#E5E7EB] bg-white p-3 text-[11px] hover:border-[#030712]"
                 >
                   <div className="flex items-center justify-between">
@@ -904,7 +904,7 @@ function DayCard({ gig, nav }) {
   return (
     <button
       data-testid={`day-card-${gig.gig_id}`}
-      onClick={() => nav(`/ops/gigs/${gig.gig_id}`)}
+      onClick={() => nav(`/ops/assignments/${gig.gig_id}`)}
       className="overflow-hidden border border-[#E5E7EB] bg-white text-left transition-transform hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)]"
     >
       <div className={`flex items-center gap-2 px-3 py-2 ${c.bg} ${c.text}`}>

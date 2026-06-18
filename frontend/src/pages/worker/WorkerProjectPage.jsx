@@ -187,7 +187,7 @@ function ProjectGigCard({ g, crewVisible }) {
   return (
     <li
       data-testid={`worker-project-gig-${g.gig_id}`}
-      onClick={() => nav(`/crew/gigs/${g.gig_id}`)}
+      onClick={() => nav(`/crew/assignments/${g.gig_id}`)}
       className={`group cursor-pointer border bg-white p-4 transition-colors hover:bg-[#F9FAFB] ${
         mineApproved
           ? "border-[#22C55E]"

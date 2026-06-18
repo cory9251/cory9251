@@ -94,7 +94,7 @@ export default function GigDetail() {
     try {
       await api.delete(`/gigs/${gigId}`);
       toast.success("Gig deleted");
-      nav("/ops/gigs");
+      nav("/ops/assignments");
     } catch (e) {
       toast.error(getErr(e));
     }
@@ -105,7 +105,7 @@ export default function GigDetail() {
     try {
       const { data } = await api.post(`/gigs/${gigId}/duplicate`);
       toast.success("Gig duplicated");
-      nav(`/ops/gigs/${data.gig_id}`);
+      nav(`/ops/assignments/${data.gig_id}`);
     } catch (e) {
       toast.error(getErr(e));
     } finally {
@@ -211,7 +211,7 @@ export default function GigDetail() {
     <div data-testid="admin-gig-detail">
       <div className="border-b border-[#E5E7EB] px-6 py-6 md:px-10">
         <button
-          onClick={() => nav("/ops/gigs")}
+          onClick={() => nav("/ops/assignments")}
           className="font-mono-label flex items-center gap-2 text-[#4B5563] hover:text-[#030712]"
         >
           <ArrowLeft size={14} /> All gigs
@@ -526,7 +526,7 @@ export default function GigDetail() {
             <div className="mt-1">
               <div className="font-display text-2xl font-black">
                 {gig.pending_requests.length} worker
-                {gig.pending_requests.length === 1 ? " wants" : "s want"} to claim this gig
+                {gig.pending_requests.length === 1 ? " wants" : "s want"} to claim this assignment
               </div>
             </div>
             <div className="mt-4 overflow-x-auto border border-[#F59E0B]/30">

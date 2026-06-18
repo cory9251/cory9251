@@ -41,7 +41,7 @@ export default function WorkerAccepted() {
     <div className="px-5 py-6" data-testid="worker-accepted">
       <div className="font-mono-label">My commitments</div>
       <h1 className="mt-1 font-display text-3xl font-black tracking-tight">
-        My gigs
+        My assignments
       </h1>
 
       {earnings && (
@@ -103,7 +103,7 @@ export default function WorkerAccepted() {
             <button
               key={g.gig_id}
               data-testid={`accepted-gig-${g.gig_id}`}
-              onClick={() => nav(`/crew/gigs/${g.gig_id}`)}
+              onClick={() => nav(`/crew/assignments/${g.gig_id}`)}
               className="gb-tactile w-full rounded-2xl border border-black/5 bg-white p-5 text-left"
             >
               <div className="flex items-start justify-between gap-3">

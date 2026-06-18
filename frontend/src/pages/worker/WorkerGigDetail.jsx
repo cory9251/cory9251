@@ -609,7 +609,7 @@ export default function WorkerGigDetail() {
             <div className="flex items-center gap-2 rounded-2xl border border-[#10B981]/30 bg-[#ECFDF5] p-4 text-sm">
               <CheckCircle size={20} weight="fill" className="text-[#10B981]" />
               <div>
-                <div className="font-bold text-[#065F46]">Gig complete.</div>
+                <div className="font-bold text-[#065F46]">Assignment complete.</div>
                 <div className="text-xs text-[#065F46]/80">Thanks for the work.</div>
               </div>
             </div>

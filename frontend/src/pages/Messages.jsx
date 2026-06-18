@@ -477,8 +477,8 @@ export default function Messages() {
                             onClick={() => {
                               const base =
                                 user?.role === "admin"
-                                  ? `/ops/gigs/${activeThread.gig_id}`
-                                  : `/crew/gigs/${activeThread.gig_id}`;
+                                  ? `/ops/assignments/${activeThread.gig_id}`
+                                  : `/crew/assignments/${activeThread.gig_id}`;
                               navigate(base);
                             }}
                             className="underline hover:text-[#0044FF]"

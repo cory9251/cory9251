@@ -13,7 +13,7 @@ import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const tabs = [
   { to: "/crew", label: "Feed", icon: House, end: true },
-  { to: "/crew/my-gigs", label: "My gigs", icon: CheckSquare, end: false },
+  { to: "/crew/my-assignments", label: "My work", icon: CheckSquare, end: false },
   { to: "/crew/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
   { to: "/crew/me", label: "Profile", icon: User, end: false },
 ];

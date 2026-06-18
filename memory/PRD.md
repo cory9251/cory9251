@@ -1122,3 +1122,90 @@ Plus: `bypass_cooldown=True` admin override for emergency reminders.
 - `/app/frontend/src/App.js` — route registration
 - `/app/backend/tests/test_iter56_email_blast.py` — 8 tests
 - `/app/backend/tests/test_iter50_welcome_email.py` — patched `/crew/profile` → `/crew/me`
+
+## Implemented — 2026-02 (Iter 57: Landing revamp + Gigs → Assignments rename) — VERIFIED 40/40 regression
+
+### Goal
+Reposition `hcobnetwork.com` from "gig platform" to "managed contractor network led by Cory Clarke". Rename "gigs → assignments" across UI/UX. Contractor-facing only (customers go to `/customers` directly).
+
+### Landing page — full rewrite (`Landing.jsx`)
+- **Hero**: "A structured team for any scope. **Led by Cory Clarke.**" (blue accent on founder name)
+- **Subhead**: "HCOB Network isn't a gig app. It's a managed contractor network — where vetted professionals get plugged into real projects, not just same-day work."
+- **Founder credit card**: Quote "This is more than a side hustle. It's a structured professional network." — Cory Clarke, Owner · Founder · Project Manager
+- **Service lines** (right column): Commercial cleaning programs · Project staffing & labor · Multi-service projects · Same-day assignments (positioned as the floor, not the ceiling)
+- **Why join** (4 cards): "On a team, not in a queue" · "Larger scope = larger checks" · "Real project management" · "Paid right after the work"
+- **Live feed**: renamed to "What the network is working on right now" — reframed as routed-through-network, not classified ads
+- **3-step joining** with icons: Apply → Get vetted → Get assignments
+- **Removed**: customer-strip bar at the top (customers have their own page at `/customers`); "Find gigs from HCOB Cleaners" framing; "Join the crew" CTAs replaced with "Apply to join the network"
+- **Marquee**: COMMERCIAL CLEANING · POST-CONSTRUCTION · MOVE-OUTS · PROJECT STAFFING · WAREHOUSE · MULTI-SERVICE · RUSH RESPONSE
+
+### Rename: Gigs → Assignments (Hybrid scope)
+**UI labels + frontend route paths only — backend `/api/gigs` unchanged for PWA / deployed-cache safety.**
+
+- **Canonical routes**:
+  - `/crew/gigs/:id` → `/crew/assignments/:id`
+  - `/crew/my-gigs` → `/crew/my-assignments`
+  - `/ops/gigs` → `/ops/assignments`
+  - `/ops/gigs/:id` → `/ops/assignments/:id`
+- **Legacy redirects** preserved so existing emails / bookmarks / PWA caches still work:
+  - `/crew/gigs/:id`, `/crew/my-gigs`, `/app/gigs/:id`, `/app/accepted`, `/ops/gigs`, `/ops/gigs/:id`, `/admin/gigs`, `/admin/gigs/:id` — all 301-style redirect to the new canonical paths
+
+- **Visible UI text swapped** in:
+  - Worker sidebar: "My gigs" → "My work"
+  - Admin sidebar: "Gigs" → "Assignments"
+  - Worker Feed h1: "Open gigs" → "Open assignments"
+  - Worker Accepted h1: "My gigs" → "My assignments"
+  - Admin Gigs page h1 + "New gig" button + empty state copy
+  - Admin Dashboard "Recent gigs" + "New gig" CTA
+  - Admin Calendar "New gig" button + Stat labels
+  - Admin Reports "Gigs" tab label + blurb
+  - Worker Detail history table header
+  - Push toggle copy ("new assignment hits the feed")
+  - Project dialogs ("pre-fill new assignments")
+  - GigDetail pending-requests copy
+  - WorkerProfile profile-blocked copy
+  - Project detail "Add new assignment" CTAs
+
+- **Internal identifiers preserved** to avoid breakage:
+  - `gig_id` field name (DB + API)
+  - `/api/gigs/*` API paths
+  - Component names: `GigDetail`, `CreateGigDialog`, `EditGigDialog`, `AdminGigs`, etc. (renaming is a separate refactor)
+  - Helper modules: `gigTags`, `gigDate`, `formatGigShort`
+  - Variable names: `gigs`, `setGigs`, etc.
+
+### Verified
+- Landing page renders correctly with new hero + founder credit + service lines (screenshot)
+- Lint passes on Landing.jsx + App.js
+- 40/40 backend regression tests pass (iter48–56)
+
+### Files touched
+- `/app/frontend/src/pages/Landing.jsx` — REWRITE (~500 lines)
+- `/app/frontend/src/App.js` — canonical assignment routes + legacy redirects
+- `/app/frontend/src/components/worker/WorkerLayout.jsx` — sidebar "My work"
+- `/app/frontend/src/components/admin/AdminLayout.jsx` — sidebar "Assignments"
+- `/app/frontend/src/components/worker/PushNotificationToggle.jsx` — copy
+- `/app/frontend/src/components/admin/CreateGigDialog.jsx` — "Post a new assignment"
+- `/app/frontend/src/components/admin/CreateProjectDialog.jsx` — copy
+- `/app/frontend/src/components/admin/EditProjectDialog.jsx` — copy
+- `/app/frontend/src/pages/worker/WorkerFeed.jsx` — h1 + verification copy + nav
+- `/app/frontend/src/pages/worker/WorkerAccepted.jsx` — h1 + nav
+- `/app/frontend/src/pages/worker/WorkerGigDetail.jsx` — "Assignment complete"
+- `/app/frontend/src/pages/worker/WorkerProfile.jsx` — copy
+- `/app/frontend/src/pages/worker/WorkerProjectPage.jsx` — nav
+- `/app/frontend/src/pages/admin/AdminGigs.jsx` — h1 + button + empty state + nav (all)
+- `/app/frontend/src/pages/admin/GigDetail.jsx` — nav (all) + copy
+- `/app/frontend/src/pages/admin/AdminCalendar.jsx` — Stat labels + button + nav (all)
+- `/app/frontend/src/pages/admin/AdminDashboard.jsx` — labels + button + nav (all)
+- `/app/frontend/src/pages/admin/AdminProjectDetail.jsx` — nav (all) + CTAs
+- `/app/frontend/src/pages/admin/AdminRequests.jsx` — nav (all)
+- `/app/frontend/src/pages/admin/AdminReports.jsx` — labels + blurb
+- `/app/frontend/src/pages/admin/WorkerDetail.jsx` — table header
+- `/app/frontend/src/pages/PublicGigPage.jsx` — nav (all)
+- `/app/frontend/src/pages/Messages.jsx` — assignment-link nav
+
+### Not yet done (intentionally deferred to keep this safe)
+- Component file renames (`CreateGigDialog` → `CreateAssignmentDialog`, etc.) — pure cosmetic, doesn't affect users
+- Internal variable name renames (`gigs` → `assignments` in React state)
+- DB collection rename (would require migration; PWA caches would break)
+- `/api/gigs` endpoint rename (would break the deployed PWA on workers' phones until they reinstall)
+

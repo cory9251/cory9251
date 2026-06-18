@@ -182,7 +182,7 @@ export default function AdminGigs() {
         <div>
           <div className="font-mono-label">Manage</div>
           <h1 className="mt-1 font-display text-4xl font-black tracking-tight">
-            Gigs
+            Assignments
           </h1>
         </div>
         <Button
@@ -190,7 +190,7 @@ export default function AdminGigs() {
           onClick={() => setOpen(true)}
           className="h-11 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
         >
-          <Plus size={16} className="mr-2" /> New gig
+          <Plus size={16} className="mr-2" /> New assignment
         </Button>
       </div>
 
@@ -256,7 +256,7 @@ export default function AdminGigs() {
       <div className="px-6 md:px-10 py-6">
         {sortedGigs.length === 0 ? (
           <div className="border border-dashed border-[#E5E7EB] p-12 text-center text-sm text-[#4B5563]">
-            No gigs match. Try a different filter or post a new gig.
+            No assignments match. Try a different filter or post a new one.
           </div>
         ) : (
           <div className="overflow-x-auto border border-[#E5E7EB]">
@@ -285,7 +285,7 @@ export default function AdminGigs() {
                       <td className="border-b border-[#E5E7EB] px-4 py-3">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <button
-                            onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
+                            onClick={() => nav(`/ops/assignments/${g.gig_id}`)}
                             className="font-display text-base font-bold hover:text-[#0044FF]"
                           >
                             {g.title}
@@ -353,7 +353,7 @@ export default function AdminGigs() {
                       <td className="border-b border-[#E5E7EB] px-4 py-3 text-right">
                         <button
                           data-testid={`open-gig-${g.gig_id}`}
-                          onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
+                          onClick={() => nav(`/ops/assignments/${g.gig_id}`)}
                           className="text-xs font-semibold text-[#0044FF] hover:underline"
                         >
                           Manage →

@@ -110,8 +110,11 @@ function RouterShell() {
         <Route index element={<AdminDashboard />} />
         <Route path="calendar" element={<AdminCalendar />} />
         <Route path="requests" element={<AdminRequests />} />
-        <Route path="gigs" element={<AdminGigs />} />
-        <Route path="gigs/:gigId" element={<GigDetail />} />
+        <Route path="assignments" element={<AdminGigs />} />
+        <Route path="assignments/:gigId" element={<GigDetail />} />
+        {/* Legacy aliases — bookmarks/emails sent before the rename */}
+        <Route path="gigs" element={<Navigate to="/ops/assignments" replace />} />
+        <Route path="gigs/:gigId" element={<RedirectWithParam to="/ops/assignments" param="gigId" />} />
         <Route path="workers" element={<AdminWorkers />} />
         <Route path="workers/:userId" element={<WorkerDetail />} />
         <Route path="projects" element={<AdminProjects />} />
@@ -138,8 +141,8 @@ function RouterShell() {
       <Route path="/admin" element={<Navigate to="/ops" replace />} />
       <Route path="/admin/calendar" element={<Navigate to="/ops/calendar" replace />} />
       <Route path="/admin/requests" element={<Navigate to="/ops/requests" replace />} />
-      <Route path="/admin/gigs" element={<Navigate to="/ops/gigs" replace />} />
-      <Route path="/admin/gigs/:gigId" element={<RedirectWithParam to="/ops/gigs" param="gigId" />} />
+      <Route path="/admin/gigs" element={<Navigate to="/ops/assignments" replace />} />
+      <Route path="/admin/gigs/:gigId" element={<RedirectWithParam to="/ops/assignments" param="gigId" />} />
       <Route path="/admin/workers" element={<Navigate to="/ops/workers" replace />} />
       <Route path="/admin/workers/:userId" element={<RedirectWithParam to="/ops/workers" param="userId" />} />
       <Route path="/admin/reports" element={<Navigate to="/ops/reports" replace />} />
@@ -155,9 +158,12 @@ function RouterShell() {
         }
       >
         <Route index element={<WorkerFeed />} />
-        <Route path="gigs/:gigId" element={<WorkerGigDetail />} />
+        <Route path="assignments/:gigId" element={<WorkerGigDetail />} />
         <Route path="projects/:projectId" element={<WorkerProjectPage />} />
-        <Route path="my-gigs" element={<WorkerAccepted />} />
+        <Route path="my-assignments" element={<WorkerAccepted />} />
+        {/* Legacy aliases — pre-rename emails / bookmarks / PWA caches */}
+        <Route path="gigs/:gigId" element={<RedirectWithParam to="/crew/assignments" param="gigId" />} />
+        <Route path="my-gigs" element={<Navigate to="/crew/my-assignments" replace />} />
         <Route path="messages" element={<Messages />} />
         <Route path="me" element={<WorkerProfile />} />
       </Route>
@@ -184,8 +190,8 @@ function RouterShell() {
 
       {/* Legacy /app/* — redirect to /crew/* */}
       <Route path="/app" element={<Navigate to="/crew" replace />} />
-      <Route path="/app/gigs/:gigId" element={<RedirectWithParam to="/crew/gigs" param="gigId" />} />
-      <Route path="/app/accepted" element={<Navigate to="/crew/my-gigs" replace />} />
+      <Route path="/app/gigs/:gigId" element={<RedirectWithParam to="/crew/assignments" param="gigId" />} />
+      <Route path="/app/accepted" element={<Navigate to="/crew/my-assignments" replace />} />
       <Route path="/app/profile" element={<Navigate to="/crew/me" replace />} />
     </Routes>
   );

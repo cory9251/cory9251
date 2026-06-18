@@ -231,7 +231,7 @@ export default function CreateGigDialog({
       >
         <DialogHeader className="border-b border-[#E5E7EB] px-6 py-4">
           <DialogTitle className="font-display text-2xl font-black tracking-tight">
-            Post a new gig
+            Post a new assignment
           </DialogTitle>
         </DialogHeader>
         <form

@@ -72,7 +72,7 @@ export default function AdminDashboard() {
           onClick={() => setCreateOpen(true)}
           className="h-11 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
         >
-          <Plus size={16} className="mr-2" /> New gig
+          <Plus size={16} className="mr-2" /> New assignment
         </Button>
       </div>
 
@@ -170,12 +170,12 @@ export default function AdminDashboard() {
         <div className="lg:col-span-2 border-r border-[#E5E7EB]">
           <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
             <div>
-              <div className="font-mono-label">Recent gigs</div>
+              <div className="font-mono-label">Recent assignments</div>
               <div className="font-display text-xl font-bold">Latest posts</div>
             </div>
             <button
               data-testid="view-all-gigs"
-              onClick={() => nav("/ops/gigs")}
+              onClick={() => nav("/ops/assignments")}
               className="text-xs font-semibold text-[#0044FF] hover:underline"
             >
               View all →
@@ -192,7 +192,7 @@ export default function AdminDashboard() {
                 <button
                   key={g.gig_id}
                   data-testid={`recent-gig-${g.gig_id}`}
-                  onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
+                  onClick={() => nav(`/ops/assignments/${g.gig_id}`)}
                   className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-[#F9FAFB]"
                 >
                   <div>
@@ -234,7 +234,7 @@ export default function AdminDashboard() {
             . Choose channels — in-app, email, SMS — and send to your entire roster.
           </p>
           <Button
-            onClick={() => nav("/ops/gigs")}
+            onClick={() => nav("/ops/assignments")}
             className="mt-6 h-10 w-full rounded-none border border-[#030712] bg-white text-[#030712] hover:bg-[#030712] hover:text-white"
           >
             Open gig list

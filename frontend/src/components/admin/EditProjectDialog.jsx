@@ -125,7 +125,7 @@ export default function EditProjectDialog({ open, onOpenChange, project, onSaved
             </div>
           </div>
           <div className="md:col-span-2 mt-2 border-t border-[#E5E7EB] pt-4">
-            <Label className="font-mono-label">Defaults (pre-fill new gigs)</Label>
+            <Label className="font-mono-label">Defaults (pre-fill new assignments)</Label>
           </div>
           <div>
             <Label className="font-mono-label">Default location</Label>

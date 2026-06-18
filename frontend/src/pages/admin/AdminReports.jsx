@@ -67,12 +67,12 @@ const REPORTS = {
     ],
   },
   gigs: {
-    label: "Gigs",
+    label: "Assignments",
     icon: Briefcase,
     filters: ["start", "end", "category", "gig_status"],
-    blurb: "Every gig with date, location, slots, workers assigned, and payout so far.",
+    blurb: "Every assignment with date, location, slots, workers assigned, and payout so far.",
     kpis: (t) => [
-      { label: "Gigs", value: t?.rows ?? "—" },
+      { label: "Assignments", value: t?.rows ?? "—" },
       { label: "Workers assigned", value: t?.workers_assigned ?? "—" },
       { label: "Workers completed", value: t?.workers_completed ?? "—" },
       { label: "Total payout", value: t ? `$${(t.total_payout ?? 0).toFixed(2)}` : "—" },

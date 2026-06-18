@@ -239,7 +239,7 @@ export default function AdminProjectDetail() {
 
         {/* Stat strip */}
         <div className="mt-6 grid grid-cols-3 gap-3 border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:max-w-md">
-          <Stat icon={Briefcase} value={project.gigs?.length || 0} label="Gigs" />
+          <Stat icon={Briefcase} value={project.gigs?.length || 0} label="Assignments" />
           <Stat
             icon={Users}
             value={`${totals.filled}/${totals.slots}`}
@@ -271,7 +271,7 @@ export default function AdminProjectDetail() {
                     <button
                       key={g.gig_id}
                       data-testid={`proj-gig-${g.gig_id}`}
-                      onClick={() => nav(`/ops/gigs/${g.gig_id}`)}
+                      onClick={() => nav(`/ops/assignments/${g.gig_id}`)}
                       className="group overflow-hidden border border-[#E5E7EB] bg-white text-left transition-all hover:-translate-y-0.5 hover:border-[#030712]"
                     >
                       <div className={`flex items-center gap-2 px-3 py-2 ${c.bg} ${c.text}`}>
@@ -311,7 +311,7 @@ export default function AdminProjectDetail() {
                     <li
                       key={m.acceptance_id}
                       data-testid={`proj-crew-${m.acceptance_id}`}
-                      onClick={() => nav(`/ops/gigs/${m.gig_id}`)}
+                      onClick={() => nav(`/ops/assignments/${m.gig_id}`)}
                       className="flex cursor-pointer items-center gap-3 bg-white px-4 py-2.5 hover:bg-[#F9FAFB]"
                     >
                       <span className={`grid h-8 w-8 shrink-0 place-items-center ${c.bg} ${c.text}`}>
@@ -458,14 +458,14 @@ function EmptyBlock({ onAddClick, onLinkClick }) {
     <div className="border border-dashed border-[#E5E7EB] bg-[#F9FAFB] p-8 text-center">
       <div className="font-display text-base font-bold">No gigs linked yet.</div>
       <p className="mt-1 text-xs text-[#4B5563]">
-        Add a new gig under this project, or link an existing one.
+        Add a new assignment under this project, or link an existing one.
       </p>
       <div className="mt-4 flex justify-center gap-2">
         <Button
           onClick={onAddClick}
           className="h-9 rounded-none bg-[#0044FF] text-white hover:bg-[#0036cc]"
         >
-          <Plus size={14} className="mr-1" /> Add new gig
+          <Plus size={14} className="mr-1" /> Add new assignment
         </Button>
         <Button
           onClick={onLinkClick}

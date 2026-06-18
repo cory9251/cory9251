@@ -37,7 +37,7 @@ export default function PublicGigPage() {
   // land directly on the authenticated gig view.
   useEffect(() => {
     if (user && user.role === "worker") {
-      nav(`/crew/gigs/${gigId}`, { replace: true });
+      nav(`/crew/assignments/${gigId}`, { replace: true });
     }
   }, [user, gigId, nav]);
 
@@ -62,7 +62,7 @@ export default function PublicGigPage() {
     // Already-logged-in workers go straight to the gig detail; new visitors
     // are redirected to register with a `next` query so they land on the gig
     // after signup.
-    nav(`/crew/gigs/${gigId}`);
+    nav(`/crew/assignments/${gigId}`);
   };
 
   if (loading) {

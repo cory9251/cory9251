@@ -180,7 +180,7 @@ export default function WorkerDetail() {
                 <table className="w-full text-sm">
                   <thead className="bg-[#F9FAFB]">
                     <tr className="text-left">
-                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Gig</th>
+                      <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Assignment</th>
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Status</th>
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">In</th>
                       <th className="border-b border-[#E5E7EB] px-3 py-2 font-mono-label">Out</th>

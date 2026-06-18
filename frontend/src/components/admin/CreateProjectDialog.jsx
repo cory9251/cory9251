@@ -82,7 +82,7 @@ export default function CreateProjectDialog({ open, onOpenChange, onCreated }) {
             New project
           </DialogTitle>
           <p className="text-xs text-[#4B5563]">
-            Group 2+ gigs that share a job site. Defaults pre-fill new gigs.
+            Group 2+ assignments that share a job site. Defaults pre-fill new assignments.
           </p>
         </DialogHeader>
         <form
@@ -126,7 +126,7 @@ export default function CreateProjectDialog({ open, onOpenChange, onCreated }) {
           </div>
 
           <div className="md:col-span-2 mt-2 border-t border-[#E5E7EB] pt-4">
-            <Label className="font-mono-label">Default values (pre-fill new gigs)</Label>
+            <Label className="font-mono-label">Default values (pre-fill new assignments)</Label>
             <p className="mt-1 text-[11px] text-[#4B5563]">
               When you add a gig under this project, these fields auto-fill.
               You can override per gig.

@@ -186,7 +186,7 @@ export default function PushNotificationToggle() {
         testid="push-card-enabled"
       >
         <p className="mt-2 text-xs text-[#4B5563]">
-          You'll get a push the moment HCOB blasts a new gig or project — even
+          You&apos;ll get a push the moment HCOB blasts a new assignment or project — even
           when the browser is closed.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -217,7 +217,7 @@ export default function PushNotificationToggle() {
   return (
     <Card
       title="Push notifications"
-      subtitle="Get a push the second new gigs hit the feed."
+      subtitle="Get a push the second new assignments hit the feed."
       icon={BellRinging}
       accent="blue"
       testid="push-card-available"

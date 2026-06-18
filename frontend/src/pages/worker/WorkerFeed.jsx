@@ -65,7 +65,7 @@ export default function WorkerFeed() {
       }
     : {
         title: "Awaiting HCOB verification",
-        sub: "Your ID is in review. You'll be able to accept gigs as soon as HCOB verifies you.",
+        sub: "Your ID is in review. You'll be able to accept assignments as soon as HCOB verifies you.",
       };
 
   const load = async () => {
@@ -96,7 +96,7 @@ export default function WorkerFeed() {
     <div className="px-5 py-6" data-testid="worker-feed">
       <div className="font-mono-label">Available now</div>
       <h1 className="mt-1 font-display text-3xl font-black tracking-tight">
-        Open gigs
+        Open assignments
       </h1>
 
       {/* "I'm available now" toggle — hidden for pending/blocked workers
@@ -190,11 +190,11 @@ export default function WorkerFeed() {
                 role="button"
                 tabIndex={0}
                 data-testid={`feed-gig-${g.gig_id}`}
-                onClick={() => nav(`/crew/gigs/${g.gig_id}`)}
+                onClick={() => nav(`/crew/assignments/${g.gig_id}`)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    nav(`/crew/gigs/${g.gig_id}`);
+                    nav(`/crew/assignments/${g.gig_id}`);
                   }
                 }}
                 className={`gb-tactile relative w-full cursor-pointer rounded-2xl bg-white p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#0044FF] ${

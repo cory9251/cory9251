@@ -31,7 +31,7 @@ const nav = [
   { to: "/ops/calendar", label: "Calendar", icon: CalendarBlank, end: false },
   { to: "/ops/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: "pending" },
   { to: "/ops/quotes", label: "Quotes", icon: EnvelopeOpen, end: false, badge: "quotes" },
-  { to: "/ops/gigs", label: "Gigs", icon: Briefcase, end: false },
+  { to: "/ops/assignments", label: "Assignments", icon: Briefcase, end: false },
   { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
   { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
   { to: "/ops/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
