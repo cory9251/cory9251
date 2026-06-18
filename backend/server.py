@@ -1509,6 +1509,42 @@ async def on_startup():
     except Exception as e:  # noqa: BLE001
         logger.warning(f"truthful-approval auto-migration failed (non-fatal): {e}")
 
+    # Slot-count reconciliation — recompute `slots_filled` and `backups_filled`
+    # from the actual acceptance documents. Heals any drift caused by the
+    # pre-Iter52 race condition (where two concurrent admin approvals could
+    # both squeeze past the capacity check and overbook a gig). Idempotent.
+    try:
+        reconciled = 0
+        async for g in db.gigs.find({}, {"gig_id": 1, "slots": 1, "slots_filled": 1, "backups_filled": 1, "status": 1}):
+            primary_count = await db.gig_acceptances.count_documents({
+                "gig_id": g["gig_id"],
+                "status": {"$in": ["accepted", "on_the_clock", "completed"]},
+            })
+            backup_count = await db.gig_acceptances.count_documents({
+                "gig_id": g["gig_id"], "status": "backup",
+            })
+            current_primary = int(g.get("slots_filled") or 0)
+            current_backup = int(g.get("backups_filled") or 0)
+            updates = {}
+            if primary_count != current_primary:
+                updates["slots_filled"] = primary_count
+            if backup_count != current_backup:
+                updates["backups_filled"] = backup_count
+            # Reconcile 'filled' status flag
+            total_slots = int(g.get("slots", 1))
+            should_be_filled = primary_count >= total_slots
+            if should_be_filled and g.get("status") == "open":
+                updates["status"] = "filled"
+            elif not should_be_filled and g.get("status") == "filled":
+                updates["status"] = "open"
+            if updates:
+                await db.gigs.update_one({"gig_id": g["gig_id"]}, {"$set": updates})
+                reconciled += 1
+        if reconciled:
+            logger.info(f"slot-count reconciliation: healed {reconciled} gigs with drifted counters")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"slot-count reconciliation failed (non-fatal): {e}")
+
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gigblast.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "GigBlast2026!")

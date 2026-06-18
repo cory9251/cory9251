@@ -874,3 +874,48 @@ Already redeployed (per prior iterations). The email will send automatically on 
 - Mobile-first layout: filter bar collapses to a single row; expanded panel uses native select elements (best mobile UX).
 - 33/33 backend regression tests pass (iter29 + iter45 + iter46) — no API surface changed.
 
+
+
+## Implemented — 2026-06 (Iter 52: Slot Overbooking — Atomic Reservation) — VERIFIED 100%
+**Bug**: Production showed a 4-slot gig with 5 approved workers. Root cause: classic check-then-update race condition.
+
+### Root cause
+The 4 endpoints that grew `slots_filled` (`approve_request`, `approve_request_as_backup`, `assign_worker`, plus the corresponding decrement on `remove_worker_from_gig`) did:
+```python
+filled = gig.slots_filled        # read
+if filled >= slots: raise 400    # check
+gig.slots_filled = filled + 1    # write
+```
+Two concurrent admin clicks (or one double-click) could both read `slots_filled=3`, both pass the check, both write `4` — overbooking by 1 silently. Five clicks racing could overbook by more.
+
+### Fix
+Replaced check-then-update with **single atomic `find_one_and_update`** using `$expr: {$lt: [slots_filled, slots]}` as a filter. Only the request whose write commits the increment "wins"; concurrent losers get `None` back and immediately return 400.
+```python
+reserved = await db.gigs.find_one_and_update(
+    {"gig_id": gig_id, "$expr": {"$lt": [{"$ifNull": ["$slots_filled", 0]}, {"$ifNull": ["$slots", 1]}]}},
+    {"$inc": {"slots_filled": 1}},
+    return_document=ReturnDocument.AFTER,
+)
+if not reserved: raise HTTPException(400, "All slots filled")
+```
+Plus **rollback compensation** on acceptance-write failures — `try/except` wraps the acceptance update; if it raises, we `$inc -1` the gig counter so the system never wedges above truth.
+
+Same pattern applied to:
+- `POST /gigs/{id}/requests/{aid}/approve` (primary slot)
+- `POST /gigs/{id}/requests/{aid}/approve-backup` (backup slot)
+- `POST /gigs/{id}/assign` (admin direct assignment)
+- `DELETE /gigs/{id}/acceptances/{aid}` (decrement on removal — now `$inc -1` with `slots_filled > 0` guard)
+
+### Data healing
+New `on_startup` task in `server.py` — **slot-count reconciliation**. Walks every gig, recomputes `slots_filled` from actual `gig_acceptances.count_documents({status: accepted|on_the_clock|completed})`, and writes only when they differ. Heals any historical drift from the pre-Iter52 race. Idempotent — re-runs are no-ops on clean data. Also reconciles the `status='filled'` flag.
+
+**On production redeploy**: the boot task will surface every historically-overbooked gig with the correct counter (e.g. the screenshotted gig will display `5/4 filled` instead of misleading `4/4 filled` with 5 names — admin can then remove one to restore truth).
+
+### Tests
+- New `/app/backend/tests/test_iter52_slot_overbooking.py` — 4 dedicated tests:
+  1. **Serial cap** — 5 requests + 4 slots → 4 succeed, 5th gets 400
+  2. **Concurrent cap** — 5 ThreadPoolExecutor threads against a 3-slot gig → **EXACTLY 3 succeed**
+  3. **Remove releases the slot** — removing a worker frees their spot for a queued approval
+  4. **Reconciliation idempotent** — running over a clean gig changes nothing
+- Combined regression: **53/53 backend pytest pass**
+

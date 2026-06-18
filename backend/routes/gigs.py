@@ -24,6 +24,8 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+from pymongo import ReturnDocument
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from config import db, logger, VAPID_PRIVATE_KEY
@@ -1050,7 +1052,14 @@ async def approve_request(
     acceptance_id: str,
     admin: dict = Depends(require_admin),
 ):
-    """Admin approves a worker's gig request — reserves the slot."""
+    """Admin approves a worker's gig request — reserves the slot.
+
+    Race-safe: the slot reservation uses a single atomic findOneAndUpdate with
+    a `$expr: $lt[slots_filled, slots]` filter so two concurrent approvals
+    can't both squeeze in past the capacity check. The acceptance row itself
+    is only flipped to 'accepted' AFTER the slot is reserved — and if writing
+    the acceptance fails we roll the gig counter back.
+    """
     acceptance = await db.gig_acceptances.find_one(
         {"acceptance_id": acceptance_id, "gig_id": gig_id}
     )
@@ -1059,31 +1068,61 @@ async def approve_request(
     if acceptance.get("status") != "requested":
         raise HTTPException(400, "Request is not pending approval")
 
-    gig = await db.gigs.find_one({"gig_id": gig_id})
-    if not gig:
-        raise HTTPException(404, "Gig not found")
-    filled = int(gig.get("slots_filled") or 0)
-    if filled >= int(gig.get("slots", 1)):
+    # ATOMIC slot reservation: increment slots_filled only if there's room.
+    # Returns the updated gig doc, or None if the gig is already full / missing.
+    reserved = await db.gigs.find_one_and_update(
+        {
+            "gig_id": gig_id,
+            "$expr": {
+                "$lt": [
+                    {"$ifNull": ["$slots_filled", 0]},
+                    {"$ifNull": ["$slots", 1]},
+                ]
+            },
+        },
+        {"$inc": {"slots_filled": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not reserved:
+        # Either the gig vanished or every slot is already taken.
+        existing = await db.gigs.find_one({"gig_id": gig_id}, {"slots": 1, "slots_filled": 1})
+        if not existing:
+            raise HTTPException(404, "Gig not found")
         raise HTTPException(400, "All slots are already filled — use /approve-backup instead")
 
+    gig = reserved
+    new_filled = int(gig.get("slots_filled") or 0)
+    total_slots = int(gig.get("slots", 1))
     now = datetime.now(timezone.utc).isoformat()
-    await db.gig_acceptances.update_one(
-        {"acceptance_id": acceptance_id},
-        {
-            "$set": {
-                "status": "accepted",
-                "accepted_at": now,
-                "approved_by": admin["email"],
-                "is_backup": False,
-                "backup_order": None,
-            }
-        },
-    )
-    new_filled = filled + 1
-    gig_update = {"slots_filled": new_filled}
-    if new_filled >= int(gig.get("slots", 1)):
-        gig_update["status"] = "filled"
-    await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+    try:
+        await db.gig_acceptances.update_one(
+            {"acceptance_id": acceptance_id, "status": "requested"},
+            {
+                "$set": {
+                    "status": "accepted",
+                    "accepted_at": now,
+                    "approved_by": admin["email"],
+                    "is_backup": False,
+                    "backup_order": None,
+                }
+            },
+        )
+    except Exception:
+        # Roll back the slot reservation if the acceptance update fails so we
+        # never wedge the counter above the actual approved count.
+        await db.gigs.update_one(
+            {"gig_id": gig_id}, {"$inc": {"slots_filled": -1}}
+        )
+        raise
+
+    # Optionally flip the gig status to 'filled' (separate update — safe to do
+    # outside the atomic increment since 'filled' is a derived flag, not a
+    # capacity gate).
+    if new_filled >= total_slots and gig.get("status") != "filled":
+        await db.gigs.update_one(
+            {"gig_id": gig_id, "status": {"$ne": "filled"}},
+            {"$set": {"status": "filled"}},
+        )
 
     # In-app notification
     await db.notifications.insert_one(
@@ -1110,8 +1149,12 @@ async def approve_request(
         subject=f"You're approved — {gig.get('title')}",
         body_html=body_html, gig_id=gig_id,
     )
-    logger.info(f"Admin {admin['email']} approved request {acceptance_id} on gig {gig_id}")
-    return {"ok": True, "slots_filled": new_filled, "gig_status": gig_update.get("status", gig["status"])}
+    logger.info(f"Admin {admin['email']} approved request {acceptance_id} on gig {gig_id} ({new_filled}/{total_slots})")
+    return {
+        "ok": True,
+        "slots_filled": new_filled,
+        "gig_status": "filled" if new_filled >= total_slots else gig.get("status"),
+    }
 
 
 @router.post("/gigs/{gig_id}/requests/{acceptance_id}/approve-backup")
@@ -1129,32 +1172,48 @@ async def approve_request_as_backup(
     if acceptance.get("status") != "requested":
         raise HTTPException(400, "Request is not pending approval")
 
-    gig = await db.gigs.find_one({"gig_id": gig_id})
-    if not gig:
-        raise HTTPException(404, "Gig not found")
-    backup_slots = int(gig.get("backup_slots") or 0)
-    backups_filled = int(gig.get("backups_filled") or 0)
-    if backup_slots <= 0:
-        raise HTTPException(400, "This gig has no backup slots configured")
-    if backups_filled >= backup_slots:
+    # ATOMIC backup slot reservation (mirrors approve_request)
+    reserved = await db.gigs.find_one_and_update(
+        {
+            "gig_id": gig_id,
+            "$expr": {
+                "$lt": [
+                    {"$ifNull": ["$backups_filled", 0]},
+                    {"$ifNull": ["$backup_slots", 0]},
+                ]
+            },
+        },
+        {"$inc": {"backups_filled": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not reserved:
+        existing = await db.gigs.find_one({"gig_id": gig_id}, {"backup_slots": 1, "backups_filled": 1})
+        if not existing:
+            raise HTTPException(404, "Gig not found")
+        if int(existing.get("backup_slots") or 0) <= 0:
+            raise HTTPException(400, "This gig has no backup slots configured")
         raise HTTPException(400, "All backup slots are already filled")
 
+    gig = reserved
+    backup_order = int(gig.get("backups_filled") or 0)  # already incremented
+
     now = datetime.now(timezone.utc).isoformat()
-    backup_order = backups_filled + 1
-    await db.gig_acceptances.update_one(
-        {"acceptance_id": acceptance_id},
-        {"$set": {
-            "status": "backup",
-            "accepted_at": now,
-            "approved_by": admin["email"],
-            "is_backup": True,
-            "backup_order": backup_order,
-        }},
-    )
-    await db.gigs.update_one(
-        {"gig_id": gig_id},
-        {"$set": {"backups_filled": backups_filled + 1}},
-    )
+    try:
+        await db.gig_acceptances.update_one(
+            {"acceptance_id": acceptance_id, "status": "requested"},
+            {"$set": {
+                "status": "backup",
+                "accepted_at": now,
+                "approved_by": admin["email"],
+                "is_backup": True,
+                "backup_order": backup_order,
+            }},
+        )
+    except Exception:
+        await db.gigs.update_one(
+            {"gig_id": gig_id}, {"$inc": {"backups_filled": -1}}
+        )
+        raise
     await db.notifications.insert_one({
         "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
         "user_id": acceptance["worker_id"],
@@ -1307,9 +1366,6 @@ async def assign_worker(
     gig = await db.gigs.find_one({"gig_id": gig_id})
     if not gig:
         raise HTTPException(404, "Gig not found")
-    filled = int(gig.get("slots_filled") or 0)
-    if filled >= int(gig.get("slots", 1)):
-        raise HTTPException(400, "All slots are already filled")
 
     worker = await db.users.find_one({"user_id": payload.worker_id})
     if not worker or worker.get("role") != "worker":
@@ -1321,38 +1377,65 @@ async def assign_worker(
     existing = await db.gig_acceptances.find_one(
         {"gig_id": gig_id, "worker_id": payload.worker_id}
     )
-    if existing:
-        if existing.get("status") == "requested":
+    if existing and existing.get("status") not in ("requested",):
+        raise HTTPException(400, "Worker is already on this gig")
+
+    # ATOMIC slot reservation (mirrors approve_request)
+    reserved = await db.gigs.find_one_and_update(
+        {
+            "gig_id": gig_id,
+            "$expr": {
+                "$lt": [
+                    {"$ifNull": ["$slots_filled", 0]},
+                    {"$ifNull": ["$slots", 1]},
+                ]
+            },
+        },
+        {"$inc": {"slots_filled": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not reserved:
+        raise HTTPException(400, "All slots are already filled")
+
+    gig = reserved
+    new_filled = int(gig.get("slots_filled") or 0)
+    total_slots = int(gig.get("slots", 1))
+    now = datetime.now(timezone.utc).isoformat()
+
+    try:
+        if existing:
             # Convert their pending request into an admin-assigned acceptance
-            now = datetime.now(timezone.utc).isoformat()
             await db.gig_acceptances.update_one(
                 {"acceptance_id": existing["acceptance_id"]},
                 {"$set": {"status": "accepted", "accepted_at": now, "approved_by": admin["email"]}},
             )
             acceptance_id = existing["acceptance_id"]
         else:
-            raise HTTPException(400, "Worker is already on this gig")
-    else:
-        acceptance_id = f"acc_{uuid.uuid4().hex[:12]}"
-        now = datetime.now(timezone.utc).isoformat()
-        await db.gig_acceptances.insert_one(
-            {
-                "acceptance_id": acceptance_id,
-                "gig_id": gig_id,
-                "worker_id": payload.worker_id,
-                "status": "accepted",
-                "requested_at": now,
-                "accepted_at": now,
-                "approved_by": admin["email"],
-                "assigned_by_admin": True,
-            }
+            acceptance_id = f"acc_{uuid.uuid4().hex[:12]}"
+            await db.gig_acceptances.insert_one(
+                {
+                    "acceptance_id": acceptance_id,
+                    "gig_id": gig_id,
+                    "worker_id": payload.worker_id,
+                    "status": "accepted",
+                    "requested_at": now,
+                    "accepted_at": now,
+                    "approved_by": admin["email"],
+                    "assigned_by_admin": True,
+                }
+            )
+    except Exception:
+        # Roll back the slot reservation if the acceptance write fails
+        await db.gigs.update_one(
+            {"gig_id": gig_id}, {"$inc": {"slots_filled": -1}}
         )
+        raise
 
-    new_filled = filled + 1
-    gig_update = {"slots_filled": new_filled}
-    if new_filled >= int(gig.get("slots", 1)):
-        gig_update["status"] = "filled"
-    await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+    if new_filled >= total_slots and gig.get("status") != "filled":
+        await db.gigs.update_one(
+            {"gig_id": gig_id, "status": {"$ne": "filled"}},
+            {"$set": {"status": "filled"}},
+        )
 
     await db.notifications.insert_one(
         {
@@ -1391,18 +1474,30 @@ async def remove_worker_from_gig(
     was_backup = acceptance.get("is_backup") and acceptance.get("status") == "backup"
     await db.gig_acceptances.delete_one({"acceptance_id": acceptance_id})
 
+    # Atomic decrement so concurrent removes can't double-roll-back the
+    # counter past 0. The `$max` clamp would be cleaner but isn't supported
+    # in $inc; we use a guard filter instead so we only $inc when it's safe.
     gig = await db.gigs.find_one({"gig_id": gig_id})
     if gig:
-        gig_update = {}
         if was_primary:
-            new_filled = max(0, int(gig.get("slots_filled") or 0) - 1)
-            gig_update["slots_filled"] = new_filled
-            if gig.get("status") == "filled" and new_filled < int(gig.get("slots", 1)):
-                gig_update["status"] = "open"
+            await db.gigs.find_one_and_update(
+                {"gig_id": gig_id, "slots_filled": {"$gt": 0}},
+                {"$inc": {"slots_filled": -1}},
+            )
         if was_backup:
-            gig_update["backups_filled"] = max(0, int(gig.get("backups_filled") or 0) - 1)
-        if gig_update:
-            await db.gigs.update_one({"gig_id": gig_id}, {"$set": gig_update})
+            await db.gigs.find_one_and_update(
+                {"gig_id": gig_id, "backups_filled": {"$gt": 0}},
+                {"$inc": {"backups_filled": -1}},
+            )
+        # Re-read after decrements so the 'filled → open' flip is based on
+        # the up-to-date counter rather than the pre-decrement read.
+        if was_primary:
+            refreshed = await db.gigs.find_one({"gig_id": gig_id}, {"slots": 1, "slots_filled": 1, "status": 1})
+            if refreshed and refreshed.get("status") == "filled" and int(refreshed.get("slots_filled") or 0) < int(refreshed.get("slots", 1)):
+                await db.gigs.update_one(
+                    {"gig_id": gig_id, "status": "filled"},
+                    {"$set": {"status": "open"}},
+                )
 
     await db.notifications.insert_one(
         {
