@@ -919,3 +919,43 @@ New `on_startup` task in `server.py` — **slot-count reconciliation**. Walks ev
   4. **Reconciliation idempotent** — running over a clean gig changes nothing
 - Combined regression: **53/53 backend pytest pass**
 
+
+
+## Implemented — 2026-02 (Iter 53: Payout Method Collection + Background Reminders) — VERIFIED 11/11
+
+**Goal**: Collect worker payout details (Zelle / Apple Cash / Chime) in their profile WITHOUT blocking gig acceptance. Pair it with two background email cadences — a 24h shift reminder and a 3-day / 7-day "add your payment info" nudge for workers who never set a payout method.
+
+### Backend
+- **Model** (`models.py`): `ProfileUpdateIn` gains `payout_method: Literal["zelle"|"apple_cash"|"chime"]` + `payout_handle: str`. A `field_validator` coerces incoming `""` → `None` so the frontend can clear the method without tripping the Literal validator (which would otherwise return 422).
+- **Route** (`routes/profile.py`):
+  - PUT `/api/profile` peeks at the raw JSON body (`await request.json()`) to detect a `payout_method: ""` clear-intent — since `exclude_none=True` would otherwise drop the cleared field. When clear-intent fires, both `payout_method` and `payout_handle` are nulled.
+  - Sending `{payout_method: "zelle"}` without a handle (or with an empty handle in the same payload) returns **400** — handle is required when a method is being set.
+  - Setting a method stamps `payout_updated_at` (ISO UTC).
+  - **Never blocks gig acceptance** — payout fields are purely informational.
+- **Reminders daemon** (`reminders.py`, new):
+  - Single coroutine `reminders_runner()` started in `server.py` `on_startup`; sleeps 60s, then loops every 10min.
+  - **Shift pass**: scans `gigs` whose `scheduled_at` is 23-25h from now; for each active acceptance (`accepted` or `on_the_clock`), looks up the dedupe key `shift_24h::{acceptance_id}` in the new `reminder_log` collection. If unseen, sends a Resend email reminding the worker of when/where/pay + a "clock in!" callout, then upserts the key.
+  - **Payment-info pass**: for each tier (`payment_3d` at +3d, `payment_7d` at +7d), finds workers with no `payout_method` whose `created_at <= now - tier_delta` and `worker_status not in (rejected, suspended)`. Sends a short email with a CTA back to `/crew/profile`. Dedupes via `{tier}::{user_id}` keys so each tier sends at most once per worker.
+  - Graceful degradation — if Resend isn't configured, `_send_user_email` no-ops and the reminder is logged so we don't retry forever.
+
+### Frontend
+- `WorkerProfile.jsx`: new "Payment information" section between phone and emergency contact. Method dropdown (Zelle/Apple Cash/Chime/None) drives the handle field's label, placeholder, and `inputMode`. The card never gates anything else — workers can clear or change anytime.
+
+### Tests
+`/app/backend/tests/test_iter53_payouts_reminders.py` — **11/11 pass**:
+- Set/clear Zelle, Apple Cash, Chime
+- Invalid method rejected (422 — Literal)
+- Method without handle rejected (400 — manual validation)
+- Clearing resets both fields (200)
+- `/auth/me` echoes the saved payout
+- `reminder_log` dedupe is idempotent
+- Shift + payment passes run without errors (smoke)
+- Shift reminder dedupe key prevents double-send
+
+### Files touched
+- `/app/backend/models.py` — `ProfileUpdateIn` gains payout fields + `field_validator`
+- `/app/backend/routes/profile.py` — raw-body peek for clear-intent
+- `/app/backend/reminders.py` — new (~200 lines)
+- `/app/backend/server.py` — `asyncio.create_task(reminders_runner())` on startup
+- `/app/frontend/src/pages/worker/WorkerProfile.jsx` — payment section UI
+- `/app/backend/tests/test_iter53_payouts_reminders.py` — 11 tests

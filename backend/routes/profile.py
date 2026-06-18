@@ -46,8 +46,22 @@ async def profile_options(user: dict = Depends(get_current_user)):
 
 
 @router.put("/profile")
-async def update_profile(payload: ProfileUpdateIn, user: dict = Depends(get_current_user)):
+async def update_profile(payload: ProfileUpdateIn, request: Request, user: dict = Depends(get_current_user)):
+    # We use `exclude_none=True` because the legacy semantic is "omitted=keep,
+    # null=keep". For payout we need a way to *explicitly clear* — the
+    # frontend sends `payout_method: ""` which the validator turns into
+    # None, which `exclude_none` would drop. We detect the clear-intent by
+    # peeking at the raw request body.
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    try:
+        raw_body = await request.json()
+    except Exception:
+        raw_body = {}
+    payout_clear_intent = (
+        isinstance(raw_body, dict)
+        and "payout_method" in raw_body
+        and (raw_body.get("payout_method") in ("", None))
+    )
 
     # Validate enum-ish fields. For multi-select chip fields we silently drop
     # values we don't recognize rather than 400 — keeps saves working even when
@@ -68,7 +82,7 @@ async def update_profile(payload: ProfileUpdateIn, user: dict = Depends(get_curr
 
     # Payout: clear handle if method is cleared, and vice versa, so we never
     # store an orphan "zelle but no number" record.
-    if "payout_method" in updates and not updates["payout_method"]:
+    if payout_clear_intent:
         updates["payout_method"] = None
         updates["payout_handle"] = None
     if "payout_handle" in updates and updates["payout_handle"] is not None:
@@ -81,7 +95,7 @@ async def update_profile(payload: ProfileUpdateIn, user: dict = Depends(get_curr
         # If they already had a handle on file and only updated the method
         # (handle not in payload), the existing handle stays — only enforce
         # when both fields are in this payload.
-        if "payout_handle" in updates:
+        if "payout_handle" in updates or (isinstance(raw_body, dict) and "payout_handle" in raw_body):
             raise HTTPException(400, "Payout handle (phone/email/$username) is required when payout method is set.")
     if updates.get("payout_method"):
         updates["payout_updated_at"] = datetime.now(timezone.utc).isoformat()

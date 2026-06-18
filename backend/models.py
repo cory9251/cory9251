@@ -5,7 +5,7 @@ to anyone importing models.
 """
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 # ----- Type aliases ----------------------------------------------------------
 GigCategory = Literal["cleaning", "labor", "driver"]
@@ -76,8 +76,18 @@ class ProfileUpdateIn(BaseModel):
     # Payout method — one preferred per worker. We don't validate identifier
     # format strictly (Zelle accepts phone OR email, Chime uses $username) —
     # admin eyeballs it before sending money.
+    # Payout method — Literal restricts to the 3 supported values. Empty
+    # string from the frontend ("clear my payout method") is coerced to
+    # None before validation so the route can detect a clear-intent.
     payout_method: Optional[Literal["zelle", "apple_cash", "chime"]] = None
     payout_handle: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("payout_method", mode="before")
+    @classmethod
+    def _empty_method_to_none(cls, v, info):
+        if v == "":
+            return None
+        return v
 
 
 # ----- Gigs ------------------------------------------------------------------

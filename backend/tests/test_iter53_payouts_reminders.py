@@ -132,21 +132,35 @@ def test_auth_me_returns_payout(worker_session):
 
 
 # ---------- Reminders module can be imported and dedupe key works ----------
+def _fresh_reminders():
+    """Force-reload config + reminders so the Motor client is rebound to the
+    current asyncio loop. Each test creates a new loop via asyncio.run(), so
+    sharing a module-level Motor client across tests blows up."""
+    import sys, importlib
+    sys.path.insert(0, "/app/backend")
+    if "config" in sys.modules:
+        importlib.reload(sys.modules["config"])
+    if "notifications" in sys.modules:
+        importlib.reload(sys.modules["notifications"])
+    if "reminders" in sys.modules:
+        importlib.reload(sys.modules["reminders"])
+    import reminders as _r  # noqa: F401
+    return _r
+
+
 def test_reminder_log_dedupe_is_idempotent():
     """The reminder helpers use a `reminder_log` collection keyed by a unique
     string. Verify _has_logged + _mark_logged behave correctly."""
-    import sys
-    sys.path.insert(0, "/app/backend")
-    from reminders import _has_logged, _mark_logged
+    rem = _fresh_reminders()
 
     test_key = f"iter53_test::{uuid.uuid4().hex[:8]}"
 
     async def run():
-        assert (await _has_logged(test_key)) is False
-        await _mark_logged(test_key, {"hello": "world"})
-        assert (await _has_logged(test_key)) is True
+        assert (await rem._has_logged(test_key)) is False
+        await rem._mark_logged(test_key, {"hello": "world"})
+        assert (await rem._has_logged(test_key)) is True
         # Idempotent — second mark is a no-op upsert
-        await _mark_logged(test_key, {"hello": "world"})
+        await rem._mark_logged(test_key, {"hello": "world"})
         # Cleanup
         client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         try:
@@ -160,33 +174,27 @@ def test_reminder_log_dedupe_is_idempotent():
 def test_shift_reminders_pass_runs_without_error():
     """The shift-reminder pass should run cleanly even when no shifts match.
     This protects against syntax / query errors in the loop."""
-    import sys
-    sys.path.insert(0, "/app/backend")
-    from reminders import _send_shift_reminders_pass
-    asyncio.run(_send_shift_reminders_pass())  # Just verify no exceptions
+    rem = _fresh_reminders()
+    asyncio.run(rem._send_shift_reminders_pass())  # Just verify no exceptions
 
 
 def test_payment_reminders_pass_runs_without_error():
-    import sys
-    sys.path.insert(0, "/app/backend")
-    from reminders import _send_payment_reminders_pass
-    asyncio.run(_send_payment_reminders_pass())
+    rem = _fresh_reminders()
+    asyncio.run(rem._send_payment_reminders_pass())
 
 
 # ---------- End-to-end: shift reminder dedupe stops second send ------------
 def test_shift_reminder_dedupes_within_window():
     """If we manually log a shift-reminder key, the next pass should NOT
     re-send for that acceptance."""
-    import sys
-    sys.path.insert(0, "/app/backend")
-    from reminders import _has_logged, _mark_logged
+    rem = _fresh_reminders()
 
     fake_acceptance_id = f"acc_iter53_{uuid.uuid4().hex[:8]}"
     key = f"shift_24h::{fake_acceptance_id}"
 
     async def run():
-        await _mark_logged(key, {"test": True})
-        assert await _has_logged(key)
+        await rem._mark_logged(key, {"test": True})
+        assert await rem._has_logged(key)
         # Cleanup
         client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         try:
