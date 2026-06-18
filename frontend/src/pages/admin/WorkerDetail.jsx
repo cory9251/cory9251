@@ -767,6 +767,61 @@ function AdminProfileEditor({ worker, onSaved }) {
         </div>
       </Section>
 
+      {/* Payment info — Zelle / Apple Cash / Chime */}
+      <Section
+        title="Payment information"
+        hint="How HCOB sends this worker their pay. Workers normally fill this in themselves — you can edit it here if they called/texted it in."
+      >
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <FieldRow label="Method">
+            <select
+              data-testid="admin-edit-payout-method"
+              value={form.payout_method || ""}
+              onChange={(e) => set("payout_method", e.target.value)}
+              className="h-10 w-full rounded-none border border-[#030712] bg-white px-3 text-sm"
+            >
+              <option value="">— None on file —</option>
+              <option value="zelle">Zelle</option>
+              <option value="apple_cash">Apple Cash</option>
+              <option value="chime">Chime</option>
+            </select>
+          </FieldRow>
+          <FieldRow
+            label={
+              form.payout_method === "zelle"
+                ? "Zelle phone or email"
+                : form.payout_method === "apple_cash"
+                ? "Apple Cash phone number"
+                : form.payout_method === "chime"
+                ? "Chime $username"
+                : "Handle"
+            }
+          >
+            <Input
+              data-testid="admin-edit-payout-handle"
+              value={form.payout_handle || ""}
+              onChange={(e) => set("payout_handle", e.target.value)}
+              placeholder={
+                form.payout_method === "zelle"
+                  ? "(555) 123-4567 or worker@email.com"
+                  : form.payout_method === "apple_cash"
+                  ? "+15551234567"
+                  : form.payout_method === "chime"
+                  ? "$WorkerHandle"
+                  : "—"
+              }
+              disabled={!form.payout_method}
+              className="h-10 rounded-none border-[#030712]"
+            />
+          </FieldRow>
+        </div>
+        {worker.payout_updated_at && (
+          <div className="mt-2 text-[10px] uppercase tracking-widest text-[#4B5563]">
+            Last updated: {new Date(worker.payout_updated_at).toLocaleString()}
+          </div>
+        )}
+      </Section>
+
       {/* Emergency contact */}
       <Section title="Emergency contact">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -870,6 +925,8 @@ function fromWorker(w) {
     emergency_contact_name: w.emergency_contact_name || "",
     emergency_contact_phone: w.emergency_contact_phone || "",
     tshirt_size: w.tshirt_size || "",
+    payout_method: w.payout_method || "",
+    payout_handle: w.payout_handle || "",
     worker_status: w.worker_status || "approved",
     id_verified: !!w.id_verified,
   };

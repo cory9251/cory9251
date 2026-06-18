@@ -993,3 +993,47 @@ Four ordered phases, each idempotent and individually testable:
 ### Files touched
 - `/app/backend/startup.py` — NEW
 - `/app/backend/server.py` — `on_startup` slimmed to a 19-line orchestrator
+
+
+## Implemented — 2026-02 (Iter 54 — follow-up to Iter 53: Production bugs) — VERIFIED 18/18
+
+User reported 3 issues with the payment-info reminder email sent in production:
+
+### Bug 1: Email link pointed to preview URL instead of hcobnetwork.com
+**Root cause**: Production env still had `PUBLIC_BASE_URL=https://work-connect-147.preview.emergentagent.com` (legacy from preview). `_resolve_public_base()` honored it blindly.
+**Fix**: `notifications._resolve_public_base()` now detects preview hostnames (`preview.emergentagent.com`, `emergent.host`, `preview.emergent`) in `PUBLIC_BASE_URL` and skips them — falls through to the canonical `https://hcobnetwork.com`. The user can override with any non-preview URL via env var.
+
+### Bug 2: "Add payment method" CTA went to blank page
+**Root cause**: Both `reminders.py` and `notifications.py` linked to `/crew/profile` — but the worker profile route is `/crew/me`. Clicking the button landed on a non-route and the React Router fell through.
+**Fix**: Both files now use `/crew/me`.
+
+### Bug 3: Admin couldn't see the payment data workers submitted
+**Root cause**: `AdminProfileUpdateIn` didn't include payout fields, so the admin's WorkerDetail editor neither displayed nor persisted them.
+**Fix**:
+- Backend `AdminProfileUpdateIn` gains `payout_method` + `payout_handle`. The admin route now validates (zelle/apple_cash/chime), enforces handle-when-method-set, handles `""` clear-intent, and stamps `payout_updated_at`.
+- Frontend `WorkerDetail.jsx` gains a "Payment information" section above Emergency Contact — method dropdown + dynamic-label handle input + "Last updated" timestamp.
+- `fromWorker()` initializer picks up `payout_method`/`payout_handle` from the worker doc so the section pre-populates with whatever the worker entered.
+
+### Tests
+`/app/backend/tests/test_iter54_payout_admin_and_links.py` — **7/7 pass**:
+- `test_resolve_public_base_skips_preview_url` (4 env combos)
+- `test_email_cta_url_uses_crew_me_not_crew_profile` (source-grep guard against regression)
+- `test_admin_can_set_worker_payout`
+- `test_admin_can_clear_worker_payout`
+- `test_admin_invalid_method_rejected`
+- `test_admin_method_without_handle_rejected`
+- `test_admin_payout_visible_in_worker_response` (GET /admin/workers/{id} returns the payout)
+
+**Combined regression with iter53: 18/18 pass.**
+
+### Files touched
+- `/app/backend/notifications.py` — `_resolve_public_base` preview-URL skip; welcome email link `/crew/profile` → `/crew/me`
+- `/app/backend/reminders.py` — payment reminder CTA `/crew/profile` → `/crew/me`
+- `/app/backend/routes/admin.py` — `AdminProfileUpdateIn` + validation block for payout fields
+- `/app/frontend/src/pages/admin/WorkerDetail.jsx` — new Payment Information section + `fromWorker()` payload
+- `/app/backend/tests/test_iter54_payout_admin_and_links.py` — 7 tests
+
+### Action required from user on production
+Production needs a redeploy to pick up the code fixes (links + admin endpoint). After redeploy:
+- Recommended (optional): set `PUBLIC_BASE_URL=https://hcobnetwork.com` in production env (or remove the variable entirely — the fallback now defaults to it).
+- Existing reminder emails already sent will still contain the broken `/crew/profile` link; the fix only applies to emails sent after redeploy.

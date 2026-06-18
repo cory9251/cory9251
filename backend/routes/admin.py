@@ -457,6 +457,11 @@ class AdminProfileUpdateIn(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     tshirt_size: Optional[str] = None
+    # Worker payout info (Zelle / Apple Cash / Chime) — admin can view + edit
+    # so they can correct typos or add a method on behalf of a worker who
+    # called/texted it in. Validated via Literal — empty string clears.
+    payout_method: Optional[str] = None  # "zelle" | "apple_cash" | "chime" | "" (clear)
+    payout_handle: Optional[str] = None
     # Admin-only overrides
     worker_status: Optional[str] = None
     id_verified: Optional[bool] = None
@@ -551,6 +556,24 @@ async def admin_update_worker_profile(
         if not (z.isdigit() and len(z) == 5):
             raise HTTPException(400, "zip_code must be a 5-digit US ZIP code")
         updates["zip_code"] = z
+    # Payout method/handle — accept the same 3 methods as the worker self-serve
+    # flow. "" clears both. If a method is set but handle is empty in the same
+    # payload, reject so we never store an orphan "zelle but no number".
+    if "payout_method" in updates:
+        pm = (updates.get("payout_method") or "").strip().lower()
+        if pm == "":
+            updates["payout_method"] = None
+            updates["payout_handle"] = None
+        elif pm in ("zelle", "apple_cash", "chime"):
+            updates["payout_method"] = pm
+        else:
+            raise HTTPException(400, "payout_method must be zelle | apple_cash | chime")
+    if "payout_handle" in updates and updates["payout_handle"] is not None:
+        updates["payout_handle"] = updates["payout_handle"].strip() or None
+    if updates.get("payout_method") and "payout_handle" in updates and not updates.get("payout_handle"):
+        raise HTTPException(400, "Payout handle is required when payout method is set.")
+    if updates.get("payout_method"):
+        updates["payout_updated_at"] = datetime.now(timezone.utc).isoformat()
     if "worker_status" in updates and updates["worker_status"] not in (
         "approved", "pending", "rejected", "suspended"
     ):

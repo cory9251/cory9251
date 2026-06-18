@@ -56,15 +56,26 @@ async def is_blast_disabled() -> bool:
 def _resolve_public_base(request: Optional[Request] = None) -> str:
     """Return the canonical public origin so blast emails/SMS can include deep
     links. Order of precedence: proxy-forwarded headers → PUBLIC_BASE_URL env
-    → safe production fallback."""
+    (when it's NOT a preview URL) → safe production fallback."""
     if request is not None:
         fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
         fwd_proto = request.headers.get("x-forwarded-proto") or "https"
         if fwd_host and "localhost" not in fwd_host and "0.0.0.0" not in fwd_host:
             return f"{fwd_proto}://{fwd_host}".rstrip("/")
-    env_base = (os.environ.get("PUBLIC_BASE_URL") or "").strip()
+    env_base = (os.environ.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    # In production we want links to go to the canonical hcobnetwork.com
+    # domain — never to the preview/dev domains. If the env var still points
+    # at a preview hostname (legacy / dev override / forgotten env), ignore
+    # it and fall through to the production default. The user can still
+    # explicitly override by setting PUBLIC_BASE_URL to a non-preview URL.
+    if env_base and (
+        "preview.emergentagent.com" in env_base
+        or "emergent.host" in env_base
+        or "preview.emergent" in env_base
+    ):
+        env_base = ""
     if env_base:
-        return env_base.rstrip("/")
+        return env_base
     return "https://hcobnetwork.com"
 
 
@@ -243,7 +254,7 @@ async def send_worker_welcome_email(user: dict) -> bool:
         subject=f"Welcome to The HCOB Network, {first_name}",
         body_html=body_html,
         cta_label="Finish your profile",
-        cta_url=f"{_public_base()}/crew/profile",
+        cta_url=f"{_public_base()}/crew/me",
     )
 
 

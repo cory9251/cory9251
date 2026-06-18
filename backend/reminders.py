@@ -171,7 +171,7 @@ async def _send_payment_reminders_pass() -> None:
                     subject="Add your payment info — Zelle, Apple Cash, or Chime",
                     body_html=body,
                     cta_label="Add payment method",
-                    cta_url=f"{_public_base()}/crew/profile",
+                    cta_url=f"{_public_base()}/crew/me",
                 )
                 await _mark_logged(key, {"worker_id": u["user_id"], "tier": tier_key})
                 sent += 1
