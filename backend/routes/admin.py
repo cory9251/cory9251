@@ -77,9 +77,36 @@ async def list_workers(
     min_rating: Optional[float] = Query(None, ge=0, le=5, description="Hide workers below this avg rating"),
     available_now: Optional[bool] = Query(None, description="Only workers who flipped the 'I'm available now' switch"),
     payout_status: Optional[str] = Query(None, description="'missing' = no payout method on file; 'set' = method is set"),
+    id_status: Optional[str] = Query(None, description="'missing' | 'submitted' | 'verified'"),
     search: Optional[str] = Query(None, description="Free-text search across name/email/phone"),
     admin: dict = Depends(require_admin),
 ):
+    return await _filter_workers(
+        status=status, skills=skills, availability=availability,
+        zip_code=zip_code, zip_prefix=zip_prefix, vehicle=vehicle,
+        profile_complete=profile_complete, min_rating=min_rating,
+        available_now=available_now, payout_status=payout_status,
+        id_status=id_status, search=search,
+    )
+
+
+async def _filter_workers(
+    status: Optional[str] = None,
+    skills: Optional[str] = None,
+    availability: Optional[str] = None,
+    zip_code: Optional[str] = None,
+    zip_prefix: Optional[str] = None,
+    vehicle: Optional[str] = None,
+    profile_complete: Optional[bool] = None,
+    min_rating: Optional[float] = None,
+    available_now: Optional[bool] = None,
+    payout_status: Optional[str] = None,
+    id_status: Optional[str] = None,
+    search: Optional[str] = None,
+) -> list[dict]:
+    """Shared worker-filter logic. Used by /admin/workers AND the email-blast
+    endpoints so the audience picker on the blast composer is guaranteed to
+    match the workers list 1:1 (no drift)."""
     # Build the MongoDB filter. CRITICAL: every "this OR that" filter (status
     # back-compat, vehicle 'any', free-text search) needs its OWN $or block —
     # writing them all into a single $or key would just append disjuncts, which
@@ -196,6 +223,17 @@ async def list_workers(
         workers = [w for w in workers if not (w.get("payout_method") or "").strip()]
     elif payout_status == "set":
         workers = [w for w in workers if (w.get("payout_method") or "").strip()]
+
+    if id_status == "verified":
+        workers = [w for w in workers if w.get("id_verified") is True]
+    elif id_status == "submitted":
+        # Has uploaded an ID but admin hasn't verified yet.
+        workers = [
+            w for w in workers
+            if (w.get("id_image_path") or "").strip() and not w.get("id_verified")
+        ]
+    elif id_status == "missing":
+        workers = [w for w in workers if not (w.get("id_image_path") or "").strip()]
 
     return workers
 

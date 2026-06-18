@@ -59,7 +59,7 @@ def test_welcome_email_html_contains_founder_message():
     assert "baltimore" in body
     # CTA pushes them to finish their profile
     assert captured["cta_label"] == "Finish your profile"
-    assert "/crew/profile" in captured["cta_url"]
+    assert "/crew/me" in captured["cta_url"]
     # Personalized first-name greeting
     assert "alice" in body  # "Hey Alice"
 

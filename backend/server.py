@@ -1307,6 +1307,8 @@ api.include_router(auth_router)
 api.include_router(profile_router)
 api.include_router(gigs_router)
 api.include_router(admin_router)
+from routes.admin_blasts import router as admin_blasts_router  # noqa: E402
+api.include_router(admin_blasts_router)
 api.include_router(reports_router)
 api.include_router(va_router)
 api.include_router(pm_router)

@@ -62,6 +62,10 @@ async def ensure_indices() -> None:
     await db.blast_logs.create_index("gig_id")
     await db.blast_logs.create_index("project_id")
 
+    # Email blast (per-template cooldown lookup)
+    await db.email_blast_log.create_index([("template_key", 1), ("user_id", 1), ("sent_at", -1)])
+    await db.email_blast_log.create_index([("sent_at", -1)])
+
     # Password reset tokens — public forgot/reset flow
     await db.password_reset_tokens.create_index("token", unique=True)
     await db.password_reset_tokens.create_index("user_id")

@@ -21,6 +21,7 @@ import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminCalendar from "@/pages/admin/AdminCalendar";
 import AdminRequests from "@/pages/admin/AdminRequests";
 import AdminReports from "@/pages/admin/AdminReports";
+import AdminEmailBlast from "@/pages/admin/AdminEmailBlast";
 import AdminProjects from "@/pages/admin/AdminProjects";
 import AdminProjectDetail from "@/pages/admin/AdminProjectDetail";
 import AdminQuotes from "@/pages/admin/AdminQuotes";
@@ -117,6 +118,7 @@ function RouterShell() {
         <Route path="projects/:projectId" element={<AdminProjectDetail />} />
         <Route path="quotes" element={<AdminQuotes />} />
         <Route path="reports" element={<AdminReports />} />
+        <Route path="email-blast" element={<AdminEmailBlast />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="messages" element={<Messages />} />
         {/* VA Commission Program — admin / Program Manager / Owner */}

@@ -1067,3 +1067,58 @@ Production needs a redeploy to pick up the code fixes (links + admin endpoint). 
 - `/app/frontend/src/pages/admin/AdminWorkers.jsx` — filter pill + per-card payout badges
 - `/app/frontend/src/pages/admin/AdminDashboard.jsx` — payout-missing dashboard strip
 - `/app/backend/tests/test_iter55_missing_payout_filter.py` — 3 tests
+
+
+## Implemented — 2026-02 (Iter 56: Mass Email Blast) — VERIFIED 8/8 (45/45 combined)
+
+**Goal**: A proper "send a mass email to any slice of the workforce" tool. Templates as the easy path, full custom for power use. Email-only (Resend). 3-step UX with all the safeguards.
+
+### Backend
+- New routes file `/app/backend/routes/admin_blasts.py`
+- `GET /admin/email-templates` — 5 built-in templates: `payout_request`, `profile_complete`, `id_upload`, `shift_availability`, `custom`
+- `POST /admin/email-blast/preview` — accepts audience filters, returns `{count, preview: [{user_id, name, email}, ...first 5]}`
+- `POST /admin/email-blast/send` — with `test_only=True` sends ONE copy to the admin; with `test_only=False` sends to the full audience honoring cooldown
+- Refactored `routes/admin.py` to expose a shared `_filter_workers()` helper — both `/admin/workers` AND the blast composer use it, so audience preview matches the Workers page 1:1 (no drift)
+- New `id_status` filter (`missing` | `submitted` | `verified`) added to both endpoints
+
+### Safeguards (all 4 requested)
+1. **3-day per-template, per-worker cooldown** — `email_blast_log` collection keyed by `{template_key, user_id}`. Logged even on Resend-failed attempts to prevent retry storms
+2. **Preview before send** — `/preview` shows recipient count + first 5 names/emails; live-updates as filters change (debounced 350ms)
+3. **Test send to admin** — `test_only=True` route doesn't write to cooldown log
+4. **Global kill-switch** — `is_blast_disabled()` (Settings → Blast Kill Switch) returns 503
+
+Plus: `bypass_cooldown=True` admin override for emergency reminders.
+
+### Frontend
+- New page `/app/frontend/src/pages/admin/AdminEmailBlast.jsx` at `/ops/email-blast`
+- 3-step wizard: Audience → Compose → Review & send
+- Step 1: full audience builder mirroring the Workers page (status, payout, ID, profile-complete, skills, availability, ZIP, vehicle, rating, search). Live preview pane on the right
+- Step 2: template picker, subject + body (HTML + merge tags: `{{first_name}} {{name}} {{email}}`), optional CTA label + path. Live email preview rendered with sample recipient
+- Step 3: final preview + safety-check checklist + "Send test to me" + bypass-cooldown toggle + big green Send button
+- Sidebar nav: added "Email Blast" entry with `PaperPlaneTilt` icon between Messages and Reports
+- Dashboard strip: now has "See list →" AND "Email them →" buttons (the second routes straight to `/ops/email-blast?payout_status=missing` with the audience pre-applied)
+
+### Tests
+`/app/backend/tests/test_iter56_email_blast.py` — **8/8 pass**:
+- list templates
+- preview returns count + first 5
+- preview honors payout-missing filter (missing + set + everyone counts add up)
+- test send doesn't log cooldown
+- invalid `cta_path` (no leading slash) → 400
+- empty audience → 400
+- subject min-length validation → 422
+- cooldown: send twice with same template → second is skipped; bypass_cooldown reattempts
+
+**Combined regression**: 45/45 pass (iter48/49/50/52/53/54/55/56). Patched iter50 test that was still referencing the old `/crew/profile` route.
+
+### Files touched
+- `/app/backend/routes/admin_blasts.py` — NEW (~270 lines)
+- `/app/backend/routes/admin.py` — extracted `_filter_workers()` helper + `id_status` filter
+- `/app/backend/startup.py` — `email_blast_log` indices
+- `/app/backend/server.py` — register `admin_blasts_router`
+- `/app/frontend/src/pages/admin/AdminEmailBlast.jsx` — NEW (~830 lines, 3-step wizard)
+- `/app/frontend/src/pages/admin/AdminDashboard.jsx` — "Email them →" CTA on missing-payout strip
+- `/app/frontend/src/components/admin/AdminLayout.jsx` — Email Blast sidebar entry
+- `/app/frontend/src/App.js` — route registration
+- `/app/backend/tests/test_iter56_email_blast.py` — 8 tests
+- `/app/backend/tests/test_iter50_welcome_email.py` — patched `/crew/profile` → `/crew/me`

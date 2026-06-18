@@ -138,11 +138,7 @@ export default function AdminDashboard() {
           data-testid="dashboard-missing-payout-strip"
           className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-3 md:px-10"
         >
-          <button
-            data-testid="dashboard-missing-payout-link"
-            onClick={() => nav("/ops/workers?payout_status=missing")}
-            className="flex w-full items-center justify-between text-left"
-          >
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-[#92400E]">
               <CurrencyDollar size={18} weight="fill" />
               <span className="font-display text-sm font-bold">
@@ -150,8 +146,23 @@ export default function AdminDashboard() {
                 {stats.missing_payout === 1 ? "" : "s"} missing a payout method — you can't pay them yet
               </span>
             </div>
-            <span className="font-mono-label">See list →</span>
-          </button>
+            <div className="flex gap-2">
+              <button
+                data-testid="dashboard-missing-payout-link"
+                onClick={() => nav("/ops/workers?payout_status=missing")}
+                className="font-mono-label text-[10px] tracking-widest text-[#92400E] underline-offset-2 hover:underline"
+              >
+                See list →
+              </button>
+              <button
+                data-testid="dashboard-missing-payout-email"
+                onClick={() => nav("/ops/email-blast?payout_status=missing")}
+                className="bg-[#92400E] px-3 py-1 font-mono-label text-[10px] tracking-widest text-white hover:bg-[#78350F]"
+              >
+                Email them →
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

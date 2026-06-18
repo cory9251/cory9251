@@ -12,6 +12,7 @@ import {
   ChartBar,
   FolderSimplePlus,
   EnvelopeOpen,
+  PaperPlaneTilt,
   List,
   X,
   Handshake,
@@ -34,6 +35,7 @@ const nav = [
   { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
   { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
   { to: "/ops/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
+  { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
   { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },
   { to: "/ops/settings", label: "Settings", icon: Gear, end: false },
 ];
