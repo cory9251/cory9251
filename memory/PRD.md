@@ -1037,3 +1037,33 @@ User reported 3 issues with the payment-info reminder email sent in production:
 Production needs a redeploy to pick up the code fixes (links + admin endpoint). After redeploy:
 - Recommended (optional): set `PUBLIC_BASE_URL=https://hcobnetwork.com` in production env (or remove the variable entirely — the fallback now defaults to it).
 - Existing reminder emails already sent will still contain the broken `/crew/profile` link; the fix only applies to emails sent after redeploy.
+
+
+## Implemented — 2026-02 (Iter 55: "Missing Payout" Filter + Dashboard Strip) — VERIFIED 21/21
+
+**Goal**: Surface a one-click answer to "Who can't I pay yet?" so admin doesn't chase payouts blind on payday.
+
+### Backend
+- `GET /api/admin/workers?payout_status=missing|set` — server-side filter on whether `payout_method` is set. Garbage values are ignored (no 400) so the filter is forgiving.
+- `GET /api/admin/stats` returns a new `missing_payout` integer — workers who are `role=worker`, not `rejected|suspended`, and have no `payout_method`.
+
+### Frontend
+- **AdminWorkers (`/ops/workers`)**:
+  - New "Missing payout" amber toggle pill next to "Available now" (`data-testid="filter-payout-missing"`).
+  - Toggle state auto-syncs from `?payout_status=missing` URL param so deep-links work.
+  - Each worker card shows a `NO PAYOUT` amber badge or a `ZELLE / APPLE CASH / CHIME` green badge (with method + handle in tooltip).
+- **AdminDashboard (`/ops`)**: Amber strip "X workers missing a payout method — you can't pay them yet" with one-click "See list →" CTA that opens the filtered roster (`data-testid="dashboard-missing-payout-strip"`).
+
+### Tests
+`/app/backend/tests/test_iter55_missing_payout_filter.py` — **3/3 pass**:
+- `test_stats_includes_missing_payout_count` — endpoint returns an integer
+- `test_workers_filter_missing_payout` — set/clear cycle moves a worker between missing/set lists
+- `test_payout_filter_invalid_value_is_ignored` — garbage value is no-filter, not 400
+
+**Combined regression with iter53+54: 21/21 pass.**
+
+### Files touched
+- `/app/backend/routes/admin.py` — `payout_status` query param + `missing_payout` stat
+- `/app/frontend/src/pages/admin/AdminWorkers.jsx` — filter pill + per-card payout badges
+- `/app/frontend/src/pages/admin/AdminDashboard.jsx` — payout-missing dashboard strip
+- `/app/backend/tests/test_iter55_missing_payout_filter.py` — 3 tests

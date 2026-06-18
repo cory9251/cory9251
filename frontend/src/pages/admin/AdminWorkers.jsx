@@ -20,6 +20,7 @@ import {
   Star,
   Lightning,
   Warning,
+  CurrencyDollar,
 } from "@phosphor-icons/react";
 
 const TABS = [
@@ -124,6 +125,9 @@ export default function AdminWorkers() {
   const [minRating, setMinRating] = useState("");
   const [search, setSearch] = useState("");
   const [availableNow, setAvailableNow] = useState(false);
+  const [payoutMissing, setPayoutMissing] = useState(
+    () => params.get("payout_status") === "missing"
+  );
   const [showFilters, setShowFilters] = useState(false);
   const nav = useNavigate();
 
@@ -140,6 +144,7 @@ export default function AdminWorkers() {
       else if (profileComplete === "incomplete") q.profile_complete = false;
       if (minRating) q.min_rating = minRating;
       if (availableNow) q.available_now = true;
+      if (payoutMissing) q.payout_status = "missing";
       if (search.trim()) q.search = search.trim();
       const { data } = await api.get("/admin/workers", { params: q });
       setWorkers(data);
@@ -151,7 +156,7 @@ export default function AdminWorkers() {
   useEffect(() => {
     load();
     // eslint-disable-next-line
-  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, availableNow, search]);
+  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, availableNow, payoutMissing, search]);
 
   const toggleArr = (arr, setter, v) =>
     setter(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
@@ -165,6 +170,7 @@ export default function AdminWorkers() {
     setProfileComplete("");
     setMinRating("");
     setAvailableNow(false);
+    setPayoutMissing(false);
     setSearch("");
   };
 
@@ -177,6 +183,7 @@ export default function AdminWorkers() {
     (profileComplete ? 1 : 0) +
     (minRating ? 1 : 0) +
     (availableNow ? 1 : 0) +
+    (payoutMissing ? 1 : 0) +
     (search ? 1 : 0);
 
   return (
@@ -254,6 +261,20 @@ export default function AdminWorkers() {
               className={availableNow ? "animate-pulse" : ""}
             />
             Available now
+          </button>
+          <button
+            type="button"
+            data-testid="filter-payout-missing"
+            onClick={() => setPayoutMissing((v) => !v)}
+            className={`inline-flex h-10 items-center gap-1.5 border px-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${
+              payoutMissing
+                ? "border-[#F59E0B] bg-[#F59E0B] text-white"
+                : "border-[#F59E0B] bg-white text-[#92400E] hover:bg-[#FFFBEB]"
+            }`}
+            title="Show only workers without a payout method on file"
+          >
+            <CurrencyDollar size={12} weight="fill" />
+            Missing payout
           </button>
           {activeFilterCount > 0 && (
             <button
@@ -472,6 +493,29 @@ export default function AdminWorkers() {
                   ) : (
                     <span className="bg-[#E5E7EB] px-2 py-1 text-[10px] font-bold tracking-widest text-[#4B5563]">
                       NO ID
+                    </span>
+                  )}
+                  {!w.payout_method && (
+                    <span
+                      data-testid={`payout-missing-badge-${w.user_id}`}
+                      className="inline-flex items-center gap-1 bg-[#F59E0B]/15 px-2 py-1 text-[10px] font-bold tracking-widest text-[#92400E]"
+                      title="No payout method on file — admin can't send pay yet"
+                    >
+                      <CurrencyDollar size={10} weight="fill" /> NO PAYOUT
+                    </span>
+                  )}
+                  {w.payout_method && (
+                    <span
+                      data-testid={`payout-set-badge-${w.user_id}`}
+                      className="inline-flex items-center gap-1 bg-[#10B981]/15 px-2 py-1 text-[10px] font-bold tracking-widest text-[#065F46]"
+                      title={`${w.payout_method.toUpperCase()} · ${w.payout_handle || ""}`}
+                    >
+                      <CurrencyDollar size={10} weight="fill" />{" "}
+                      {w.payout_method === "zelle"
+                        ? "ZELLE"
+                        : w.payout_method === "apple_cash"
+                        ? "APPLE CASH"
+                        : "CHIME"}
                     </span>
                   )}
                 </div>

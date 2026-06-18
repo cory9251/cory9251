@@ -76,6 +76,7 @@ async def list_workers(
     profile_complete: Optional[bool] = Query(None),
     min_rating: Optional[float] = Query(None, ge=0, le=5, description="Hide workers below this avg rating"),
     available_now: Optional[bool] = Query(None, description="Only workers who flipped the 'I'm available now' switch"),
+    payout_status: Optional[str] = Query(None, description="'missing' = no payout method on file; 'set' = method is set"),
     search: Optional[str] = Query(None, description="Free-text search across name/email/phone"),
     admin: dict = Depends(require_admin),
 ):
@@ -190,6 +191,11 @@ async def list_workers(
         workers = [w for w in workers if w.get("available_now")]
     elif available_now is False:
         workers = [w for w in workers if not w.get("available_now")]
+
+    if payout_status == "missing":
+        workers = [w for w in workers if not (w.get("payout_method") or "").strip()]
+    elif payout_status == "set":
+        workers = [w for w in workers if (w.get("payout_method") or "").strip()]
 
     return workers
 
@@ -878,6 +884,19 @@ async def admin_stats(admin: dict = Depends(require_admin)):
             "available_until": {"$gt": now_iso},
         }
     )
+    # Workers without a payout method on file — admin can't send them money.
+    # Only counts approved/active workers (don't nag about rejected/suspended).
+    missing_payout = await db.users.count_documents(
+        {
+            "role": "worker",
+            "worker_status": {"$nin": ["rejected", "suspended"]},
+            "$or": [
+                {"payout_method": {"$exists": False}},
+                {"payout_method": None},
+                {"payout_method": ""},
+            ],
+        }
+    )
     return {
         "total_workers": total_workers,
         "open_gigs": open_gigs,
@@ -888,6 +907,7 @@ async def admin_stats(admin: dict = Depends(require_admin)):
         "pending_approval": pending_approval,
         "pending_requests": pending_requests,
         "available_now": available_now,
+        "missing_payout": missing_payout,
     }
 
 

@@ -13,6 +13,7 @@ import {
   Plus,
   Megaphone,
   Lightning,
+  CurrencyDollar,
 } from "@phosphor-icons/react";
 import { formatGigShort } from "@/lib/gigDate";
 
@@ -128,6 +129,28 @@ export default function AdminDashboard() {
               </span>
             </div>
             <span className="font-mono-label">Review now →</span>
+          </button>
+        </div>
+      )}
+
+      {stats?.missing_payout > 0 && (
+        <div
+          data-testid="dashboard-missing-payout-strip"
+          className="border-b border-[#E5E7EB] bg-[#FFFBEB] px-6 py-3 md:px-10"
+        >
+          <button
+            data-testid="dashboard-missing-payout-link"
+            onClick={() => nav("/ops/workers?payout_status=missing")}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2 text-[#92400E]">
+              <CurrencyDollar size={18} weight="fill" />
+              <span className="font-display text-sm font-bold">
+                {stats.missing_payout} worker
+                {stats.missing_payout === 1 ? "" : "s"} missing a payout method — you can't pay them yet
+              </span>
+            </div>
+            <span className="font-mono-label">See list →</span>
           </button>
         </div>
       )}
