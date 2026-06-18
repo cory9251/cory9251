@@ -110,9 +110,13 @@ frontend/node_modules/.cache/default-development/33.pack
 frontend/node_modules/.cache/default-development/4.pack
 frontend/node_modules/.cache/default-development/46.pack
 frontend/node_modules/.cache/default-development/46.pack
-.env
-.env.*
-*.env
+# .env files intentionally tracked — they contain template/protected vars
+# (REACT_APP_BACKEND_URL, MONGO_URL, DB_NAME) that the deploy process auto-
+# updates per environment. Sensitive credentials live in test_credentials.md
+# which is ignored separately above.
+# .env
+# .env.*
+# *.env
 credentials.json
 *.key
 .credentials
