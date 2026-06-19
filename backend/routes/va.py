@@ -510,6 +510,169 @@ async def va_edit_lead(
     return _serialize_lead(fresh)
 
 
+# Stages a VA can move their own lead through. Hard stages (booked,
+# completed, paid, lost) require admin verification because commissions
+# attach when a lead is marked "booked" — VAs can't be allowed to
+# self-mark their own leads as booked or we lose commission integrity.
+VA_PIPELINE_STAGES = ("new_lead", "contacted", "quoted")
+
+
+@router.patch("/va/leads/{lead_id}/notes")
+async def va_update_lead_notes(
+    lead_id: str,
+    payload: dict = Body(...),
+    user: dict = Depends(require_va_active),
+):
+    """Append (or replace) the VA's notes on their own lead. Works at any
+    stage — even after the lead has moved past 'new_lead' — because the
+    notes field is opaque to commissions and doesn't affect lead routing.
+
+    Body shape:
+      {"notes": "...new full notes string..."}
+    """
+    new_notes = (payload or {}).get("notes")
+    if new_notes is None:
+        raise HTTPException(400, "notes (string) required")
+    new_notes = str(new_notes).strip()
+    if len(new_notes) > 4000:
+        raise HTTPException(400, "notes must be 4000 characters or fewer")
+    lead = await db.va_leads.find_one({"lead_id": lead_id, "va_user_id": user["user_id"]})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        raise HTTPException(400, "Lead is deleted")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {"notes": new_notes, "updated_at": now}},
+    )
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="notes_updated",
+        actor=user,
+        detail={"length": len(new_notes)},
+    )
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
+
+
+@router.patch("/va/leads/{lead_id}/stage")
+async def va_move_lead_stage(
+    lead_id: str,
+    payload: dict = Body(...),
+    user: dict = Depends(require_va_active),
+):
+    """VA-driven stage move within the soft pipeline (new → contacted → quoted).
+    For hard outcomes (booked / completed / lost) the admin/PM has to flip
+    the stage so commissions can be audited."""
+    new_stage = (payload or {}).get("stage", "").strip().lower()
+    if new_stage not in VA_PIPELINE_STAGES:
+        raise HTTPException(
+            400,
+            f"VAs can only move leads between {', '.join(VA_PIPELINE_STAGES)}. "
+            "Bookings, closes, and losses are set by your Program Manager.",
+        )
+    lead = await db.va_leads.find_one({"lead_id": lead_id, "va_user_id": user["user_id"]})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        raise HTTPException(400, "Lead is deleted")
+    current = lead.get("stage") or "new_lead"
+    # Once admin has flipped it past quoted, the VA can't drag it back.
+    if current not in VA_PIPELINE_STAGES:
+        raise HTTPException(
+            403,
+            "This lead is in an admin-controlled stage. Ask your Program Manager to move it.",
+        )
+    if current == new_stage:
+        return _serialize_lead(lead)
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead_id},
+        {
+            "$set": {
+                "stage": new_stage,
+                "stage_changed_at": now,
+                "updated_at": now,
+            },
+            "$push": {
+                "stage_history": {"stage": new_stage, "at": now, "by": user["user_id"]},
+            },
+        },
+    )
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="stage_moved",
+        actor=user,
+        detail={"from": current, "to": new_stage},
+    )
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
+
+
+# SLA (response-time) windows in hours — how long a lead can sit in each
+# pipeline stage before it's flagged "hot" (80%) then "stale" (100%).
+# Tuned to HCOB's pipeline: VAs are expected to contact within 24h, follow
+# up with a quote within 48h, and close the loop on a quote within 72h.
+VA_LEAD_SLA_HOURS = {
+    "new_lead": 24,
+    "contacted": 48,
+    "quoted": 72,
+}
+
+
+def _lead_sla_status(lead: dict) -> dict:
+    """Compute SLA state for a lead card based on stage + stage_changed_at.
+
+    Returns:
+      - hours_in_stage:   float | None
+      - sla_hours:        int | None      (None when stage has no SLA, e.g. booked)
+      - sla_state:        "ok" | "hot" (>=80%) | "stale" (>=100%) | None
+      - sla_due_at_iso:   ISO string for the deadline (UI countdown)
+    """
+    stage = (lead.get("stage") or "").lower()
+    sla = VA_LEAD_SLA_HOURS.get(stage)
+    if not sla:
+        return {"hours_in_stage": None, "sla_hours": None, "sla_state": None, "sla_due_at_iso": None}
+    anchor = lead.get("stage_changed_at") or lead.get("created_at")
+    if not anchor:
+        return {"hours_in_stage": None, "sla_hours": sla, "sla_state": None, "sla_due_at_iso": None}
+    try:
+        anchor_dt = datetime.fromisoformat(str(anchor).replace("Z", "+00:00"))
+    except Exception:  # noqa: BLE001
+        return {"hours_in_stage": None, "sla_hours": sla, "sla_state": None, "sla_due_at_iso": None}
+    now = datetime.now(timezone.utc)
+    hours = max(0.0, (now - anchor_dt).total_seconds() / 3600.0)
+    pct = hours / sla
+    state = "stale" if pct >= 1.0 else ("hot" if pct >= 0.8 else "ok")
+    due = (anchor_dt + timedelta(hours=sla)).isoformat()
+    return {
+        "hours_in_stage": round(hours, 1),
+        "sla_hours": sla,
+        "sla_state": state,
+        "sla_due_at_iso": due,
+    }
+
+
+@router.get("/va/pipeline")
+async def va_pipeline_board(user: dict = Depends(require_va_active)):
+    """Kanban board payload — every non-deleted lead the VA owns, decorated
+    with SLA timing. Frontend groups by `stage` into columns. Cheap to call
+    on focus/refresh; UI polls every 30s for SLA tick."""
+    not_deleted = {"deleted_at": {"$in": [None, ""]}}
+    cur = db.va_leads.find({"va_user_id": user["user_id"], **not_deleted}).sort("stage_changed_at", -1)
+    items: list[dict] = []
+    async for lead in cur:
+        card = _serialize_lead(lead)
+        card.update(_lead_sla_status(lead))
+        items.append(card)
+    return {
+        "items": items,
+        "stages_va_can_move": list(VA_PIPELINE_STAGES),
+        "sla_hours": VA_LEAD_SLA_HOURS,
+    }
+
+
 @router.delete("/va/leads/{lead_id}")
 async def va_delete_lead(
     lead_id: str,

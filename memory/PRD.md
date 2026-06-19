@@ -1209,3 +1209,56 @@ Reposition `hcobnetwork.com` from "gig platform" to "managed contractor network 
 - DB collection rename (would require migration; PWA caches would break)
 - `/api/gigs` endpoint rename (would break the deployed PWA on workers' phones until they reinstall)
 
+
+## Implemented — 2026-02 (Iter 58: VA Lead Pipeline — Phase 1 of "make VAs successful") — VERIFIED 8/8
+
+**Goal**: Stop leads from rotting. Give VAs a Kanban view of every lead they own with a response-time SLA timer on every card, and give the Program Manager a coachable view of who's letting deals age out.
+
+### Phase 1 scope (shipped)
+**Kanban board** at `/va/leads` (replaces the old flat list)
+- 4 columns: **New · Contacted · Quoted · With Ops** (booked/completed/lost lumped into one read-only "With Ops" column)
+- Each card: prospect name, tap-to-call phone, tap-to-email, service type, **SLA countdown badge** (ok/hot/stale), tap-to-move dropdown, inline notes textarea (saves on blur)
+- VAs control soft pipeline (`new_lead → contacted → quoted`); hard outcomes (`booked/completed/paid/lost`) remain admin-only for commission integrity
+
+**SLA windows** (hardcoded; future: settings-driven):
+- `new_lead`: 24h to make first contact
+- `contacted`: 48h to send a quote
+- `quoted`: 72h to close the loop
+- At 80% of the window: **hot** (amber, animated pulse). At 100%: **stale** (red, "Xh overdue")
+- SLA timers refresh every 30s without re-fetching
+
+### Backend (3 new endpoints in `routes/va.py`)
+- `GET /api/va/pipeline` — every non-deleted lead the VA owns, decorated with `sla_state`, `hours_in_stage`, `sla_hours`, `sla_due_at_iso`. Returns `stages_va_can_move` so the frontend stays decoupled from the soft/hard split.
+- `PATCH /api/va/leads/{lead_id}/stage` — VA-only soft-stage move. Rejects hard stages with 400 + helpful message ("Bookings are set by your Program Manager"). Writes `stage_history` + activity log.
+- `PATCH /api/va/leads/{lead_id}/notes` — dedicated notes endpoint that works at ANY stage. Crucial because the strict edit endpoint locks at `new_lead` — without this VAs would lose the ability to add notes once they hit contacted.
+
+### Frontend (`VAMyLeads.jsx` — full rewrite)
+- 4-column Kanban grid that collapses to single-column on mobile
+- Per-column "Hot count" badge (e.g. "3 hot")
+- LeadCard component: header (name + open-detail caret), contact links (phone/email), SLA badge, move dropdown, inline notes textarea with dirty-state + save-on-blur
+- SLA timer state managed locally — re-renders every 30s via `setInterval` tick
+- Mobile-first: tap-to-move via `<select>` works without drag/drop infra
+
+### Tests
+`/app/backend/tests/test_iter58_va_pipeline.py` — **8/8 pass**:
+- pipeline endpoint returns expected shape (items + stages_va_can_move + sla_hours)
+- pipeline decorates each lead with SLA state
+- VA can move through soft stages (and back)
+- VA cannot move to hard stages (booked/completed/paid/lost/bogus → 400)
+- notes endpoint works at any stage (including post-`new_lead`)
+- notes 4000-char limit enforced
+- 404 on unknown lead
+- admin can flip to terminal stage; VA pipeline returns it with `sla_state=null`
+
+**Combined regression: 37/37 across iter53–58.**
+
+### Files touched
+- `/app/backend/routes/va.py` — `VA_PIPELINE_STAGES`, `VA_LEAD_SLA_HOURS`, `_lead_sla_status()`, 3 new endpoints
+- `/app/frontend/src/pages/va/VAMyLeads.jsx` — REWRITE: 4-column Kanban + LeadCard + inline notes
+- `/app/backend/tests/test_iter58_va_pipeline.py` — 8 tests
+
+### Phase 2/3/4 (queued, not built yet)
+- **Phase 2**: AI Objection Coach — tap "Handle objection" on a card, LLM returns 3 on-brand responses using existing templates as context
+- **Phase 3**: Earnings ticker + monthly goal bar on VA Dashboard (money-on-the-screen motivation)
+- **Phase 4**: Private coaching notes per VA + cohort-filtered leaderboard ("VAs who joined in last 90 days")
+
