@@ -1324,3 +1324,63 @@ Reposition `hcobnetwork.com` from "gig platform" to "managed contractor network 
 - `/app/frontend/src/pages/va/VAMyLeads.jsx` — "Handle objection" button + modal wiring
 - `/app/backend/tests/test_iter59_objection_coach.py` — 7 tests
 
+
+## Implemented — 2026-02 (Iter 60: Earnings Ticker + Tier Ladder — Phase 3 of "make VAs successful") — VERIFIED 5/5
+
+**Goal**: Money on the screen. Every time a VA logs into the dashboard, the first thing they see is their MTD commission ticker counting up + a progress bar to the next earnings tier. Hungry VAs convert better.
+
+### Backend
+`routes/va.py::va_dashboard` now returns:
+- `mtd_commission` (float, $) — paid commissions this month (already computed; now surfaced at top level instead of buried in `goal`)
+- `tier` object with:
+  - `current`: `{key, label}` — one of Hustler/Pro/Star/Elite/Legend
+  - `next`: `{key, label, at_amount}` or `null` (Legend caps out)
+  - `progress_pct`: 0–100 (clamped, never negative, never above 100)
+  - `amount_needed_to_next`: float (0 at Legend)
+  - `ladder`: full list of all 5 rungs with `{key, label, min}`
+
+**Tier ladder** (hardcoded constants in `va_dashboard`):
+- **Hustler** $0 →
+- **Pro** $500 →
+- **Star** $1,500 →
+- **Elite** $3,000 →
+- **Legend** $6,000+ (top rung)
+
+Future: admin-editable ladder via Settings. For now constants ship the feature without needing a settings UI.
+
+### Frontend (`components/va/EarningsTicker.jsx`, new)
+Big hero banner at the top of the VA Dashboard:
+- **Dark gradient card** with grain dots
+- **Animated count-up** on mount/refresh (easeOutCubic, 1.2s) — `$0 → $1,247` rolls up before your eyes
+- **Pulsing green dot** next to the number for "this is live"
+- **Pending sub-tag**: "+$340 pending — approval in flight" (only shown when pending > 0)
+- **Tier card on the right**:
+  - Big tier label ("STAR")
+  - Gradient progress bar (#0044FF → #10B981) with smooth 1s ease-out animation
+  - "$340 to **Elite**" callout + percent
+  - Mini ladder visualization — 5 segments, current = white text + green underline, past = dimmed, future = ghosted
+- **Legend tier** shows trophy icon + "You've hit the top rung this month" message
+- Mobile-responsive: stacks vertically on small screens
+
+### VADashboard wiring
+- `EarningsTicker` slotted at the top, ABOVE the stale-lead alert
+- Pulls `mtd_commission`, `commissions_pending`, and `tier` directly from the dashboard payload — no new round-trips
+
+### Tests
+`/app/backend/tests/test_iter60_earnings_ticker.py` — **5/5 pass**:
+- dashboard exposes `mtd_commission` + `tier` with all 5 ladder rungs
+- at $0 MTD → Hustler tier, 0% progress, $500 needed
+- seed $600 paid commission → Pro tier, correct progress math (10% of the Pro→Star range)
+- seed $10,000 → Legend tier, progress=100, next=null, needed=0
+- property check: progress_pct always in [0, 100]
+
+Test fixtures use direct Mongo writes (`AsyncIOMotorClient`) for seed/cleanup so they don't go through the VA UI flow — fast and deterministic.
+
+**Combined regression: 49/49 across iter53–60.**
+
+### Files touched
+- `/app/backend/routes/va.py` — tier ladder constants + `mtd_commission` and `tier` in dashboard payload
+- `/app/frontend/src/components/va/EarningsTicker.jsx` — NEW (~165 lines)
+- `/app/frontend/src/pages/va/VADashboard.jsx` — slotted ticker at top, import added
+- `/app/backend/tests/test_iter60_earnings_ticker.py` — 5 tests
+

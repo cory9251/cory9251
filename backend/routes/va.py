@@ -177,6 +177,52 @@ async def va_dashboard(user: dict = Depends(require_va)):
     rank = (ranks.index(va_id) + 1) if va_id in ranks else None
     conversion = round((converted / total_lifetime) * 100, 1) if total_lifetime > 0 else 0.0
 
+    # ---- Tier ladder ------------------------------------------------------
+    # Five tiers based on MONTHLY commission earnings. These are the same
+    # for every VA — easy to grasp at a glance ("I made it to Star this
+    # month"). Admin-editable rungs is P3 — for now they're hardcoded so
+    # the feature ships without a settings page.
+    TIER_LADDER = [
+        {"key": "hustler", "label": "Hustler",   "min": 0,     "next_min": 500},
+        {"key": "pro",     "label": "Pro",       "min": 500,   "next_min": 1500},
+        {"key": "star",    "label": "Star",      "min": 1500,  "next_min": 3000},
+        {"key": "elite",   "label": "Elite",     "min": 3000,  "next_min": 6000},
+        {"key": "legend",  "label": "Legend",    "min": 6000,  "next_min": None},
+    ]
+    mtd_amount = round(mtd_commission, 2)
+    current_tier = TIER_LADDER[0]
+    for t in TIER_LADDER:
+        if mtd_amount >= t["min"]:
+            current_tier = t
+        else:
+            break
+    next_tier = None
+    progress_pct = 100  # legend caps out
+    needed_to_next = 0
+    if current_tier["next_min"] is not None:
+        next_tier = next(
+            (t for t in TIER_LADDER if t["min"] == current_tier["next_min"]),
+            None,
+        )
+        span = current_tier["next_min"] - current_tier["min"]
+        progress = mtd_amount - current_tier["min"]
+        progress_pct = max(0, min(100, round((progress / span) * 100, 1))) if span > 0 else 100
+        needed_to_next = max(0.0, round(current_tier["next_min"] - mtd_amount, 2))
+
+    tier_payload = {
+        "current": {"key": current_tier["key"], "label": current_tier["label"]},
+        "next": (
+            {"key": next_tier["key"], "label": next_tier["label"], "at_amount": current_tier["next_min"]}
+            if next_tier
+            else None
+        ),
+        "progress_pct": progress_pct,
+        "amount_needed_to_next": needed_to_next,
+        "ladder": [
+            {"key": t["key"], "label": t["label"], "min": t["min"]} for t in TIER_LADDER
+        ],
+    }
+
     goal_payload = None
     if goal_doc:
         goal_payload = {
@@ -196,6 +242,8 @@ async def va_dashboard(user: dict = Depends(require_va)):
         "commissions_approved": round(approved, 2),
         "total_paid": round(paid, 2),
         "paid_count": paid_count,
+        "mtd_commission": mtd_amount,
+        "tier": tier_payload,
         "conversion_rate": conversion,
         "stale_leads_count": stale_count,
         "leaderboard_rank": rank,

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import EarningsTicker from "@/components/va/EarningsTicker";
 import {
   Briefcase,
   HourglassMedium,
@@ -96,6 +97,13 @@ export default function VADashboard() {
           Submit leads, track stages, and watch your commissions land. All earnings are reviewed by your Program Manager before payout.
         </p>
       </div>
+
+      {/* Earnings ticker — big money-on-the-screen banner */}
+      <EarningsTicker
+        mtdAmount={data?.mtd_commission}
+        pendingAmount={data?.commissions_pending}
+        tier={data?.tier}
+      />
 
       {/* Stale-lead alert */}
       {data?.stale_leads_count > 0 && (
