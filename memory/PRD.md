@@ -1384,3 +1384,43 @@ Test fixtures use direct Mongo writes (`AsyncIOMotorClient`) for seed/cleanup so
 - `/app/frontend/src/pages/va/VADashboard.jsx` — slotted ticker at top, import added
 - `/app/backend/tests/test_iter60_earnings_ticker.py` — 5 tests
 
+
+## Implemented — 2026-02 (Iter 61: VA pipeline — match the actual HCOB workflow) — VERIFIED 20/20
+
+**Goal**: User feedback caught a wrong assumption — VAs don't issue quotes (especially in their first 30 days). They generate leads, warm them, and hand off to Ops who quotes. The Kanban + AI coach were both modeled on a "VA closes deals" workflow that didn't match reality. Restructured to match what VAs actually do.
+
+### Pipeline column relabels (UI-only — stage values unchanged)
+| Internal stage | Old label | **New label** | Meaning |
+|---|---|---|---|
+| `new_lead` | New (Reach out) | **New** *(First outreach owed)* | VA must do first touch in 24h |
+| `contacted` | Contacted (Get the quote out) | **Talking** *(Get the details Ops needs)* | VA gathers the brief (sq ft / frequency / asks) |
+| `quoted` | Quoted (Close the deal) | **Sent to Ops** *(Ops is quoting — keep it warm)* | VA hands lead off; Ops drafts the quote |
+| terminal | With Ops | **With Ops** *(Booked / Closed / Lost)* | unchanged |
+
+Internal stage values (`new_lead`, `contacted`, `quoted`) intentionally unchanged so commissions, admin tooling, leak reports, and historic `stage_history` records keep working without a migration.
+
+### SLA tuning
+`quoted` SLA bumped **72h → 120h (5 days)**. With the new meaning, the timer measures "how long has the lead been waiting for Ops + how long the VA has been silent with the prospect". 5 days gives Ops room to draft the quote without the timer screaming at the VA. New/Talking SLAs unchanged.
+
+### AI Objection Coach prompt — anchored to lead-gen reality
+System prompt now explicitly tells Claude: *"the VA's job is to find prospects, talk to them, gather the brief, and hand the lead to Ops who issues the actual quote. The VA does NOT quote prices themselves. Responses should reflect this — never commit to a price, never promise a specific number, but DO commit to getting Ops to put together a custom quote fast."*
+
+Verified live:
+- "Too expensive" objection → all 3 responses route back to Ops ("pass your details to our Ops team", "ask Ops to take another look with a tighter scope", "give Ops the right steer")
+- No specific price commitments anywhere in the output
+- Still on-brand and conversational
+
+### UI copy updates
+- Page subhead: *"Move a lead through New → Talking → Sent to Ops as you work it. You generate and warm the lead; Ops handles the actual quote. The amber/red timer means it's aging — knock those out first."*
+- Move dropdown options relabeled
+
+### Tests
+- `test_iter58_va_pipeline.py` — updated SLA assertion (72→120) + comment explaining why
+- 20/20 pass (iter58 + iter59 + iter60)
+
+### Files touched
+- `/app/backend/routes/va.py` — `VA_LEAD_SLA_HOURS["quoted"]` 72 → 120 + comment
+- `/app/backend/routes/va_objection_coach.py` — system prompt anchored to lead-gen role
+- `/app/frontend/src/pages/va/VAMyLeads.jsx` — COLUMNS labels/sublabels, page subhead, move dropdown
+- `/app/backend/tests/test_iter58_va_pipeline.py` — SLA assertion updated
+

@@ -60,7 +60,9 @@ def test_pipeline_endpoint_returns_shape():
     assert body["stages_va_can_move"] == ["new_lead", "contacted", "quoted"]
     assert body["sla_hours"]["new_lead"] == 24
     assert body["sla_hours"]["contacted"] == 48
-    assert body["sla_hours"]["quoted"] == 72
+    # "quoted" is now "Sent to Ops" — 5-day SLA so Ops has room to quote
+    # without the timer screaming at the VA.
+    assert body["sla_hours"]["quoted"] == 120
 
 
 def test_pipeline_decorates_sla_status():

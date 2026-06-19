@@ -660,12 +660,17 @@ async def va_move_lead_stage(
 
 # SLA (response-time) windows in hours — how long a lead can sit in each
 # pipeline stage before it's flagged "hot" (80%) then "stale" (100%).
-# Tuned to HCOB's pipeline: VAs are expected to contact within 24h, follow
-# up with a quote within 48h, and close the loop on a quote within 72h.
+# Tuned to HCOB's actual workflow:
+#   - new_lead (24h): VA must do first outreach within 24 hours
+#   - contacted (48h): VA stays in convo to gather the brief for Ops
+#   - quoted = "Sent to Ops" (120h / 5 days): VA hands the lead to Ops
+#     for the actual quote. SLA here is "the prospect is going cold while
+#     Ops drafts the quote — nudge them, keep it warm". 5 days gives Ops
+#     room to quote without the timer screaming.
 VA_LEAD_SLA_HOURS = {
     "new_lead": 24,
     "contacted": 48,
-    "quoted": 72,
+    "quoted": 120,
 }
 
 

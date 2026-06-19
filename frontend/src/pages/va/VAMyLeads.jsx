@@ -16,30 +16,34 @@ import {
   Sparkle,
 } from "@phosphor-icons/react";
 
-// VA-controlled soft pipeline columns. Hard outcomes (booked/completed/lost)
-// are lumped into a single read-only "With Ops" column to keep the board
-// from sprawling — VAs care most about what they can still influence.
+// VA-controlled soft pipeline columns. Tuned to HCOB's actual workflow:
+//   New → Talking → Sent to Ops → With Ops
+// VAs generate and warm leads — they don't issue quotes. Once they've
+// gathered the brief (square footage / frequency / special asks), they
+// hand the lead to Ops who draft the actual quote. "Sent to Ops" is the
+// VA's signal that the prospect is now in Ops' hands; the timer there
+// reminds the VA to nudge the prospect to keep it warm.
 const COLUMNS = [
   {
     value: "new_lead",
     label: "New",
-    sublabel: "Reach out",
+    sublabel: "First outreach owed",
     color: "border-[#0044FF]",
     accent: "text-[#0044FF]",
     bg: "bg-[#F0F4FF]",
   },
   {
     value: "contacted",
-    label: "Contacted",
-    sublabel: "Get the quote out",
+    label: "Talking",
+    sublabel: "Get the details Ops needs",
     color: "border-violet-500",
     accent: "text-violet-600",
     bg: "bg-violet-50",
   },
   {
     value: "quoted",
-    label: "Quoted",
-    sublabel: "Close the deal",
+    label: "Sent to Ops",
+    sublabel: "Ops is quoting — keep it warm",
     color: "border-amber-500",
     accent: "text-amber-700",
     bg: "bg-amber-50",
@@ -157,9 +161,10 @@ export default function VAMyLeads() {
           <div className="font-mono-label">My pipeline</div>
           <h1 className="font-display text-4xl font-black tracking-tight">My leads</h1>
           <p className="mt-2 max-w-xl text-sm text-[#4B5563]">
-            Drag a lead through <strong>New → Contacted → Quoted</strong> as you work it.
-            Hot/red timers mean it&apos;s about to age out — knock those out first.
-            Bookings are flipped by Ops after they verify the deal.
+            Move a lead through <strong>New → Talking → Sent to Ops</strong> as you work it.
+            You generate and warm the lead; <strong>Ops handles the actual quote</strong>.
+            The amber/red timer means it&apos;s aging — knock those out first. Bookings &amp; closes
+            are flipped by Ops once the deal lands.
           </p>
         </div>
         <div className="flex gap-2">
@@ -351,8 +356,8 @@ function LeadCard({ lead, column, moving, onMove, onOpen }) {
             className="h-7 flex-1 border border-[#030712] bg-white px-2 text-[11px] font-bold uppercase tracking-widest"
           >
             <option value="new_lead">New</option>
-            <option value="contacted">Contacted</option>
-            <option value="quoted">Quoted</option>
+            <option value="contacted">Talking</option>
+            <option value="quoted">Sent to Ops</option>
           </select>
         </div>
       )}
