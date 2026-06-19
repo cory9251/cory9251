@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
+import ObjectionCoach from "@/components/va/ObjectionCoach";
 import {
   ArrowsClockwise,
   Clock,
@@ -12,6 +13,7 @@ import {
   CaretRight,
   WarningCircle,
   CheckCircle,
+  Sparkle,
 } from "@phosphor-icons/react";
 
 // VA-controlled soft pipeline columns. Hard outcomes (booked/completed/lost)
@@ -262,6 +264,7 @@ function LeadCard({ lead, column, moving, onMove, onOpen }) {
   const [notes, setNotes] = useState(lead.notes || "");
   const [savingNote, setSavingNote] = useState(false);
   const [noteDirty, setNoteDirty] = useState(false);
+  const [coachOpen, setCoachOpen] = useState(false);
   const phone = lead.prospect_phone;
   const email = lead.prospect_email;
   const isTerminal = column === "_with_ops";
@@ -353,6 +356,22 @@ function LeadCard({ lead, column, moving, onMove, onOpen }) {
           </select>
         </div>
       )}
+
+      {/* AI Objection Coach — only useful for active leads */}
+      {!isTerminal && (
+        <button
+          type="button"
+          data-testid={`open-coach-${lead.lead_id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setCoachOpen(true);
+          }}
+          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 border border-[#0044FF] bg-[#F0F4FF] py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#0044FF] hover:bg-[#0044FF] hover:text-white"
+        >
+          <Sparkle size={11} weight="fill" /> Handle objection
+        </button>
+      )}
+      <ObjectionCoach lead={lead} open={coachOpen} onClose={() => setCoachOpen(false)} />
 
       {/* Inline notes — saves on blur. Available at any stage. */}
       <div className="mt-2 border-t border-[#E5E7EB] pt-2">

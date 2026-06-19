@@ -1262,3 +1262,65 @@ Reposition `hcobnetwork.com` from "gig platform" to "managed contractor network 
 - **Phase 3**: Earnings ticker + monthly goal bar on VA Dashboard (money-on-the-screen motivation)
 - **Phase 4**: Private coaching notes per VA + cohort-filtered leaderboard ("VAs who joined in last 90 days")
 
+
+## Implemented — 2026-02 (Iter 59: AI Objection Coach — Phase 2 of "make VAs successful") — VERIFIED 7/7
+
+**Goal**: Turn every objection into a learning moment. VA taps "Handle objection" on a lead card, picks a common objection (or types a custom one), and Claude returns 3 distinct, on-brand response options the VA can copy-paste into SMS/email/DM.
+
+### Backend (`routes/va_objection_coach.py`, new)
+- `GET /api/va/objection-coach/objections` — returns the 7 quick-pick objections + the per-hour rate limit
+  - `too_expensive`, `have_someone`, `call_back`, `not_now`, `trust`, `ghost`, `spouse`
+- `POST /api/va/leads/{lead_id}/objection-coach` — main coach endpoint
+  - Input: `{objection_key}` OR `{custom_text}` (max 500 chars)
+  - Pipeline:
+    1. Resolve objection → human-readable label
+    2. Look up lead (must be owned by caller VA, not deleted)
+    3. Rate-limit check: 20 calls per VA per hour (via `va_objection_calls` collection)
+    4. Pull up to 6 relevant pitch templates (objection-handling + service-matched) for LLM tone context
+    5. Build the prompt with VA's first name, service type, property size, lead notes, template context
+    6. Call **Claude Sonnet 4.6** via emergentintegrations + EMERGENT_LLM_KEY
+    7. Tolerant JSON extraction (strips ```json fences, finds first/last brace)
+    8. Trim to 3 responses · sanitize (angle ≤120 chars, body ≤1200)
+    9. Log to `va_objection_calls` for rate-limiting + cost-tracking
+    10. Log activity on the lead so PM can see "this VA used the coach 4 times on this prospect"
+  - Returns `{responses: [{angle, body}, ...3], objection_label, calls_used_last_hour, rate_limit_per_hour}`
+
+### Frontend (`components/va/ObjectionCoach.jsx`, new)
+- Full-screen modal (bottom-sheet on mobile)
+- **Header**: blue bar with Sparkle icon + prospect name
+- **Step 1**: Quick-pick chips (7 objections) + free-form textarea
+- **Step 2**: Three response cards, each with:
+  - Angle label (e.g. "Value reframe — anchor to outcome, not cost")
+  - The response body, whitespace-preserved
+  - Character count + "fits in a text message" hint
+  - One-tap Copy button (turns green ✓ on copy, restores after 2s)
+- "Try a different objection" reset link
+- Calls-used counter ("4/20 coach calls used this hour")
+- AI-disclaimer banner ("read once before sending, don't quote prices unless confirmed with Ops")
+
+### VAMyLeads.jsx — wiring
+- New "Handle objection ✨" button at the bottom of every active lead card (`data-testid="open-coach-{lead_id}"`)
+- Only renders on soft-pipeline leads (hidden on "With Ops" terminal cards — the coach is for moving deals forward, not autopsying lost ones)
+- Modal state lives per-card so multiple coaches can be active across the board
+
+### Tests
+`/app/backend/tests/test_iter59_objection_coach.py` — **7/7 pass**:
+- structural: list endpoint, unknown key rejection (400), missing input rejection (400), 404 on bad lead, custom_text >500 chars rejected (422)
+- **live LLM**: end-to-end objection_key call returns 1–3 well-formed responses with angle+body, usage counter increments
+- **live LLM**: custom_text path works (label reflects the user's wording)
+
+**Combined regression: 44/44 across iter53–59.**
+
+### Cost & rate-limit notes
+- 20 coach calls per VA per hour. Generous for real use (typical VA might use 2–5/day), hard ceiling against runaway/abuse
+- Each call ≈ 1.5–2k input tokens (system + templates) + ≈500 output tokens. With Claude Sonnet 4.6 on the universal key that's well under $0.05/call
+- LLM failure paths return 502 with helpful message — VA can retry without losing rate-limit budget
+
+### Files touched
+- `/app/backend/routes/va_objection_coach.py` — NEW (~260 lines)
+- `/app/backend/server.py` — register `va_objection_coach_router`
+- `/app/backend/startup.py` — index on `va_objection_calls` for rate-limit lookups
+- `/app/frontend/src/components/va/ObjectionCoach.jsx` — NEW (~278 lines)
+- `/app/frontend/src/pages/va/VAMyLeads.jsx` — "Handle objection" button + modal wiring
+- `/app/backend/tests/test_iter59_objection_coach.py` — 7 tests
+
