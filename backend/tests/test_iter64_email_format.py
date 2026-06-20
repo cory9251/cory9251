@@ -118,9 +118,64 @@ def test_render_body_applies_normalization():
 
 
 def test_render_body_html_input_passthrough():
-    """HTML body from TipTap should preserve structure after merge tags."""
+    """HTML body from TipTap should preserve structure after merge tags
+    AND get inline styles injected for email-client compatibility."""
     from routes.admin_blasts import _render_body
     body = "<p>Hi {{first_name}}</p><p>Welcome!</p>"
     worker = {"name": "Jane Doe", "email": "jane@example.com"}
     out = _render_body(body, worker)
-    assert out == "<p>Hi Jane</p><p>Welcome!</p>"
+    # Merge tags resolved
+    assert "Hi Jane" in out
+    # Both paragraphs got inline margin so email clients render spacing
+    assert out.count('style="margin:0 0 14px;line-height') == 2
+
+
+def test_inline_styles_applied_to_bare_block_tags():
+    """TipTap emits bare <p>/<h2>/<ul> tags. The render pipeline must
+    inject inline `style=` attrs so Gmail/Outlook/Apple Mail (which all
+    strip <style> blocks in various modes) render proper spacing."""
+    from routes.admin_blasts import _inline_block_styles
+    html = "<p>One</p><p>Two</p><h2>Header</h2><ul><li>A</li></ul>"
+    out = _inline_block_styles(html)
+    assert '<p style="margin:0 0 14px' in out
+    assert "<h2 style=" in out
+    assert "<ul style=" in out
+    assert "<li style=" in out
+
+
+def test_inline_styles_preserve_existing_style_attr():
+    """If admin manually set a style, don't clobber it."""
+    from routes.admin_blasts import _inline_block_styles
+    html = '<p style="color:red">Red text</p>'
+    out = _inline_block_styles(html)
+    assert out == html  # untouched
+    assert "margin:" not in out
+
+
+def test_inline_styles_handle_tags_with_existing_attrs():
+    """Tags with class/id/etc but no style should still get a style added."""
+    from routes.admin_blasts import _inline_block_styles
+    html = '<p class="foo">Hello</p>'
+    out = _inline_block_styles(html)
+    assert 'class="foo"' in out
+    assert "margin:0 0 14px" in out
+
+
+def test_render_body_tiptap_h2_and_list_get_inline_styles():
+    """End-to-end: TipTap output with H2 + list goes through the full
+    pipeline and emerges with all block tags inline-styled."""
+    from routes.admin_blasts import _render_body
+    body = (
+        "<p>Hi {{first_name}},</p>"
+        "<h2>Big news</h2>"
+        "<p>We have new gigs available.</p>"
+        "<ul><li>One</li><li>Two</li></ul>"
+    )
+    worker = {"name": "Alex", "email": "a@example.com"}
+    out = _render_body(body, worker)
+    # Both paragraphs have inline margin (UL/H2 also have margin but with different
+    # style strings — we count only the paragraph style as the unique signature).
+    assert out.count('style="margin:0 0 14px;line-height') == 2  # 2 paragraphs
+    assert "<h2 style=" in out  # heading
+    assert "<ul style=" in out  # list container
+    assert out.count("<li style=") == 2  # both list items

@@ -1681,3 +1681,58 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - MODIFIED: `/app/frontend/src/components/admin/CustomerChatDialog.jsx` (DialogDescription)
 
 
+
+## Hotfix — 2026-06 (Iter 64b: Email Preview + Send Spacing Bug) — VERIFIED
+**Bug**: User reported the email Live Preview pane still showed paragraphs running together with zero spacing, even though the TipTap editor itself rendered them correctly. Real sent emails were also at risk because TipTap emits bare `<p>` tags and Outlook desktop / Gmail strip `<style>` blocks.
+
+**Cause**: The preview pane used `prose prose-sm` (Tailwind Typography) classes, but `@tailwindcss/typography` isn't installed — so those classes were no-ops. Tailwind preflight had reset `<p>` margins to 0.
+
+**Fix**:
+1. **Frontend live preview** (`/app/frontend/src/index.css`): Added new `.email-preview-html` class that explicitly styles `<p>`, `<h2>`, `<h3>`, `<ul>`, `<ol>`, `<li>`, `<a>`, `<strong>`, `<em>`, `<s>`, `<code>` with the same spacing/typography rules as the editor. Both preview locations in `AdminEmailBlast.jsx` (Compose live-preview pane + Confirm step "Final email" block) swapped `prose prose-sm` → `email-preview-html`.
+2. **Backend inline-styler** (`/app/backend/routes/admin_blasts.py::_inline_block_styles`): Adds inline `style=` attributes to bare `<p>`, `<h1-3>`, `<ul>`, `<ol>`, `<li>`, `<blockquote>`, `<a>` tags coming from the TipTap editor. Preserves any existing `style=` attr (admin override path). Wired into `_render_body()` so every test_only and bulk send path emits inline-styled HTML — Outlook desktop / Gmail web / Apple Mail all render consistent spacing regardless of `<style>` block stripping.
+
+**Tests**: 4 new in `test_iter64_email_format.py` → 19/19 pass. Cross-regression: 76/76 across iter39 + iter62 + iter63 + iter64 + iter65.
+
+**Verified visually**: screenshot of the Compose step confirms preview paragraphs now show proper blank-line spacing matching the editor 1:1.
+
+**Files modified**:
+- `/app/frontend/src/index.css` (new `.email-preview-html` style block)
+- `/app/frontend/src/pages/admin/AdminEmailBlast.jsx` (swapped `prose prose-sm` → `email-preview-html` in both preview render sites)
+- `/app/backend/routes/admin_blasts.py` (added `_EMAIL_BLOCK_STYLES`, `_BARE_BLOCK_OPEN_RE`, `_inline_block_styles`; wired into `_render_body`)
+- `/app/backend/tests/test_iter64_email_format.py` (4 new tests)
+
+
+
+## Implemented — 2026-06 (Iter 66: Admin Chat Page — close the loop) — VERIFIED
+**Gap reported by user**: After generating a customer chat link (per-gig or project), the admin had no way to actually **enter and reply to** the chat from inside the admin console — only "Copy link" / "Close". Admin would have to open the magic link themselves and appear as the customer.
+
+**Fix**:
+- New dedicated admin chat page `/app/frontend/src/pages/admin/AdminCustomerChat.jsx` at route `/ops/customer-chats/:threadId`.
+  - Top bar: back arrow (smart return — to project for project threads, to assignment for gig threads), scope badge (`PROJECT CHAT` / `ASSIGNMENT CHAT`), Live/Ended status pill, page title (project_title or gig_title), Copy link + Close/Reopen actions.
+  - Info strip: customer name (admin sees full name), clickable customer email, crew first-name pills.
+  - Closed-banner with reason when status='closed'.
+  - Message list with three styles: blue = customer, purple = HCOB Team (admin's own messages), white-bordered = contractor.
+  - Composer at bottom — purple "Reply as HCOB Team" with Enter-to-send / Shift+Enter-for-newline.
+  - 5s poll for thread + messages so new replies stream in automatically.
+- "Open chat" button added to BOTH dialogs:
+  - `CustomerChatDialog.jsx` (per-gig) — `data-testid="customer-thread-open-{id}"`
+  - `ProjectCustomerChatDialog.jsx` (project) — `data-testid="project-thread-open-{id}"`
+  - Closes the dialog and navigates to `/ops/customer-chats/:threadId`.
+- Route wired in `App.js` under the `/ops/*` admin shell.
+
+**Backend**: No changes — `GET /api/admin/customer-threads/:id`, `GET/POST /api/admin/customer-threads/:id/messages`, close/reopen endpoints already existed from Iter 63. Iter 66 just exposes them through a new UI surface.
+
+**Tests** (`/app/backend/tests/test_iter66_admin_chat.py`): 6/6 pass — admin get-thread full details, send + list messages, admin message visible to customer as `sender_type='admin'`, closed thread blocks send (410), empty message 422, non-admin blocked.
+
+**Cross-regression**: 29/29 across iter63 + iter65 + iter66.
+
+**Verified end-to-end**: screenshot confirms admin navigates from project chat dialog → admin chat page → types and sends a message → appears as a purple HCOB Team bubble. Customer view picks up the admin's message in their lavender HCOB Team tinted bubble.
+
+**Files added / modified**:
+- ADDED: `/app/frontend/src/pages/admin/AdminCustomerChat.jsx`
+- ADDED: `/app/backend/tests/test_iter66_admin_chat.py`
+- MODIFIED: `/app/frontend/src/App.js` (route + import)
+- MODIFIED: `/app/frontend/src/components/admin/CustomerChatDialog.jsx` (Open chat button, useNavigate)
+- MODIFIED: `/app/frontend/src/components/admin/ProjectCustomerChatDialog.jsx` (Open chat button, useNavigate)
+
+

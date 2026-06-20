@@ -22,6 +22,7 @@ import AdminCalendar from "@/pages/admin/AdminCalendar";
 import AdminRequests from "@/pages/admin/AdminRequests";
 import AdminReports from "@/pages/admin/AdminReports";
 import AdminEmailBlast from "@/pages/admin/AdminEmailBlast";
+import AdminCustomerChat from "@/pages/admin/AdminCustomerChat";
 import AdminReferrals from "@/pages/admin/AdminReferrals";
 import WorkerReferrals from "@/pages/worker/WorkerReferrals";
 import AdminProjects from "@/pages/admin/AdminProjects";
@@ -126,6 +127,7 @@ function RouterShell() {
         <Route path="quotes" element={<AdminQuotes />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="email-blast" element={<AdminEmailBlast />} />
+        <Route path="customer-chats/:threadId" element={<AdminCustomerChat />} />
         <Route path="referrals" element={<AdminReferrals />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="messages" element={<Messages />} />

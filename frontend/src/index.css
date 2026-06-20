@@ -191,3 +191,43 @@ body {
   pointer-events: none;
 }
 
+/* -- Email preview pane ---------------------------------------------------- */
+/* Mirrors `.rich-email-editor-content` minus the placeholder + min-height,
+   so the live preview pane matches the editor's paragraph/list/heading
+   spacing 1:1. Tailwind's preflight zeros <p>/<h*> margins so we MUST
+   restore them explicitly here. */
+.email-preview-html { font-size: 14px; line-height: 1.6; color: #030712; }
+.email-preview-html p { margin: 0 0 14px 0; }
+.email-preview-html p:last-child { margin-bottom: 0; }
+.email-preview-html h2 {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.3;
+  margin: 18px 0 10px 0;
+  letter-spacing: -0.01em;
+}
+.email-preview-html h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 14px 0 8px 0;
+}
+.email-preview-html ul,
+.email-preview-html ol {
+  margin: 0 0 14px 0;
+  padding-left: 22px;
+}
+.email-preview-html ul { list-style: disc; }
+.email-preview-html ol { list-style: decimal; }
+.email-preview-html li { margin: 4px 0; }
+.email-preview-html li > p { margin: 0; }
+.email-preview-html strong { font-weight: 700; }
+.email-preview-html em { font-style: italic; }
+.email-preview-html s { text-decoration: line-through; }
+.email-preview-html a { color: #0044FF; text-decoration: underline; }
+.email-preview-html code {
+  background: #F3F4F6;
+  padding: 1px 5px;
+  font-size: 12.5px;
+  border-radius: 2px;
+}
+

@@ -5,6 +5,7 @@
  * the gig with copy-link buttons + a create form for a new one.
  */
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
 import {
@@ -18,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChatCircleDots, Copy, Check, X, ArrowClockwise } from "@phosphor-icons/react";
+import { ChatCircleDots, Copy, Check, X, ArrowClockwise, ArrowSquareOut } from "@phosphor-icons/react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -30,6 +31,7 @@ export default function CustomerChatDialog({ gigId, trigger }) {
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const navigate = useNavigate();
 
   async function load() {
     setLoading(true);
@@ -214,6 +216,17 @@ export default function CustomerChatDialog({ gigId, trigger }) {
                   <code className="text-[11px] flex-1 truncate bg-[#F3F4F6] px-2 py-1 font-mono text-[#374151] border border-[#E5E7EB]">
                     {t.customer_link}
                   </code>
+                  <Button
+                    data-testid={`customer-thread-open-${t.thread_id}`}
+                    size="sm"
+                    className="rounded-none bg-[#7C3AED] hover:bg-[#5B21B6]"
+                    onClick={() => {
+                      setOpen(false);
+                      navigate(`/ops/customer-chats/${t.thread_id}`);
+                    }}
+                  >
+                    <ArrowSquareOut size={14} className="mr-1" /> Open chat
+                  </Button>
                   <Button
                     data-testid={`customer-thread-copy-${t.thread_id}`}
                     size="sm"

@@ -10,6 +10,7 @@
  * that the admin project detail page already loads.
  */
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -30,9 +31,11 @@ import {
   X,
   ArrowClockwise,
   UsersThree,
+  ArrowSquareOut,
 } from "@phosphor-icons/react";
 
 export default function ProjectCustomerChatDialog({ projectId, crew = [], trigger }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -305,6 +308,10 @@ export default function ProjectCustomerChatDialog({ projectId, crew = [], trigge
                 onCopy={copyLink}
                 onClose={closeThread}
                 onReopen={reopenThread}
+                onOpen={(threadId) => {
+                  setOpen(false);
+                  navigate(`/ops/customer-chats/${threadId}`);
+                }}
                 onParticipantsChanged={load}
               />
             ))}
@@ -314,7 +321,7 @@ export default function ProjectCustomerChatDialog({ projectId, crew = [], trigge
   );
 }
 
-function ThreadRow({ thread, candidates, copiedId, onCopy, onClose, onReopen, onParticipantsChanged }) {
+function ThreadRow({ thread, candidates, copiedId, onCopy, onClose, onReopen, onOpen, onParticipantsChanged }) {
   const [editing, setEditing] = useState(false);
   const [picked, setPicked] = useState({});
   const [saving, setSaving] = useState(false);
@@ -376,6 +383,14 @@ function ThreadRow({ thread, candidates, copiedId, onCopy, onClose, onReopen, on
         <code className="text-[11px] flex-1 truncate bg-[#F3F4F6] px-2 py-1 font-mono text-[#374151] border border-[#E5E7EB]">
           {thread.customer_link}
         </code>
+        <Button
+          data-testid={`project-thread-open-${thread.thread_id}`}
+          size="sm"
+          className="rounded-none bg-[#7C3AED] hover:bg-[#5B21B6]"
+          onClick={() => onOpen?.(thread.thread_id)}
+        >
+          <ArrowSquareOut size={14} className="mr-1" /> Open chat
+        </Button>
         <Button
           data-testid={`project-thread-copy-${thread.thread_id}`}
           size="sm"

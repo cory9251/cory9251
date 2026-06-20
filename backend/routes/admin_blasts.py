@@ -40,6 +40,51 @@ _BLOCK_TAG_RE = re.compile(
 _URL_RE = re.compile(r"(?<![\"'>=])(https?://[^\s<>\"']+)")
 
 
+# Inline styles applied to bare block-level tags coming from the TipTap
+# editor. Email clients (Outlook desktop, Gmail web in some modes) strip
+# <style> blocks, so we MUST set spacing/typography via inline `style=`
+# attributes for consistent rendering. The same styles are mirrored in
+# `.email-preview-html` (index.css) so the live preview matches.
+_EMAIL_BLOCK_STYLES = {
+    "p": "margin:0 0 14px;line-height:1.6",
+    "h1": "margin:18px 0 10px;font-size:22px;font-weight:800;line-height:1.25;letter-spacing:-0.01em",
+    "h2": "margin:18px 0 10px;font-size:18px;font-weight:800;line-height:1.3;letter-spacing:-0.01em",
+    "h3": "margin:14px 0 8px;font-size:15px;font-weight:700",
+    "ul": "margin:0 0 14px;padding-left:22px;list-style:disc",
+    "ol": "margin:0 0 14px;padding-left:22px;list-style:decimal",
+    "li": "margin:4px 0",
+    "blockquote": "margin:12px 0;padding:12px 14px;border-left:3px solid #0044FF;background:#F5F8FF;color:#030712",
+    "a": "color:#0044FF;text-decoration:underline",
+}
+# Match the opening tag of a block element WITHOUT a style attribute. We
+# only inject — never overwrite — so admins who explicitly set a style
+# keep their choice.
+_BARE_BLOCK_OPEN_RE = re.compile(
+    r"<(p|h1|h2|h3|ul|ol|li|blockquote|a)(\s[^>]*)?>",
+    re.IGNORECASE,
+)
+
+
+def _inline_block_styles(html: str) -> str:
+    """Add inline style attributes to bare block-level tags so email
+    clients that strip <style> blocks still render proper spacing."""
+    if not html or "<" not in html:
+        return html or ""
+
+    def _add_style(m: re.Match) -> str:
+        tag = m.group(1).lower()
+        attrs = m.group(2) or ""
+        if "style=" in attrs.lower():
+            # Respect existing inline styles — admin or another transform set them.
+            return m.group(0)
+        style = _EMAIL_BLOCK_STYLES.get(tag)
+        if not style:
+            return m.group(0)
+        return f'<{tag}{attrs} style="{style}">'
+
+    return _BARE_BLOCK_OPEN_RE.sub(_add_style, html)
+
+
 def _normalize_plain_text_to_html(text: str) -> str:
     """Turn a plain-text email body into well-formed HTML so it renders
     properly in Resend (and every other email client).
@@ -304,11 +349,13 @@ def _render(template: str, worker: dict) -> str:
 
 
 def _render_body(body: str, worker: dict) -> str:
-    """Body-specific render: substitute merge tags, then normalize plain
-    text to HTML. This is the single place where plain-text fallback is
-    applied — keeps subject-line rendering simple (subjects are always
-    text, no HTML)."""
-    return _normalize_plain_text_to_html(_render(body, worker))
+    """Body-specific render: substitute merge tags, normalize plain text
+    to HTML, then inline-style block tags so every email client renders
+    paragraphs/lists/headings with consistent spacing — Outlook desktop
+    and Gmail strip <style> blocks aggressively."""
+    return _inline_block_styles(
+        _normalize_plain_text_to_html(_render(body, worker))
+    )
 
 
 def _public_base() -> str:

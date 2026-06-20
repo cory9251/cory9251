@@ -692,7 +692,7 @@ function ComposeStep({
             Body
           </div>
           <div
-            className="prose prose-sm mt-1 max-w-none text-sm"
+            className="email-preview-html mt-1 max-w-none"
             dangerouslySetInnerHTML={{
               __html:
                 renderPreview(bodyHtml) ||
@@ -737,7 +737,7 @@ function ConfirmStep({
               {renderPreview(subject)}
             </div>
             <div
-              className="prose prose-sm max-w-none text-sm"
+              className="email-preview-html max-w-none"
               dangerouslySetInnerHTML={{ __html: renderPreview(bodyHtml) }}
             />
             {ctaLabel && (
