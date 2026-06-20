@@ -1632,3 +1632,52 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - MODIFIED: `/app/frontend/package.json` (4 new TipTap deps)
 
 
+
+## Implemented — 2026-06 (Iter 65: Project-Wide Customer Chat) — VERIFIED
+**Goal**: Same magic-link customer chat as Iter 63, but bound to a Project (which spans multiple gigs) instead of a single gig. Customer gets one persistent link, contractors picked by admin stay in for the life of the project.
+
+**Design choices (user-approved)**: 1c (admin manually curates contractor list), 2b (NEVER auto-close — manual only since projects are long-lived), 3a (one chat per project), 4a (independent of per-gig chats from Iter 63), 5a (project title shown to customer).
+
+**Backend** (`/app/backend/routes/customer_threads.py` — extended in place, schema migration-free):
+- New thread shape: added `scope_type` (`'gig'` | `'project'`), `project_id`, `project_title`, `participant_contractor_ids` to existing `customer_threads` collection. `gig_id` becomes optional (null for project scope).
+- Refactored helpers:
+  - `_thread_contractor_ids(thread)` — resolves participant list based on scope.
+  - `_is_thread_active(thread)` — auto-close only for gig threads (per choice 2b).
+  - `_require_approved_contractor(user, thread)` — gig scope uses gig_acceptances, project scope checks participant list.
+  - `_email_contractors_new_customer_msg` + `_email_customer_new_reply` — copy adapts to scope ("project" vs "assignment").
+- New admin endpoints:
+  - `POST /api/admin/projects/:project_id/customer-threads` — create (idempotent per project+email)
+  - `GET /api/admin/projects/:project_id/customer-threads` — list
+  - `PATCH /api/admin/customer-threads/:thread_id/participants` — add/remove contractors (project threads only; 400 on gig threads)
+- New contractor endpoint:
+  - `GET /api/crew/projects/:project_id/customer-threads` — worker-facing project-scoped list
+- Extended endpoint:
+  - `GET /api/crew/gigs/:gig_id/customer-threads` now ALSO returns project-scoped threads where the gig's parent project includes the worker as a participant — gives contractors a unified panel.
+
+**Frontend**:
+- New `ProjectCustomerChatDialog.jsx` with admin-curated participant picker:
+  - All/None toggle buttons
+  - Checkbox list of every contractor that's worked any gig in the project (de-duped, with the list of their gigs underneath)
+  - Edit-participants flow on existing threads (add/remove contractors over time as crew changes)
+  - Copy link · Close · Reopen actions
+- Wired the dialog button into `AdminProjectDetail.jsx` action row (`data-testid="proj-customer-chat-btn"`).
+- `CustomerChatPanel.jsx` (worker side) now shows a blue "PROJECT" badge for project-scoped threads.
+- `CustomerChat.jsx` (public customer view) labels the header as "PROJECT" instead of "ASSIGNMENT" and displays `project_title`.
+- Added DialogDescription to both Customer chat dialogs (silence Radix aria warning).
+
+**Tests** (`/app/backend/tests/test_iter65_project_chat.py`): 13/13 pytest pass — create with participants, idempotency, customer reads/sends via token, contractor on/off list (200/403), PII privacy, admin updates participants, gig-thread participant edit blocked (400), manual close → 410, project archive does NOT auto-close, project thread appears in gig endpoint, unauth blocked, list endpoint.
+
+**Frontend e2e** (testing_agent_v3_fork iteration_49): 6/6 flows pass — admin create, edit participants, customer public view (project label + title), contractor view (PROJECT badge + privacy stripping), manual close (banner + disabled composer).
+
+**Cross-test regression**: 72/72 across iter39 + iter62 + iter63 + iter64 + iter65.
+
+**Files added / modified**:
+- ADDED: `/app/frontend/src/components/admin/ProjectCustomerChatDialog.jsx`
+- ADDED: `/app/backend/tests/test_iter65_project_chat.py`
+- MODIFIED: `/app/backend/routes/customer_threads.py` (scope-aware refactor + new project endpoints)
+- MODIFIED: `/app/frontend/src/pages/admin/AdminProjectDetail.jsx` (Customer chat button)
+- MODIFIED: `/app/frontend/src/components/worker/CustomerChatPanel.jsx` (PROJECT badge)
+- MODIFIED: `/app/frontend/src/pages/CustomerChat.jsx` (scope-aware header label)
+- MODIFIED: `/app/frontend/src/components/admin/CustomerChatDialog.jsx` (DialogDescription)
+
+

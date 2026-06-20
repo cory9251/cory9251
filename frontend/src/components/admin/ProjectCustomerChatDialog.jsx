@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -170,6 +171,9 @@ export default function ProjectCustomerChatDialog({ projectId, crew = [], trigge
             <ChatCircleDots size={20} className="text-[#0044FF]" />
             Project customer chat
           </DialogTitle>
+          <DialogDescription className="text-xs text-[#6B7280]">
+            Generate a shareable link the customer uses to chat with the picked contractors and the HCOB team.
+          </DialogDescription>
         </DialogHeader>
 
         {/* Create form */}
