@@ -184,13 +184,13 @@ export default function CustomerChat() {
       <div className="bg-white border-b border-[#E5E7EB]">
         <div className="max-w-3xl mx-auto px-5 py-4">
           <div className="text-[10px] font-mono uppercase tracking-widest text-[#6B7280]">
-            Assignment
+            {thread.scope_type === "project" ? "Project" : "Assignment"}
           </div>
           <div
             className="text-lg font-bold text-[#030712] mt-0.5"
             data-testid="customer-chat-gig-title"
           >
-            {thread.gig_title || "HCOB Assignment"}
+            {thread.title || thread.project_title || thread.gig_title || "HCOB Assignment"}
           </div>
           {contractors.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">

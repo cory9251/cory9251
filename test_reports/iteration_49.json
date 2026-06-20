@@ -1,0 +1,33 @@
+{
+  "summary": "E2E frontend testing of Iter 65 — project-wide customer chat. Created test project proj_3baf81f954ff with a gig and worker.demo assigned, then exercised all 6 requested flows: admin create-thread dialog (with participant picker + All/None toggle), edit participants (toast verified), customer public view (PROJECT label + project_title), contractor view (PROJECT badge + privacy: only first name), manual close (toast + status flip + closed-banner on customer page + disabled composer). Test data cleaned up. 6/6 PASS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "admin_create_flow": "PASS — /ops/projects/{id} loads, proj-customer-chat-btn opens dialog titled 'Project customer chat'. project-thread-name + project-thread-email fill correctly. project-thread-pick-none flips picker to (0/1); project-thread-pick-all flips back to (1/1). project-thread-create produces thread row project-thread-row-cthr_6895102b00dd with copy/edit/close buttons + 'active' green status badge. Link format: https://hcobnetwork.com/c/<token> (production host by design — noted in prior iteration).",
+    "admin_edit_participants": "PASS — project-thread-edit-{id} reveals checkbox list with project-thread-edit-pick-{tid}-{worker_id}. Toggling checkbox + clicking project-thread-save-{id} shows toast 'Participants updated' as expected.",
+    "customer_view_public": "PASS — /c/<token> renders without auth in fresh browser context. Header shows 'PROJECT' subtitle and customer-chat-gig-title = 'TEST_iter65_project_chat' (project title shown to customer, choice 5a). Composer + Send button functional. Sent message appears as blue right-aligned bubble.",
+    "contractor_view_project_thread": "PASS — Worker.demo logged in, /crew/assignments/{gig_id} loads worker-customer-chat-panel. Thread card shows first name 'Jane' + green 'PROJECT' badge + 'LIVE' status badge (in addition to per-gig threads area). Expanding via crew-customer-thread-toggle-{tid} reveals message history; composer crew-customer-composer-{tid} + send button crew-customer-send-{tid} successfully posts contractor reply (visible blue right-aligned bubble).",
+    "privacy_check": "PASS — On contractor view, body text contains 'Jane' but NOT 'Jane Test' (full name), NOT 'jane.test@example.com' (email), NOT 'JV5u5BQQBzXz' (token). All three privacy assertions hold.",
+    "manual_close_flow": "PASS — Clicked project-thread-close-{id} from admin dialog, accepted window.confirm, toast 'Chat closed' shown. Status badge flipped from 'active' to 'CLOSED' (gray). project-thread-reopen-{id} button now visible. Customer page (/c/<token>) in fresh context renders customer-chat-closed-banner; Send button is disabled (is_disabled == True). Thread reopened after test for tidy state."
+  },
+  "critical_code_review_comments": [
+    "ProjectCustomerChatDialog renders DialogContent WITHOUT a DialogDescription / aria-describedby — Radix warned twice in the console: 'Missing Description or aria-describedby={undefined} for {DialogContent}'. Add a <DialogDescription> below DialogTitle (e.g. 'Generate a shareable link for the customer to chat with the picked contractors').",
+    "(Pre-existing, not introduced by Iter 65) Hydration warning '<span> cannot be a child of <option>' from FeedFilters.jsx — already flagged in iter48.",
+    "(Pre-existing, by design per feature note) Customer link is constructed with the production hostname 'https://hcobnetwork.com'; preview testing requires substituting REACT_APP_BACKEND_URL. Consider env-driven base URL so non-prod copy-paste links work."
+  ],
+  "test_report_links": ["/app/backend/tests/test_iter65_project_chat.py"],
+  "action_items": [
+    "Add a DialogDescription to ProjectCustomerChatDialog to silence the Radix aria-describedby console warning (low priority, accessibility nit)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (6/6 flows pass)"},
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026!  ·  worker.demo@hcobcleaners.com / WorkerDemo2026!",
+  "seed_data_creation": "Created and DELETED test project proj_3baf81f954ff (TEST_iter65_project_chat) + gig gig_cae01dc44931 (TEST_iter65_gig) + worker.demo assignment acc_b36fd9f45b96 + project customer thread cthr_6895102b00dd (Jane Test). All cleaned up at end of run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 65 project-wide customer chat is fully functional end-to-end. All data-testids in dialog work. The PROJECT badge on contractor view, project_title on customer view, and manual-only close (no auto-close) all behave as specified. Only nit is the Radix DialogContent missing aria-describedby (console warning, no functional impact). Link uses production hostname — substitute REACT_APP_BACKEND_URL when testing in preview."
+}

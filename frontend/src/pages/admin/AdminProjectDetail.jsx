@@ -23,11 +23,13 @@ import {
   Car,
   Link as LinkIcon,
   User as UserIcon,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import MarkdownView from "@/components/MarkdownView";
 import CreateGigDialog from "@/components/admin/CreateGigDialog";
 import LinkGigToProjectDialog from "@/components/admin/LinkGigToProjectDialog";
 import EditProjectDialog from "@/components/admin/EditProjectDialog";
+import ProjectCustomerChatDialog from "@/components/admin/ProjectCustomerChatDialog";
 
 const CAT = {
   cleaning: { bg: "bg-[#0044FF]", text: "text-white", icon: Broom },
@@ -216,6 +218,19 @@ export default function AdminProjectDetail() {
             >
               <LinkIcon size={14} className="mr-1" /> Link existing
             </Button>
+            <ProjectCustomerChatDialog
+              projectId={projectId}
+              crew={project.crew || []}
+              trigger={
+                <Button
+                  data-testid="proj-customer-chat-btn"
+                  variant="outline"
+                  className="h-10 rounded-none border-[#0044FF] text-[#0044FF] hover:bg-[#0044FF] hover:text-white"
+                >
+                  <ChatCircleDots size={14} className="mr-1" /> Customer chat
+                </Button>
+              }
+            />
             <Button
               data-testid="proj-edit-btn"
               onClick={() => setEditOpen(true)}

@@ -108,6 +108,14 @@ function ThreadCard({ thread, onChanged }) {
             <span className="font-bold text-sm text-[#030712]">
               {thread.customer_first_name}
             </span>
+            {thread.scope_type === "project" && (
+              <span
+                className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 bg-[#0044FF] text-white"
+                title="Project-wide chat (multiple gigs)"
+              >
+                Project
+              </span>
+            )}
             <span
               className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 ${
                 closed
