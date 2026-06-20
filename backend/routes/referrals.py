@@ -24,15 +24,22 @@ Scope notes (per Cory's spec, deviating from the FRD):
     "for someone else"). We ALSO auto-flip to self_fulfilled if the
     assigned worker == referring worker, even if intent was "another".
 """
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from auth_deps import get_current_user, require_admin
 from config import db, logger
+from notifications import (
+    _public_base,
+    _resolve_sms_creds,
+    _send_sms_sync,
+    _send_user_email,
+)
 
 router = APIRouter()
 
@@ -97,6 +104,253 @@ def _calc_commission(quoted_amount: Optional[float], rate: float) -> float:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ----- Status update notifications ----------------------------------------
+# Templates for the email we send the REFERRING worker every time their
+# referral's status changes. Keeps them informed + motivated through the
+# pipeline. Tone: short, professional, HCOB-branded.
+#
+# `sms_text` is provided only for milestone statuses ('paid' and
+# 'commission_released') — the moments the worker actually cares enough
+# for a phone buzz. Everything else is email-only.
+_STATUS_NOTIFICATIONS: dict[str, dict] = {
+    "under_review": {
+        "subject": "Your referral is under review",
+        "intro": (
+            "Mechie is taking a look at your referral now. We'll let you "
+            "know as soon as it moves to the next step."
+        ),
+    },
+    "quoted": {
+        "subject": "We've quoted your referral",
+        "intro": (
+            "Good news — we sent a quote to the customer you referred. "
+            "If they accept, your commission is one step closer."
+        ),
+    },
+    "scheduled": {
+        "subject": "Your referral is scheduled",
+        "intro": (
+            "The customer accepted and the job is on the calendar. "
+            "Almost there — commission accrues when the invoice is paid."
+        ),
+    },
+    "in_progress": {
+        "subject": "Work has started on your referral",
+        "intro": "Crews are on site now. We'll let you know when it wraps.",
+    },
+    "completed": {
+        "subject": "Work complete on your referral",
+        "intro": (
+            "The job is done. Invoice goes out next — your commission "
+            "becomes eligible the moment it's paid."
+        ),
+    },
+    "invoiced": {
+        "subject": "Invoice sent on your referral",
+        "intro": (
+            "We invoiced the customer. As soon as they pay, your "
+            "commission flips to eligible."
+        ),
+    },
+    "paid": {
+        "subject": "Invoice paid — your commission is eligible",
+        "intro": (
+            "The customer paid! Your commission is now eligible and will "
+            "be released on the next payout cycle."
+        ),
+        "sms_text": (
+            "HCOB Network: Your referral invoice is PAID. Commission "
+            "${commission} is now eligible for payout."
+        ),
+    },
+    "commission_released": {
+        "subject": "Your referral commission has been paid out",
+        "intro": (
+            "Your commission has been released. Check your preferred "
+            "payout channel — funds are on the way."
+        ),
+        "sms_text": (
+            "HCOB Network: Commission ${commission} on your referral "
+            "has been released. Thanks for the lead."
+        ),
+    },
+    "void": {
+        "subject": "Your referral was voided",
+        "intro": (
+            "Heads up — this referral was closed without a commission. "
+            "Check the admin notes for details, and keep them coming."
+        ),
+    },
+    "self_fulfilled": {
+        "subject": "Referral closed (self-fulfilled)",
+        "intro": (
+            "Per program rules, commission isn't paid when the referring "
+            "contractor takes the job themselves. The lead has been "
+            "closed accordingly."
+        ),
+    },
+}
+
+
+def _build_status_email_html(
+    referral: dict,
+    new_status: str,
+    intro: str,
+    admin_notes: Optional[str],
+) -> str:
+    """Render the status-update email body. The `_email_layout` wrapper adds
+    the HCOB header + CTA + footer; we only supply the inner HTML."""
+    address = referral.get("property_address") or "—"
+    category = (referral.get("service_category") or "").replace("_", " ").title()
+    quoted = referral.get("quoted_amount")
+    commission = referral.get("commission_amount")
+    quoted_line = (
+        f'<tr><td style="padding:4px 0;color:#6B7280;width:160px">Quoted amount</td>'
+        f'<td style="padding:4px 0;font-weight:600;color:#030712">${quoted:,.0f}</td></tr>'
+        if quoted else ""
+    )
+    commission_line = (
+        f'<tr><td style="padding:4px 0;color:#6B7280">Your commission</td>'
+        f'<td style="padding:4px 0;font-weight:700;color:#059669">${commission:,.0f}</td></tr>'
+        if commission else ""
+    )
+    notes_block = ""
+    if admin_notes:
+        notes_block = (
+            f'<div style="margin-top:16px;padding:12px;background:#FFFBEB;'
+            f'border-left:3px solid #F59E0B;color:#92400E;font-size:13px">'
+            f'<strong>Admin note:</strong> {admin_notes}</div>'
+        )
+    status_label = new_status.replace("_", " ").upper()
+    return f"""
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#030712">
+        {intro}
+      </p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;
+                    border:1px solid #E5E7EB;padding:12px;margin:16px 0">
+        <tr><td style="padding:4px 0;color:#6B7280">Status</td>
+            <td style="padding:4px 0;font-weight:700;color:#0044FF">{status_label}</td></tr>
+        <tr><td style="padding:4px 0;color:#6B7280">Address</td>
+            <td style="padding:4px 0;color:#030712">{address}</td></tr>
+        <tr><td style="padding:4px 0;color:#6B7280">Service</td>
+            <td style="padding:4px 0;color:#030712">{category}</td></tr>
+        {quoted_line}
+        {commission_line}
+      </table>
+      {notes_block}
+    """
+
+
+async def _record_referral_notification(
+    referral_id: str,
+    referrer_id: str,
+    new_status: str,
+    *,
+    channels_attempted: list[str],
+    email_sent: bool,
+    sms_sent: bool,
+    skipped_reason: Optional[str] = None,
+) -> None:
+    """Audit log every status-update notification attempt. Lets the worker
+    UI show 'Mechie pinged you on 2026-02-05' AND lets tests assert
+    behavior without mocking Resend/Twilio."""
+    try:
+        await db.referral_notifications.insert_one({
+            "notification_id": f"rn_{uuid.uuid4().hex[:12]}",
+            "referral_id": referral_id,
+            "referrer_id": referrer_id,
+            "status": new_status,
+            "channels_attempted": channels_attempted,
+            "email_sent": email_sent,
+            "sms_sent": sms_sent,
+            "skipped_reason": skipped_reason,
+            "created_at": _now_iso(),
+        })
+    except Exception as e:
+        logger.error(f"failed to record referral notification: {e}")
+
+
+async def _send_referral_status_notification(
+    referral_id: str,
+    new_status: str,
+) -> None:
+    """Background task — email (always) + SMS (milestone events only)
+    fired to the referring contractor whenever a status update lands.
+
+    Status transitions defined in `_STATUS_NOTIFICATIONS` get a template;
+    everything else is silently skipped (e.g. raw 'submitted' which is
+    self-triggered by the worker)."""
+    template = _STATUS_NOTIFICATIONS.get(new_status)
+    if not template:
+        return
+    referral = await db.referral_leads.find_one({"referral_id": referral_id})
+    if not referral:
+        return
+    referrer_id = referral.get("referring_contractor_id")
+    if not referrer_id:
+        return
+    user = await db.users.find_one({"user_id": referrer_id})
+    if not user:
+        await _record_referral_notification(
+            referral_id, referrer_id, new_status,
+            channels_attempted=[], email_sent=False, sms_sent=False,
+            skipped_reason="user_not_found",
+        )
+        return
+
+    channels: list[str] = []
+    html = _build_status_email_html(
+        referral, new_status, template["intro"], referral.get("admin_notes")
+    )
+    cta_url = f"{_public_base()}/crew/referrals"
+
+    # ---- Email (always, when template exists) -----------------------------
+    email_sent = False
+    if user.get("email"):
+        channels.append("email")
+        try:
+            email_sent = await _send_user_email(
+                user,
+                kind=f"referral_status_{new_status}",
+                subject=template["subject"],
+                body_html=html,
+                cta_label="Open my referrals",
+                cta_url=cta_url,
+            )
+        except Exception as e:
+            logger.exception(f"referral status email failed: {e}")
+
+    # ---- SMS (milestone statuses only: paid + commission_released) --------
+    sms_sent = False
+    sms_template = template.get("sms_text")
+    if sms_template and user.get("phone"):
+        channels.append("sms")
+        try:
+            creds = await _resolve_sms_creds()
+            if creds.get("sid") and creds.get("token") and creds.get("from_"):
+                commission = referral.get("commission_amount") or 0
+                sms_body = sms_template.format(commission=int(commission))
+                await asyncio.to_thread(
+                    _send_sms_sync,
+                    creds["sid"], creds["token"], creds["from_"],
+                    user["phone"], sms_body,
+                )
+                sms_sent = True
+            else:
+                logger.warning(
+                    f"[referral/{new_status}] no Twilio creds — sms skipped for {referrer_id}"
+                )
+        except Exception as e:
+            logger.exception(f"referral status sms failed: {e}")
+
+    await _record_referral_notification(
+        referral_id, referrer_id, new_status,
+        channels_attempted=channels,
+        email_sent=email_sent,
+        sms_sent=sms_sent,
+    )
 
 
 # ----- Pydantic ------------------------------------------------------------
@@ -251,6 +505,7 @@ async def admin_get_referral(referral_id: str, admin: dict = Depends(require_adm
 async def admin_update_referral(
     referral_id: str,
     payload: AdminUpdateReferralIn,
+    background_tasks: BackgroundTasks,
     admin: dict = Depends(require_admin),
 ):
     """Mechie/Admin vets, quotes, assigns. Side effects:
@@ -330,6 +585,15 @@ async def admin_update_referral(
         mongo_update["$push"] = push
     await db.referral_leads.update_one({"referral_id": referral_id}, mongo_update)
     fresh = await db.referral_leads.find_one({"referral_id": referral_id})
+
+    # Fire referrer notification (email + SMS for milestone statuses) AFTER
+    # the doc is updated so the email reads from the new state.
+    # Run in the background so the admin's PATCH returns instantly.
+    if new_status and new_status != existing.get("status"):
+        background_tasks.add_task(
+            _send_referral_status_notification, referral_id, new_status,
+        )
+
     return _serialize(fresh)
 
 

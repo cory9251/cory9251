@@ -1512,3 +1512,36 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Square webhook for auto-paid status (FRD §12 — manual is acceptable for v1)
 - Weekly admin summary email of referral activity (FRD §9 — explicitly "nice-to-have")
 
+
+
+## Implemented — 2026-06 (Iter 62b: Referral Status Update Notifications) — VERIFIED
+**Goal**: Keep referring contractors informed + motivated by emailing them every time Mechie / admin advances their referral through the pipeline. Per-event SMS for the two milestone events (`paid`, `commission_released`).
+
+**Backend** (`/app/backend/routes/referrals.py`):
+- Added `_STATUS_NOTIFICATIONS` template registry — subject + intro line per status (`under_review`, `quoted`, `scheduled`, `in_progress`, `completed`, `invoiced`, `paid`, `commission_released`, `void`, `self_fulfilled`). `paid` + `commission_released` carry an extra `sms_text` template (with `{commission}` token).
+- `_build_status_email_html(referral, new_status, intro, admin_notes)` — renders the inner HTML for the standard HCOB email shell. Shows status pill, address, service, quoted amount (when set), commission (when set), + admin-note callout in amber.
+- `_send_referral_status_notification(referral_id, new_status)` — background task entrypoint:
+  - Loads referral + referring user from Mongo
+  - Sends email via `_send_user_email` for every templated status (always)
+  - Sends SMS via `_send_sms_sync` ONLY for `paid` + `commission_released` (and only when user has a phone + Twilio is configured)
+  - Records every attempt to a new `referral_notifications` audit collection (id, channels attempted, email_sent flag, sms_sent flag, timestamp). Even skipped sends are logged so admins/tests can verify behavior without mocking Resend/Twilio.
+- `admin_update_referral` now accepts `BackgroundTasks` and schedules `_send_referral_status_notification` only when `new_status != existing.status` — silent edits (e.g. updating just `quoted_amount` or `admin_notes`) do NOT spam the referrer.
+- Self-fulfillment auto-flip + `void` transitions ALSO fire the notification (closes the loop with the referrer).
+
+**Tests** (`/app/backend/tests/test_iter62_referral_program.py`): 7 new + 13 existing = **20/20 pass**.
+- under_review → email-only audit row
+- quoted → email-only audit row
+- paid → email + sms attempted (SMS only when worker has phone on file)
+- commission_released → email + sms attempted
+- void → email audit row
+- self_fulfilled (auto-flip via assigning the referrer) → email audit row
+- Silent edit (`quoted_amount` change, no status change) → NO new audit row (anti-spam)
+
+**Cross-test regression**: 51/51 across iter62 + iter39 (blast safety) + iter41 (lead CRUD). Pre-existing event-loop fixture failures in `test_iter6.py` / `test_messenger.py` / `backend_test.py` are orthogonal to this change.
+
+**Smoke-tested end-to-end via curl**: real `PATCH /api/admin/referrals/:id` with status changes ⇒ background task fires ⇒ `referral_notifications` collection populated with channels=`['email']` for non-milestone and `['email','sms']` for `commission_released`. Resend API key is invalid in the current preview env (pre-existing condition) so `email_sent=false`, but the channel attempt + audit row are correct.
+
+**Files modified**:
+- `/app/backend/routes/referrals.py` (notification helpers + status template registry + BackgroundTasks wiring)
+- `/app/backend/tests/test_iter62_referral_program.py` (7 new tests)
+

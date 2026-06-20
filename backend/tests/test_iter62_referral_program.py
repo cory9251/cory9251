@@ -289,3 +289,200 @@ def test_va_cannot_submit_referral():
         timeout=20,
     )
     assert r2.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Referral Status Update Notifications (Iter 62 engagement add-on)
+# ---------------------------------------------------------------------------
+# Whenever an admin moves a referral through the pipeline, the system sends
+# the referring worker an email (always) + an SMS for milestone statuses
+# (paid / commission_released). Every attempt — including skipped ones — is
+# recorded in the `referral_notifications` collection so we can verify
+# behavior without mocking Resend/Twilio.
+import time
+from pymongo import MongoClient
+
+
+def _mongo_db():
+    """Direct Mongo handle so tests can read the audit collection."""
+    mongo_url = os.environ.get("MONGO_URL")
+    db_name = os.environ.get("DB_NAME")
+    if not mongo_url or not db_name:
+        pytest.skip("MONGO_URL/DB_NAME not set — cannot verify audit log")
+    return MongoClient(mongo_url)[db_name]
+
+
+def _wait_for_notification(db_h, referral_id: str, status: str, timeout_s: float = 4.0):
+    """Poll the audit collection for up to N seconds — BackgroundTasks fire
+    after the HTTP response so we need a tiny grace window."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        row = db_h.referral_notifications.find_one({
+            "referral_id": referral_id,
+            "status": status,
+        })
+        if row:
+            return row
+        time.sleep(0.2)
+    return None
+
+
+def test_status_update_emits_notification_on_under_review():
+    """Moving from submitted → under_review should trigger an audit row +
+    email attempt for the referring worker."""
+    sw = _worker_session()
+    sa = _admin_session()
+    rid = _submit(sw)["referral_id"]
+    r = sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "under_review"},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    db_h = _mongo_db()
+    row = _wait_for_notification(db_h, rid, "under_review")
+    assert row is not None, "No referral_notifications row recorded"
+    assert "email" in row["channels_attempted"]
+    # SMS should NOT fire for non-milestone statuses
+    assert "sms" not in row["channels_attempted"]
+
+
+def test_status_update_quoted_triggers_email_only():
+    sw = _worker_session()
+    sa = _admin_session()
+    rid = _submit(sw)["referral_id"]
+    r = sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "quoted", "quoted_amount": 600},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    db_h = _mongo_db()
+    row = _wait_for_notification(db_h, rid, "quoted")
+    assert row is not None
+    assert "email" in row["channels_attempted"]
+    assert "sms" not in row["channels_attempted"]
+
+
+def test_status_update_paid_triggers_sms_milestone():
+    """`paid` is a milestone — both email AND SMS should be attempted
+    (SMS attempted only if user has phone & creds — `channels_attempted`
+    records the attempt regardless of skip)."""
+    sw = _worker_session()
+    sa = _admin_session()
+    rid = _submit(sw)["referral_id"]
+    sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "quoted", "quoted_amount": 1000},
+        timeout=20,
+    )
+    r = sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "paid"},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    assert r.json()["commission_amount"] == 100  # 10% of 1000
+    db_h = _mongo_db()
+    row = _wait_for_notification(db_h, rid, "paid")
+    assert row is not None
+    assert "email" in row["channels_attempted"]
+    # SMS is only attempted if the worker has a phone on file. If demo
+    # worker has a phone, we expect 'sms' in channels_attempted.
+    user = db_h.users.find_one({"email": "worker.demo@hcobcleaners.com"})
+    if user and user.get("phone"):
+        assert "sms" in row["channels_attempted"]
+
+
+def test_status_update_commission_released_triggers_sms_milestone():
+    sw = _worker_session()
+    sa = _admin_session()
+    rid = _submit(sw)["referral_id"]
+    sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "quoted", "quoted_amount": 500},
+        timeout=20,
+    )
+    sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "paid"},
+        timeout=20,
+    )
+    r = sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "commission_released"},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    db_h = _mongo_db()
+    row = _wait_for_notification(db_h, rid, "commission_released")
+    assert row is not None
+    assert "email" in row["channels_attempted"]
+    user = db_h.users.find_one({"email": "worker.demo@hcobcleaners.com"})
+    if user and user.get("phone"):
+        assert "sms" in row["channels_attempted"]
+
+
+def test_status_update_void_emits_notification():
+    sw = _worker_session()
+    sa = _admin_session()
+    rid = _submit(sw)["referral_id"]
+    r = sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "void", "admin_notes": "Customer ghosted"},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    db_h = _mongo_db()
+    row = _wait_for_notification(db_h, rid, "void")
+    assert row is not None
+    assert "email" in row["channels_attempted"]
+
+
+def test_no_notification_when_status_unchanged():
+    """If admin updates ONLY quoted_amount (no status change), the
+    referrer should NOT be re-notified — avoids spam from minor edits."""
+    sw = _worker_session()
+    sa = _admin_session()
+    rid = _submit(sw)["referral_id"]
+    # First move to quoted to seed a notification
+    sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"status": "quoted", "quoted_amount": 400},
+        timeout=20,
+    )
+    db_h = _mongo_db()
+    _wait_for_notification(db_h, rid, "quoted")
+    initial = db_h.referral_notifications.count_documents({"referral_id": rid})
+    # Now edit quoted_amount only — no status change
+    r = sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"quoted_amount": 450},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    time.sleep(1.0)  # give background tasks a chance to (not) fire
+    after = db_h.referral_notifications.count_documents({"referral_id": rid})
+    assert after == initial, "Should not emit extra notifications on no-status edit"
+
+
+def test_self_fulfillment_emits_self_fulfilled_notification():
+    """Auto-flip to self_fulfilled (admin assigns referrer) should send a
+    'your referral was closed' email."""
+    sw = _worker_session()
+    sa = _admin_session()
+    sub = _submit(sw)
+    rid = sub["referral_id"]
+    referrer_id = sub["referring_contractor_id"]
+    r = sa.patch(
+        f"{BASE_URL}/api/admin/referrals/{rid}",
+        json={"assigned_contractor_id": referrer_id},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "self_fulfilled"
+    db_h = _mongo_db()
+    row = _wait_for_notification(db_h, rid, "self_fulfilled")
+    assert row is not None
+    assert "email" in row["channels_attempted"]
+
