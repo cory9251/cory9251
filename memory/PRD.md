@@ -1545,3 +1545,55 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - `/app/backend/routes/referrals.py` (notification helpers + status template registry + BackgroundTasks wiring)
 - `/app/backend/tests/test_iter62_referral_program.py` (7 new tests)
 
+
+## Implemented — 2026-06 (Iter 63: Customer ↔ Contractor 2-Way Messenger via Magic Link) — VERIFIED
+**Goal**: Let a customer (no account, no login) chat directly with the contractors assigned to their job and the HCOB team. Admin generates a shareable link they paste into a text/email to the customer.
+
+**Design choices (user-approved)**: 1a (one thread per gig, group chat), 2a (admin manually copies link), 3c (admin pre-fills customer name), 4b (auto-close on gig completion), 5a (email-only to customer on reply), 6a (contractors see customer first-name only — privacy-first).
+
+**Backend** (`/app/backend/routes/customer_threads.py`):
+- New collections: `customer_threads` (carries token + customer name/email + status) and `customer_messages` (append-only sender_type ∈ {customer, contractor, admin}).
+- Admin endpoints:
+  - `POST /api/admin/customer-threads` — create (idempotent per gig+email so re-clicking doesn't spawn duplicates)
+  - `GET /api/admin/gigs/:gig_id/customer-threads` — list
+  - `GET /api/admin/customer-threads/:id` + `/messages` — full PII view
+  - `POST /api/admin/customer-threads/:id/close` + `/reopen`
+- Customer endpoints (no auth, token-validated):
+  - `GET /api/customer/threads/:token` — metadata + crew first names
+  - `GET /api/customer/threads/:token/messages` — list
+  - `POST /api/customer/threads/:token/messages` — send (returns 410 if closed)
+- Contractor endpoints (auth, gated by approved-on-gig check):
+  - `GET /api/crew/gigs/:gig_id/customer-threads` — PII-stripped list (first name only, no email, no token)
+  - `GET /api/crew/customer-threads/:id/messages` / `POST /api/crew/customer-threads/:id/messages`
+- Auto-close behavior: on every read/write, server checks gig.status — if `completed`, flips thread to `closed` with reason "Assignment marked completed". Reads still work (preserves history); writes return 410.
+- Notifications:
+  - Customer → contractor: emails every approved contractor on the gig (+ thread creator) via `_send_user_email` with the customer's snippet + deep link to `/crew/assignments/:gig_id`. Graceful no-op when Resend creds missing.
+  - Contractor/admin → customer: emails customer at their address with HCOB-branded template + magic-link CTA back to `/c/:token`.
+
+**Frontend**:
+- New public route `/c/:token` → `CustomerChat.jsx`:
+  - HCOB-branded header, no nav, mobile-optimized
+  - Polls messages + thread status every 5s
+  - Right-aligned blue bubbles for customer, white for contractor, light-purple "HCOB Team" tinted bubbles for admin
+  - Auto-scroll on new messages, closed-banner when thread ended, disabled composer when closed
+- New admin dialog `CustomerChatDialog.jsx` opens from new `Customer chat link` button on `AdminGigDetail.jsx` (just below `Share gig link`). Lists existing threads with copy / close / reopen actions.
+- New `CustomerChatPanel.jsx` embedded in `WorkerGigDetail.jsx` (only renders if worker is approved + threads exist). Each thread expandable with inline composer.
+
+**Tests** (`/app/backend/tests/test_iter63_customer_chat.py`): 10/10 pytest pass — admin create (incl. idempotency), customer read/write via token, invalid-token 404, contractor read/write, contractor-not-on-gig 403, close + reopen lifecycle, unauth 401/403, empty-message 422.
+
+**Frontend regression**: 5/5 flows pass per testing agent iteration_48 — admin generate link, public customer read/write, contractor reply, privacy (first name only, no email/token leak), close flow with banner + disabled composer.
+
+**Files added / modified**:
+- ADDED: `/app/backend/routes/customer_threads.py`
+- ADDED: `/app/backend/tests/test_iter63_customer_chat.py`
+- ADDED: `/app/frontend/src/pages/CustomerChat.jsx`
+- ADDED: `/app/frontend/src/components/admin/CustomerChatDialog.jsx`
+- ADDED: `/app/frontend/src/components/worker/CustomerChatPanel.jsx`
+- MODIFIED: `/app/backend/server.py` (router include)
+- MODIFIED: `/app/frontend/src/App.js` (public route + import)
+- MODIFIED: `/app/frontend/src/pages/admin/GigDetail.jsx` (button + import)
+- MODIFIED: `/app/frontend/src/pages/worker/WorkerGigDetail.jsx` (panel mount)
+
+**Known nit (not a bug)**: The `customer_link` returned to admins always uses the production hostname (`https://hcobnetwork.com`) — by design, since admins will be sending these to real customers in production. For preview testing, swap the hostname with the preview URL.
+
+
