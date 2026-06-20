@@ -15,6 +15,8 @@ Safeguards:
     the workers list page.
 """
 from datetime import datetime, timedelta, timezone
+from html import escape as _html_escape
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,6 +28,119 @@ from notifications import _send_user_email, is_blast_disabled
 from routes.admin import _filter_workers
 
 router = APIRouter()
+
+
+# Block-level tags that indicate the body is already proper HTML (i.e. came
+# from the TipTap editor). When we see ANY of these we trust the input and
+# only do merge-tag substitution; otherwise we normalize plain text below.
+_BLOCK_TAG_RE = re.compile(
+    r"<\s*(p|div|h[1-6]|ul|ol|li|table|tr|td|th|blockquote|br|pre)[\s>/]",
+    re.IGNORECASE,
+)
+_URL_RE = re.compile(r"(?<![\"'>=])(https?://[^\s<>\"']+)")
+
+
+def _normalize_plain_text_to_html(text: str) -> str:
+    """Turn a plain-text email body into well-formed HTML so it renders
+    properly in Resend (and every other email client).
+
+    Rules:
+      • If the body already contains block-level HTML, return as-is
+        (TipTap's output goes through this branch untouched).
+      • Otherwise scan line-by-line, grouping consecutive bullet/numbered
+        lines into <ul>/<ol> and flushing other consecutive lines into
+        <p> blocks (blank line → new paragraph).
+      • Apply minimal markdown-ish inline formatting:
+          **bold**   → <strong>bold</strong>
+          _italic_   → <em>italic</em>
+      • Auto-link bare http(s) URLs.
+      • All other text is HTML-escaped so admins can't accidentally inject
+        broken markup.
+    """
+    if not text:
+        return ""
+    if _BLOCK_TAG_RE.search(text):
+        # Already proper HTML — return verbatim (TipTap path).
+        return text
+
+    raw = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    def _inline(s: str) -> str:
+        s = _html_escape(s)
+        s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+        s = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"<em>\1</em>", s)
+        s = _URL_RE.sub(
+            r'<a href="\1" style="color:#0044FF;text-decoration:underline">\1</a>',
+            s,
+        )
+        return s
+
+    lines = raw.split("\n")
+    out: list[str] = []
+    para_buf: list[str] = []  # accumulating non-list lines (single paragraph)
+    ul_buf: list[str] = []    # accumulating bullet items
+    ol_buf: list[str] = []    # accumulating numbered items
+
+    def _flush_para():
+        if para_buf:
+            joined = "<br/>".join(_inline(ln) for ln in para_buf)
+            out.append(
+                f'<p style="margin:0 0 14px;line-height:1.6">{joined}</p>'
+            )
+            para_buf.clear()
+
+    def _flush_ul():
+        if ul_buf:
+            items = "".join(
+                f'<li style="margin:4px 0">{_inline(i)}</li>' for i in ul_buf
+            )
+            out.append(
+                f'<ul style="margin:0 0 14px;padding-left:22px">{items}</ul>'
+            )
+            ul_buf.clear()
+
+    def _flush_ol():
+        if ol_buf:
+            items = "".join(
+                f'<li style="margin:4px 0">{_inline(i)}</li>' for i in ol_buf
+            )
+            out.append(
+                f'<ol style="margin:0 0 14px;padding-left:22px">{items}</ol>'
+            )
+            ol_buf.clear()
+
+    def _flush_all():
+        _flush_para()
+        _flush_ul()
+        _flush_ol()
+
+    for ln in lines:
+        stripped = ln.rstrip()
+        if not stripped.strip():
+            # Blank line — paragraph/list boundary
+            _flush_all()
+            continue
+        # Bullet?
+        m = re.match(r"^\s*[-*]\s+(.*)$", stripped)
+        if m:
+            _flush_para()
+            _flush_ol()
+            ul_buf.append(m.group(1))
+            continue
+        # Numbered?
+        m = re.match(r"^\s*\d+[.)]\s+(.*)$", stripped)
+        if m:
+            _flush_para()
+            _flush_ul()
+            ol_buf.append(m.group(1))
+            continue
+        # Regular line → accumulate into paragraph (flush any pending lists first)
+        _flush_ul()
+        _flush_ol()
+        para_buf.append(stripped)
+
+    _flush_all()
+    return "".join(out)
 
 
 # ============================================================================
@@ -188,6 +303,14 @@ def _render(template: str, worker: dict) -> str:
     )
 
 
+def _render_body(body: str, worker: dict) -> str:
+    """Body-specific render: substitute merge tags, then normalize plain
+    text to HTML. This is the single place where plain-text fallback is
+    applied — keeps subject-line rendering simple (subjects are always
+    text, no HTML)."""
+    return _normalize_plain_text_to_html(_render(body, worker))
+
+
 def _public_base() -> str:
     # Defer import so test-time reloads of notifications module pick up env changes.
     from notifications import _resolve_public_base
@@ -217,7 +340,7 @@ async def send_blast(payload: BlastSendIn, admin: dict = Depends(require_admin))
             admin,
             kind="blast_test",
             subject=_render(payload.subject, admin),
-            body_html=_render(payload.body_html, admin),
+            body_html=_render_body(payload.body_html, admin),
             cta_label=payload.cta_label or "",
             cta_url=cta_url or "",
         )
@@ -248,7 +371,7 @@ async def send_blast(payload: BlastSendIn, admin: dict = Depends(require_admin))
                 w,
                 kind="blast",
                 subject=_render(payload.subject, w),
-                body_html=_render(payload.body_html, w),
+                body_html=_render_body(payload.body_html, w),
                 cta_label=payload.cta_label or "",
                 cta_url=cta_url or "",
             )

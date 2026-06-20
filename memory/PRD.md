@@ -1597,3 +1597,38 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Known nit (not a bug)**: The `customer_link` returned to admins always uses the production hostname (`https://hcobnetwork.com`) — by design, since admins will be sending these to real customers in production. For preview testing, swap the hostname with the preview URL.
 
 
+
+## Implemented — 2026-06 (Iter 64: Email Blast — Rich Text Editor + Plain-Text Normalizer) — VERIFIED
+**Bug fix**: User reported "everything comes out jumbled up, no formatting" in the Email Blast composer. Cause: the body was a plain `<textarea>` whose newlines collapsed when shipped as HTML to Resend.
+
+**Two-pronged fix:**
+
+1. **Frontend — TipTap rich-text editor** (`/app/frontend/src/components/admin/RichEmailEditor.jsx`):
+   - Toolbar: Bold, Italic, Strikethrough, H2 heading, Bullet list, Numbered list, Link (with prompt), Clear formatting.
+   - Live preview pane mirrors the WYSIWYG output exactly.
+   - Replaces `<Textarea>` in `AdminEmailBlast.jsx` Compose step.
+   - Installed: `@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`, `@tiptap/extension-placeholder`.
+   - Inline-style aware: paragraphs, headings, lists styled via `index.css` so the editor preview matches Resend rendering.
+
+2. **Backend — plain-text → HTML safety net** (`/app/backend/routes/admin_blasts.py::_normalize_plain_text_to_html`):
+   - If body already contains block tags (`<p>`, `<h*>`, `<ul>`, `<ol>`, `<li>`, `<div>`, `<br>`, etc.) → passes through verbatim (TipTap path).
+   - Otherwise: splits on blank lines → `<p>` paragraphs, single `\n` → `<br>`, detects consecutive `- ` / `* ` lines → `<ul>`, detects `1. ` lines → `<ol>`, auto-links bare http(s) URLs, supports `**bold**` / `_italic_` markdown.
+   - HTML-escapes everything that isn't a recognized format so admins can't accidentally inject markup.
+   - Windows line endings (`\r\n`) normalized.
+   - `_render_body()` applies merge tags THEN normalizes — used by both `test_only` and bulk blast send paths.
+
+**Tests** (`/app/backend/tests/test_iter64_email_format.py`): 15/15 pass — empty input, HTML passthrough, multi-paragraph, single-newline → `<br>`, bullet detection, numbered list, HTML escaping, URL auto-link, inline markdown, double-link prevention, Windows EOL, paragraph spacing, `_render_body` integration (both plain and HTML inputs).
+
+**Frontend smoke-tested**: screenshot confirmed editor toolbar visible with all 8 buttons; template ("Ask workers to add payment method") loaded properly with bold/paragraphs intact; live preview matches editor 1:1; merge tags resolve in preview.
+
+**Regression**: 59/59 cross-test (iter39 blast safety + iter62 referrals + iter63 customer chat + iter64).
+
+**Files added / modified**:
+- ADDED: `/app/frontend/src/components/admin/RichEmailEditor.jsx`
+- ADDED: `/app/backend/tests/test_iter64_email_format.py`
+- MODIFIED: `/app/frontend/src/pages/admin/AdminEmailBlast.jsx` (replaced `<Textarea>` with `<RichEmailEditor>`)
+- MODIFIED: `/app/frontend/src/index.css` (added `.rich-email-editor-content` styles for paragraphs, lists, headings, links, placeholder)
+- MODIFIED: `/app/backend/routes/admin_blasts.py` (added `_normalize_plain_text_to_html` + `_render_body`; both send paths use `_render_body`)
+- MODIFIED: `/app/frontend/package.json` (4 new TipTap deps)
+
+

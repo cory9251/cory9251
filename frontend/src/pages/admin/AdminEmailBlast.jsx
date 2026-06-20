@@ -14,7 +14,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import RichEmailEditor from "@/components/admin/RichEmailEditor";
 
 const SKILL_OPTIONS = [
   { value: "deep_cleaning", label: "Deep cleaning" },
@@ -632,21 +632,22 @@ function ComposeStep({
           />
         </Section>
 
-        <Section title="Body (HTML supported)">
-          <Textarea
-            data-testid="email-blast-body"
+        <Section title="Body">
+          <RichEmailEditor
             value={bodyHtml}
-            onChange={(e) => setBodyHtml(e.target.value)}
-            placeholder="Write the email body. Supports basic HTML and merge tags."
-            className="min-h-[260px] rounded-none border-[#030712] font-mono text-xs"
+            onChange={setBodyHtml}
+            placeholder="Write your message. Use the toolbar for bold, lists, links."
+            testid="email-blast-body"
           />
           <div className="mt-2 flex items-start gap-2 border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs">
             <Sparkle size={14} weight="fill" />
             <div>
               <div className="font-bold">Merge tags</div>
               <div className="text-[#4B5563]">
-                <code className="bg-white px-1">{"{{first_name}}"}</code> · <code className="bg-white px-1">{"{{name}}"}</code> ·{" "}
-                <code className="bg-white px-1">{"{{email}}"}</code> — substituted per recipient.
+                Type these literally — they swap in per recipient:{" "}
+                <code className="bg-white px-1">{"{{first_name}}"}</code> ·{" "}
+                <code className="bg-white px-1">{"{{name}}"}</code> ·{" "}
+                <code className="bg-white px-1">{"{{email}}"}</code>
               </div>
             </div>
           </div>
