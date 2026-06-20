@@ -1311,6 +1311,8 @@ from routes.admin_blasts import router as admin_blasts_router  # noqa: E402
 api.include_router(admin_blasts_router)
 from routes.va_objection_coach import router as va_objection_coach_router  # noqa: E402
 api.include_router(va_objection_coach_router)
+from routes.referrals import router as referrals_router  # noqa: E402
+api.include_router(referrals_router)
 api.include_router(reports_router)
 api.include_router(va_router)
 api.include_router(pm_router)

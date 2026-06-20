@@ -1424,3 +1424,91 @@ Verified live:
 - `/app/frontend/src/pages/va/VAMyLeads.jsx` — COLUMNS labels/sublabels, page subhead, move dropdown
 - `/app/backend/tests/test_iter58_va_pipeline.py` — SLA assertion updated
 
+
+## Implemented — 2026-02 (Iter 62: Contractor Referral Program — Phase 1 MVP) — VERIFIED 13/13
+
+**Goal**: Per Cory's FRD — approved contractors on the platform can refer leads they spot in the wild (carpet, junk, painting, handyman, etc.). HCOB quotes + dispatches; referring contractor earns 10% of the invoice when the customer pays.
+
+### Scope decisions (deviations from FRD per Cory)
+- **Always-on submission** — first-class CTA in worker sidebar ("Refer · earn 10%"), not gated to active assignments. `source_assignment_id` is optional metadata.
+- **No 24h window**, no source-job validation — workers should know they CAN do this, friction kills the feature.
+- **Intent declared upfront** ("for another contractor" vs "for yourself") — Mechie sees the signal in the inbox.
+- **Self-fulfillment** still auto-voids commission if the referrer ends up assigned — belt-and-suspenders.
+- **MVP only** — leaderboard / category overrides / duplicate detection are Phase 2.
+
+### Backend (`routes/referrals.py`, new — ~290 lines)
+- `POST /api/worker/referrals` — submit (validates approved-worker status, required fields, category enum)
+- `GET /api/worker/referrals` — worker's own list with `totals: {pending, eligible, paid}` rollup
+- `GET /api/worker/referrals/{id}` — single (ownership-gated)
+- `GET /api/admin/referrals?status=` — Mechie inbox + per-status counts
+- `GET /api/admin/referrals/{id}` — detail
+- `PATCH /api/admin/referrals/{id}` — vet, quote, assign, mark paid, release, void
+- `GET/PUT /api/admin/referrals/settings` — admin-configurable commission rate (default 10%)
+- Self-fulfillment auto-detect: if `assigned_contractor_id == referring_contractor_id`, status flips to `self_fulfilled` + commission voided
+- Commission accrual: `paid` status → `commission_status="eligible"` + amount computed (rounded to nearest $1); `commission_released` → `commission_status="paid"` + timestamp
+- `referral_leads` collection + 4 indices added to startup
+
+### Status lifecycle
+`submitted → under_review → quoted → scheduled → in_progress → completed → invoiced → paid → commission_released`
+Terminal off-ramps: `void`, `self_fulfilled`
+
+### Frontend
+**`/crew/refer` — WorkerReferrals.jsx (new ~480 lines)**
+- 3-card rollup at the top: Commission **Pending** / **Eligible** / **Paid** (each with $ + sublabel)
+- "Submit a lead" CTA opens a modal with:
+  - Intent toggle (For another contractor [default] / For yourself [amber warning])
+  - Required: property address, opportunity description, service category
+  - Optional: prospect contact (name/phone/email)
+  - Photo upload deferred to Phase 2 (note in modal)
+- Referrals list — each card shows status pill, address, description, $ quote + 10% projection
+- Empty state with CTA
+
+**`/ops/referrals` — AdminReferrals.jsx (new ~450 lines)**
+- Lead-center style inbox with status-filter pills (with live counts)
+- Commission rate editor (inline edit-to-save flow, defaults to current rate)
+- Row click → side drawer with full detail + edit form:
+  - Status dropdown (all 11 statuses)
+  - Quote $, Square invoice ID, Assigned contractor user_id
+  - Self-fulfillment helper text
+  - Admin notes
+  - Commission rollup card (green, only shown when commission is non-zero)
+
+### Sidebar
+- Worker sidebar: new "Refer · earn 10%" entry with Handshake icon
+- Admin sidebar: new "Referrals" entry between Email Blast and Reports
+
+### Tests
+`/app/backend/tests/test_iter62_referral_program.py` — **13/13 pass**:
+- worker submission happy path · required-field validation · invalid category
+- intent persistence (for_self / for_another)
+- worker sees own list + totals rollup
+- admin sees all + per-status filter + counts
+- full lifecycle (quoted → paid → commission_released) with commission math
+- self-fulfillment auto-voids
+- admin can void at any stage
+- commission rate is admin-configurable (set 15% → $1000 quote → $150 commission)
+- release blocked until status reaches `paid` (400 with helpful message)
+- workers can't hit admin endpoints (403)
+- VAs can't submit referrals (403)
+
+**Combined regression: 41/41 across iter56–62.**
+
+### Files touched
+- `/app/backend/routes/referrals.py` — NEW (~290 lines)
+- `/app/backend/server.py` — register referrals router
+- `/app/backend/startup.py` — `referral_leads` indices
+- `/app/frontend/src/pages/worker/WorkerReferrals.jsx` — NEW
+- `/app/frontend/src/pages/admin/AdminReferrals.jsx` — NEW
+- `/app/frontend/src/App.js` — route registration + imports
+- `/app/frontend/src/components/admin/AdminLayout.jsx` — sidebar entry
+- `/app/frontend/src/components/worker/WorkerLayout.jsx` — sidebar entry
+- `/app/backend/tests/test_iter62_referral_program.py` — 13 tests
+
+### Out of Phase 1 (queued for follow-up if Cory wants them)
+- Admin-only referral leaderboard (FRD §10)
+- Category-specific commission rate overrides (FRD §6)
+- Photo file uploads (currently a note in description; FRD §11 says recommended for commercial)
+- Duplicate-address detection (90-day window, FRD §7)
+- Square webhook for auto-paid status (FRD §12 — manual is acceptable for v1)
+- Weekly admin summary email of referral activity (FRD §9 — explicitly "nice-to-have")
+

@@ -22,6 +22,8 @@ import AdminCalendar from "@/pages/admin/AdminCalendar";
 import AdminRequests from "@/pages/admin/AdminRequests";
 import AdminReports from "@/pages/admin/AdminReports";
 import AdminEmailBlast from "@/pages/admin/AdminEmailBlast";
+import AdminReferrals from "@/pages/admin/AdminReferrals";
+import WorkerReferrals from "@/pages/worker/WorkerReferrals";
 import AdminProjects from "@/pages/admin/AdminProjects";
 import AdminProjectDetail from "@/pages/admin/AdminProjectDetail";
 import AdminQuotes from "@/pages/admin/AdminQuotes";
@@ -122,6 +124,7 @@ function RouterShell() {
         <Route path="quotes" element={<AdminQuotes />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="email-blast" element={<AdminEmailBlast />} />
+        <Route path="referrals" element={<AdminReferrals />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="messages" element={<Messages />} />
         {/* VA Commission Program — admin / Program Manager / Owner */}
@@ -165,6 +168,7 @@ function RouterShell() {
         <Route path="gigs/:gigId" element={<RedirectWithParam to="/crew/assignments" param="gigId" />} />
         <Route path="my-gigs" element={<Navigate to="/crew/my-assignments" replace />} />
         <Route path="messages" element={<Messages />} />
+        <Route path="refer" element={<WorkerReferrals />} />
         <Route path="me" element={<WorkerProfile />} />
       </Route>
 

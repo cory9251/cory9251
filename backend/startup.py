@@ -69,6 +69,12 @@ async def ensure_indices() -> None:
     # VA Objection Coach (rate-limit lookup: calls by VA in last hour)
     await db.va_objection_calls.create_index([("va_user_id", 1), ("called_at", -1)])
 
+    # Network Referral Program
+    await db.referral_leads.create_index("referral_id", unique=True)
+    await db.referral_leads.create_index([("referring_contractor_id", 1), ("created_at", -1)])
+    await db.referral_leads.create_index([("status", 1), ("created_at", -1)])
+    await db.referral_leads.create_index("commission_status")
+
     # Password reset tokens — public forgot/reset flow
     await db.password_reset_tokens.create_index("token", unique=True)
     await db.password_reset_tokens.create_index("user_id")
