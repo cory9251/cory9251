@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
 import { formatGigLong, formatGigRelative, isGigToday } from "@/lib/gigDate";
 import MarkdownView from "@/components/MarkdownView";
+import CustomerChatPanel from "@/components/worker/CustomerChatPanel";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -392,6 +393,9 @@ export default function WorkerGigDetail() {
           </button>
         </div>
       )}
+
+      {/* Customer chats (if any) — inline panel; PII-stripped */}
+      {isApproved && <CustomerChatPanel gigId={gigId} />}
 
       {/* Crew — other approved workers on the same gig. First name + role
           only, surfaced only after this worker is approved. */}

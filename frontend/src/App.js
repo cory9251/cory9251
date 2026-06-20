@@ -50,6 +50,7 @@ import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
 import RatePage from "@/pages/RatePage";
 import PublicGigPage from "@/pages/PublicGigPage";
+import CustomerChat from "@/pages/CustomerChat";
 import WorkerLayout from "@/components/worker/WorkerLayout";
 import WorkerFeed from "@/pages/worker/WorkerFeed";
 import WorkerProfile from "@/pages/worker/WorkerProfile";
@@ -92,6 +93,7 @@ function RouterShell() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/rate/:token" element={<RatePage />} />
       <Route path="/gigs/:gigId" element={<PublicGigPage />} />
+      <Route path="/c/:token" element={<CustomerChat />} />
       <Route path="/customers" element={<CustomersPage />} />
       <Route path="/services" element={<CustomersPage />} />
       <Route path="/vas" element={<VAsLanding />} />

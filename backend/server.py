@@ -1313,6 +1313,8 @@ from routes.va_objection_coach import router as va_objection_coach_router  # noq
 api.include_router(va_objection_coach_router)
 from routes.referrals import router as referrals_router  # noqa: E402
 api.include_router(referrals_router)
+from routes.customer_threads import router as customer_threads_router  # noqa: E402
+api.include_router(customer_threads_router)
 api.include_router(reports_router)
 api.include_router(va_router)
 api.include_router(pm_router)

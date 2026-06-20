@@ -47,6 +47,7 @@ import {
   FolderSimple,
   LinkBreak,
   Link as LinkIcon,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
@@ -55,6 +56,7 @@ import PayOverrideDialog from "@/components/admin/PayOverrideDialog";
 import ApproveTimesheetDialog from "@/components/admin/ApproveTimesheetDialog";
 import EditTimesheetDialog from "@/components/admin/EditTimesheetDialog";
 import RatingDialog, { StarsDisplay } from "@/components/admin/RatingDialog";
+import CustomerChatDialog from "@/components/admin/CustomerChatDialog";
 import { TAG_CONFIG, TAG_PRIORITY, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
 import MarkdownView from "@/components/MarkdownView";
@@ -479,6 +481,20 @@ export default function GigDetail() {
           >
             <Share size={18} className="mr-2" weight="duotone" /> Share gig link
           </Button>
+
+          <CustomerChatDialog
+            gigId={gigId}
+            trigger={
+              <Button
+                data-testid="customer-chat-btn"
+                variant="outline"
+                className="mt-3 h-12 w-full rounded-none border-[#0044FF] text-[#0044FF] hover:bg-[#0044FF] hover:text-white"
+              >
+                <ChatCircleDots size={18} className="mr-2" weight="duotone" />
+                Customer chat link
+              </Button>
+            }
+          />
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
