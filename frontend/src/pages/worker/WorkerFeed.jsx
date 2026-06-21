@@ -20,6 +20,7 @@ import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
 import { formatGigFull, isGigToday } from "@/lib/gigDate";
 import AvailableNowToggle from "@/components/worker/AvailableNowToggle";
+import WorkerCustomerChatsInbox from "@/components/worker/WorkerCustomerChatsInbox";
 import FeedFilters, { DEFAULT_FILTERS, applyFeedFilters } from "@/components/worker/FeedFilters";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -103,6 +104,11 @@ export default function WorkerFeed() {
           (the component handles that). Sits above the verification banner so
           even fully-onboarded crews get the prompt first. */}
       <AvailableNowToggle />
+
+      {/* Customer chats inbox — surfaces any project/gig chats the worker
+          is in (auto-hides when empty). Closes the "I have no idea where to
+          find my chats" gap workers were running into. */}
+      <WorkerCustomerChatsInbox />
 
       {showBanner && (
         <button

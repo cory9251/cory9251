@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
+import CustomerChatPanel from "@/components/worker/CustomerChatPanel";
 import {
   ArrowLeft,
   ArrowRight,
@@ -155,6 +156,9 @@ export default function WorkerProjectPage() {
           </div>
         )}
       </div>
+
+      {/* Customer chat (project-scoped) — if worker is a participant */}
+      <CustomerChatPanel projectId={projectId} />
 
       {/* Gigs */}
       <div className="mt-7">

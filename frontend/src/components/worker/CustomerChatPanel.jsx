@@ -226,13 +226,18 @@ function ThreadCard({ thread, onChanged }) {
   );
 }
 
-export default function CustomerChatPanel({ gigId }) {
+export default function CustomerChatPanel({ gigId, projectId }) {
   const [threads, setThreads] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   async function load() {
     try {
-      const { data } = await api.get(`/crew/gigs/${gigId}/customer-threads`);
+      // Scope: prefer projectId when both provided (avoids duplicate work
+      // when a gig page also wants the project view).
+      const url = projectId
+        ? `/crew/projects/${projectId}/customer-threads`
+        : `/crew/gigs/${gigId}/customer-threads`;
+      const { data } = await api.get(url);
       setThreads(data?.items || []);
     } catch {
       setThreads([]);
@@ -246,7 +251,7 @@ export default function CustomerChatPanel({ gigId }) {
     // Refresh thread list every 30s so new threads created by admin show up
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
-  }, [gigId]);
+  }, [gigId, projectId]);
 
   if (!loaded || threads.length === 0) return null;
 

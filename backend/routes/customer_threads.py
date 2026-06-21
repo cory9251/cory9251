@@ -766,6 +766,55 @@ async def crew_list_threads_for_project(
     return {"items": items}
 
 
+@router.get("/crew/customer-threads/mine")
+async def crew_list_my_threads(user: dict = Depends(get_current_user)):
+    """Worker home/dashboard inbox — every customer thread the worker
+    can read, across all gigs and projects.
+
+    Returns:
+      - Gig-scoped threads on gigs they're approved on
+      - Project-scoped threads where they're in `participant_contractor_ids`
+
+    Used by the worker feed/home so they don't have to drill into a
+    specific assignment to discover new customer messages."""
+    if user.get("role") not in ("admin", "worker"):
+        raise HTTPException(403, "Not allowed")
+    items: list[dict] = []
+    if user.get("role") == "admin":
+        # Admin: include all active threads as a convenience inbox
+        async for t in db.customer_threads.find(
+            {"status": {"$ne": "closed"}}
+        ).sort("last_message_at", -1).limit(200):
+            items.append(_serialize_thread(t, viewer="admin"))
+        return {"items": items}
+
+    worker_id = user["user_id"]
+    # 1) Gig threads: find gigs the worker is approved on, then their threads
+    accs = await db.gig_acceptances.find(
+        {
+            "worker_id": worker_id,
+            "status": {"$in": ["accepted", "on_the_clock", "completed", "backup"]},
+        },
+        {"_id": 0, "gig_id": 1},
+    ).to_list(length=2000)
+    gig_ids = list({a["gig_id"] for a in accs if a.get("gig_id")})
+    if gig_ids:
+        async for t in db.customer_threads.find({
+            "gig_id": {"$in": gig_ids},
+            "scope_type": {"$in": ["gig", None]},
+        }).sort("last_message_at", -1):
+            items.append(_serialize_thread(t, viewer="contractor"))
+
+    # 2) Project threads where worker is a participant
+    async for t in db.customer_threads.find({
+        "scope_type": "project",
+        "participant_contractor_ids": worker_id,
+    }).sort("last_message_at", -1):
+        items.append(_serialize_thread(t, viewer="contractor"))
+
+    return {"items": items}
+
+
 @router.get("/crew/customer-threads/{thread_id}/messages")
 async def crew_list_messages(
     thread_id: str, user: dict = Depends(get_current_user)

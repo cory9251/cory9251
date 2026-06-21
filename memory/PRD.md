@@ -1736,3 +1736,40 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - MODIFIED: `/app/frontend/src/components/admin/ProjectCustomerChatDialog.jsx` (Open chat button, useNavigate)
 
 
+
+## Hotfix — 2026-06 (Iter 67: Worker Chat Visibility) — VERIFIED
+**Bug reported in production**: After creating a project customer chat and posting a message, "noone in the projects sees the messages." Workers couldn't find the chat.
+
+**Root cause** — NOT a data bug. Messages were saved correctly and visible to admin. The issue was pure UX/visibility: the `CustomerChatPanel` only mounted on individual gig detail pages (`/crew/assignments/:gigId`). Workers had to know to navigate into a specific gig to discover their project chats. The worker project page (`/crew/projects/:projectId`) had no chat panel at all, and the worker home/feed had no surface for customer chats.
+
+**Fix (three-pronged)**:
+
+1. **New backend endpoint** `GET /api/crew/customer-threads/mine` — returns every chat the worker can read in one shot:
+   - Gig-scoped threads on gigs they're approved on
+   - Project-scoped threads where they're in `participant_contractor_ids`
+   - Admin variant returns ALL active chats as a convenience inbox
+   - Sorted by `last_message_at desc`, PII-stripped for contractor viewer
+
+2. **`CustomerChatPanel` extended** to accept either `gigId` OR `projectId` prop and hits the right endpoint. Mounted on `WorkerProjectPage.jsx` — workers visiting `/crew/projects/:projectId` now see the customer chat directly on the project landing.
+
+3. **New `WorkerCustomerChatsInbox` tile** on the worker home/feed page (`/crew`):
+   - Lists up to 5 most-recent chats with title, project/gig badge, customer first-name, last-message preview, and relative timestamp
+   - Click row → opens the project page (project threads) or assignment page (gig threads)
+   - Auto-hides when no chats exist, polls every 30s
+   - Active/total counter ("3/5 LIVE") shown in top-right
+
+**Tests** (`/app/backend/tests/test_iter67_worker_chat_visibility.py`): 6/6 pass — `/mine` returns project threads when participant, excludes when not, includes gig threads when approved, **admin-sent message visible to worker (exact production-bug repro)**, unauthenticated blocked, `/crew/projects/:id/customer-threads` returns participant threads.
+
+**Cross-regression**: 35/35 across iter63 + iter65 + iter66 + iter67.
+
+**Verified visually**: screenshots confirm worker feed shows the "Customer chats" tile with rows + last-message previews, clicking opens the assignment page with the chat panel showing "CUSTOMER CHATS (1) Jane LIVE".
+
+**Files added / modified**:
+- ADDED: `/app/frontend/src/components/worker/WorkerCustomerChatsInbox.jsx`
+- ADDED: `/app/backend/tests/test_iter67_worker_chat_visibility.py`
+- MODIFIED: `/app/backend/routes/customer_threads.py` (new `/crew/customer-threads/mine` endpoint)
+- MODIFIED: `/app/frontend/src/components/worker/CustomerChatPanel.jsx` (accept `gigId` OR `projectId`)
+- MODIFIED: `/app/frontend/src/pages/worker/WorkerProjectPage.jsx` (mount panel)
+- MODIFIED: `/app/frontend/src/pages/worker/WorkerFeed.jsx` (mount inbox tile)
+
+
