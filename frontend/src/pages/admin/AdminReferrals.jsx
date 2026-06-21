@@ -74,6 +74,9 @@ export default function AdminReferrals() {
       ]);
       setBoard(r.data);
       setRate(s.data.commission_rate);
+      // Clear any stale error from a previous failed load so the red
+      // banner doesn't linger after a successful refresh.
+      setErr("");
     } catch (e) {
       setErr(getErr(e));
     }
