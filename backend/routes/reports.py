@@ -999,6 +999,114 @@ async def admin_reports_export_google_sheets(
     return result
 
 
+@router.get("/me/shifts")
+async def my_shifts(user: dict = Depends(get_current_user)):
+    """Worker shift history — every completed shift (clock-out set) with
+    full detail for the worker-facing history view. Unlike /me/earnings
+    which is approved-only, this surfaces pending + approved + paid so
+    the worker sees their entire timeline.
+
+    Each row carries the gig/project context, clock times, hours + break,
+    pay rate + earnings, approval status, admin notes, and the first
+    names of every other approved contractor on the same gig.
+
+    Returned sorted by clock-in time, newest first."""
+    if user.get("role") != "worker":
+        raise HTTPException(403, "Workers only")
+
+    accs = await db.gig_acceptances.find(
+        {"worker_id": user["user_id"], "clock_out_at": {"$ne": None}},
+        {"_id": 0},
+    ).sort("clock_in_at", -1).to_list(2000)
+    if not accs:
+        return {"shifts": []}
+
+    # ---- Bulk-fetch gigs + projects + co-worker users ----------------------
+    gig_ids = list({a["gig_id"] for a in accs if a.get("gig_id")})
+    gigs = await db.gigs.find(
+        {"gig_id": {"$in": gig_ids}}, {"_id": 0},
+    ).to_list(length=2000)
+    gmap = {g["gig_id"]: g for g in gigs}
+
+    project_ids = list({g.get("project_id") for g in gigs if g.get("project_id")})
+    projects = await db.projects.find(
+        {"project_id": {"$in": project_ids}},
+        {"_id": 0, "project_id": 1, "title": 1},
+    ).to_list(length=500) if project_ids else []
+    pmap = {p["project_id"]: p for p in projects}
+
+    # Co-workers: every approved/clocked-in/completed contractor on each gig,
+    # minus the requesting worker themselves.
+    co_rows = await db.gig_acceptances.find(
+        {
+            "gig_id": {"$in": gig_ids},
+            "worker_id": {"$ne": user["user_id"]},
+            "status": {"$in": ["accepted", "on_the_clock", "completed", "backup"]},
+        },
+        {"_id": 0, "gig_id": 1, "worker_id": 1},
+    ).to_list(length=4000)
+    co_user_ids = list({c["worker_id"] for c in co_rows if c.get("worker_id")})
+    co_users = await db.users.find(
+        {"user_id": {"$in": co_user_ids}},
+        {"_id": 0, "user_id": 1, "name": 1},
+    ).to_list(length=2000) if co_user_ids else []
+    co_user_by_id = {u["user_id"]: u for u in co_users}
+    co_workers_by_gig: dict = {}
+    for c in co_rows:
+        gid = c.get("gig_id")
+        wid = c.get("worker_id")
+        u = co_user_by_id.get(wid)
+        if not gid or not u:
+            continue
+        first = (u.get("name") or "").split(" ", 1)[0] or "—"
+        co_workers_by_gig.setdefault(gid, []).append({
+            "user_id": wid,
+            "first_name": first,
+        })
+
+    def _status(a: dict) -> str:
+        # Worker-friendly status label that respects payout lifecycle.
+        if a.get("payout_paid_at") or a.get("paid_at"):
+            return "paid"
+        if a.get("timesheet_approved"):
+            return "approved"
+        if a.get("no_show_at"):
+            return "no_show"
+        return "pending"
+
+    shifts: list[dict] = []
+    for a in accs:
+        g = gmap.get(a["gig_id"]) or {}
+        br = _resolve_break_minutes(a, g)
+        paid_hours = _compute_paid_hours(a.get("hours_worked"), br) or 0.0
+        project_id = g.get("project_id")
+        shifts.append({
+            "acceptance_id": a.get("acceptance_id"),
+            "gig_id": a.get("gig_id"),
+            "gig_title": g.get("title"),
+            "gig_category": g.get("category"),
+            "gig_subcategory": g.get("subcategory"),
+            "gig_scheduled_date": g.get("scheduled_date"),
+            "project_id": project_id,
+            "project_title": pmap.get(project_id, {}).get("title") if project_id else None,
+            "clock_in_at": a.get("clock_in_at"),
+            "clock_out_at": a.get("clock_out_at"),
+            "hours_worked": round(float(a.get("hours_worked") or 0), 2),
+            "break_minutes": int(br),
+            "paid_hours": round(float(paid_hours), 2),
+            "pay_rate_applied": a.get("pay_rate_applied"),
+            "pay_type_applied": a.get("pay_type_applied"),
+            "earnings": round(float(a.get("earnings") or 0), 2),
+            "approval_status": _status(a),
+            "timesheet_approved_at": a.get("timesheet_approved_at"),
+            "admin_note": a.get("admin_note"),
+            "no_show_reason": a.get("no_show_reason"),
+            "co_workers": co_workers_by_gig.get(a["gig_id"], []),
+        })
+
+    return {"shifts": shifts}
+
+
 @router.get("/me/earnings")
 async def my_earnings(user: dict = Depends(get_current_user)):
     """Worker's own approved earnings — totals + per-gig list. Only APPROVED

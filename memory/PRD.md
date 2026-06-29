@@ -1773,3 +1773,36 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - MODIFIED: `/app/frontend/src/pages/worker/WorkerFeed.jsx` (mount inbox tile)
 
 
+
+## Implemented — 2026-06 (Iter 68: Worker Shift History) — VERIFIED
+**Goal**: Workers wanted a more detailed view of worked gigs — prior weeks + per-shift detail. The existing "My assignments" page showed only an earnings summary + active assignment list, no historical breakdown.
+
+**Design choices (user-approved)**: 1b (new section on existing `/crew/my-assignments` page), 2 (everything except gig location), 3c (week + month toggle), 4b (history only — no upcoming).
+
+**Backend** (`/app/backend/routes/reports.py::my_shifts`):
+- New endpoint `GET /api/me/shifts` returns every completed shift (clock-out set) for the requesting worker with rich detail.
+- Per-row payload: `acceptance_id`, `gig_id`, `gig_title`, `gig_category`, `gig_subcategory`, `gig_scheduled_date`, `project_id`, `project_title`, `clock_in_at`, `clock_out_at`, `hours_worked`, `break_minutes`, `paid_hours`, `pay_rate_applied`, `pay_type_applied`, `earnings`, `approval_status` (paid/approved/pending/no_show), `timesheet_approved_at`, `admin_note`, `no_show_reason`, `co_workers` (first-name-only roster of other approved contractors on the same gig).
+- Bulk-fetches gigs, projects, and co-worker users in 3 round trips total — no N+1 queries even at 500+ shifts.
+- Sorted newest first.
+- 403 for non-workers; 401/403 for unauthenticated.
+
+**Frontend** (`/app/frontend/src/components/worker/WorkerShiftHistory.jsx`):
+- Collapsible "Shift history (N shifts)" section with By Week / By Month toggle.
+- Week grouping: Mon–Sun rollup with weekly subtotal (paid hours + earnings) in a black header bar.
+- Each shift = collapsed row showing status badge (APPROVED/PENDING/PAID/NO-SHOW with icon), gig title, clock times, paid hours, earnings (green).
+- Expand → full detail: project tag, clock-in/out, worked/paid/rate triplet, approval timestamp, co-worker pills, amber admin note, red no-show reason box.
+- Mounted at the bottom of `/crew/my-assignments` (per user choice 1b). Auto-hides when worker has no completed shifts.
+
+**Tests** (`/app/backend/tests/test_iter68_shift_history.py`): 7/7 pass — contract shape, sort-desc-by-clock-in, non-worker 403, unauthenticated 401/403, co-workers PII-stripped (first name only, no email/full name leak), project context hydrated when gig is in a project, `/me/earnings` regression intact. Seeds data via sync pymongo so multi-shift tests don't conflict with motor's event-loop reuse.
+
+**Cross-regression**: 42/42 across iter63 + iter65 + iter66 + iter67 + iter68.
+
+**Verified visually**: screenshots confirm the section appears below the existing assignment list with weekly grouping ("Jun 29 – Jul 5 · 4 shifts · 8.00h · $240.00") + expandable shift cards showing all detail including the admin note.
+
+**Files added / modified**:
+- ADDED: `/app/frontend/src/components/worker/WorkerShiftHistory.jsx`
+- ADDED: `/app/backend/tests/test_iter68_shift_history.py`
+- MODIFIED: `/app/backend/routes/reports.py` (new `/me/shifts` endpoint)
+- MODIFIED: `/app/frontend/src/pages/worker/WorkerAccepted.jsx` (mounted `WorkerShiftHistory`)
+
+

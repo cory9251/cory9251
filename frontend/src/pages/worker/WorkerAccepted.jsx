@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { CheckCircle, CurrencyDollar, MapPin, Clock, Hourglass } from "@phosphor-icons/react";
 import { formatGigFull, isGigToday, isGigTomorrow } from "@/lib/gigDate";
 import FeedFilters, { DEFAULT_FILTERS, applyFeedFilters } from "@/components/worker/FeedFilters";
+import WorkerShiftHistory from "@/components/worker/WorkerShiftHistory";
 
 const ACCEPTED_DEFAULT_FILTERS = { ...DEFAULT_FILTERS, sort: "soonest" };
 
@@ -192,6 +193,10 @@ export default function WorkerAccepted() {
           })
         )}
       </div>
+
+      {/* Shift history — collapsible weekly/monthly view with full detail.
+          Auto-hides when worker has no completed shifts. */}
+      <WorkerShiftHistory />
     </div>
   );
 }
