@@ -57,7 +57,10 @@ export default function AdminVADigital() {
       setItems(leadsRes.data.items || []);
       setPct(settingsRes.data.commission_pct);
       setPctInput(String(settingsRes.data.commission_pct));
-      setVas((vasRes.data.items || []).filter((v) => v.va_status === "approved"));
+      const approved = (vasRes.data.items || []).filter((v) => v.va_status === "approved");
+      const unique = [...new Map(approved.map((v) => [v.user_id, v])).values()];
+      unique.sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || ""));
+      setVas(unique);
     } catch (e) {
       setErr(getErr(e));
     }

@@ -1806,3 +1806,28 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - MODIFIED: `/app/frontend/src/pages/worker/WorkerAccepted.jsx` (mounted `WorkerShiftHistory`)
 
 
+
+---
+
+## 2026-07-02 — VA Digital Services (Other Services Tab) — DONE
+**Scope (user-confirmed):** VAs submit leads for NON-cleaning digital services AND can be assigned to deliver them. All digital service types (sourcing, web dev, app dev, social media, SEO, design, other). Commission = admin-configurable % of project value (default 10%, `app_settings.digital_commission_pct`). Same 7-stage pipeline. UI in both VA portal and admin VA Program area.
+
+**Backend:**
+- `va_commission.py`: `LeadServiceType` extended (product_sourcing, web_development, app_development, social_media_marketing, seo_content, graphic_design, digital_other); `DIGITAL_SERVICE_TYPES`; `_get_digital_commission_pct()`; `_calc_commission_for_lead` → `digital_pct` kind (% × job_value); `LeadIn.property_size` now Optional + `estimated_budget` on LeadIn/LeadEditIn; `DigitalSettingsIn`, `AssignVAIn` models.
+- `routes/va.py`: `GET /api/va/digital-settings`, `GET /api/va/projects` (leads assigned for delivery); property_size required (400) for non-digital services; `va_get_lead` grants access via `assigned_va_id`.
+- `routes/pm.py`: `GET/PUT /api/pm/digital-settings`; `POST /api/pm/leads/{id}/assign-va` (assign/clear delivery VA + activity log `delivery_assigned`/`delivery_unassigned` + in-app notification); `GET /api/pm/leads?category=digital|cleaning`.
+- Lead doc new fields: `estimated_budget`, `assigned_va_id`, `assigned_va_name`, `assigned_at`.
+
+**Frontend:**
+- `pages/va/VADigitalServices.jsx` (/va/digital): commission banner, digital lead submit form (budget + live commission preview), My digital leads table, My delivery projects cards. Tab in VALayout.
+- `pages/admin/AdminVADigital.jsx` (/ops/va-program/digital): 4 KPIs, commission-% editor, digital-only pipeline table with stage moves, job-value-on-paid, delivery-VA assign select (deduped/sorted). Sidebar entry in AdminLayout.
+- `lib/leadOptions.js`: DIGITAL_SERVICE_TYPES / ALL_SERVICE_TYPES / isDigitalService.
+- `LeadDetail.jsx`: estimated-budget field, Digital optgroup in service dropdown, Size field hidden for digital leads, Delivery VA sidebar card, `calc_notes` shown in commission card, delivery activity rows.
+
+**Testing:** iteration_50.json — backend 9/9 PASS, frontend 10/10 flows PASS. 3 cosmetic follow-ups from report fixed afterward (size-field hide, calc_notes display, VA select dedupe).
+
+**Remaining backlog (unchanged priority):**
+- P1: Professional Certified Badges & Testing System (user-requested, needs scoping)
+- P1: Referral Program Phase 2 (public leaderboard, category overrides, duplicate-address detection)
+- P2: Shift History CSV/Sheets export; Stripe auto-payouts
+- P3: Review collection blasts; monthly VA summary emails; AI-suggested replies

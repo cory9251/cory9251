@@ -355,6 +355,7 @@ export default function LeadDetail({ scope = "admin" }) {
                   <span>{serviceTypeLabel(lead.service_type)}</span>
                 )}
               </Field>
+              {!isDigitalService(editing ? form.service_type : lead.service_type) && (
               <Field label="Size">
                 {editing ? (
                   <select
@@ -371,6 +372,7 @@ export default function LeadDetail({ scope = "admin" }) {
                   <span className="uppercase font-mono text-xs">{lead.property_size || "—"}</span>
                 )}
               </Field>
+              )}
               <Field label="Source">
                 {editing ? (
                   <select
@@ -532,6 +534,9 @@ export default function LeadDetail({ scope = "admin" }) {
               <div className="mt-1 text-xs uppercase tracking-widest text-[#4B5563]">
                 {commission.status?.replace(/_/g, " ")}
               </div>
+              {commission.calc_notes && (
+                <p className="mt-1 text-[11px] text-[#9CA3AF]" data-testid="commission-calc-notes">{commission.calc_notes}</p>
+              )}
               {commission.notes && (
                 <p className="mt-2 text-xs text-[#4B5563]">{commission.notes}</p>
               )}
