@@ -1866,3 +1866,19 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Fix:** Added DialogDescription to the dialog import (applied by testing agent iteration_53). Re-verified 11/11 flows (tab render, add/edit dialog, filters, CSV, recurring, tab switching) with 0 console errors.
 **User action required:** REDEPLOY to production to pick up the fix.
 **Deferred hardening ideas (from test report):** ErrorBoundary around /ops routes; eslint no-undef enforcement.
+
+## 2026-07-02 — Centralized Announcement Dashboard — DONE
+**Scope (user-confirmed):** Admin posts one centralized update (title + text); audience chosen per message (Workers and/or VAs); shows as LOGIN POPUP (per-message toggle) + revisitable board; dismissible per user; delivery via in-app / email / SMS / push (admin picks channels, reuses fanout_blast_channels blast infra w/ kill switch + dedupe).
+
+**Backend (`routes/announcements.py`):**
+- `announcements` collection {announcement_id, title, body, audience[], popup, channels[], active, dismissed_by[], recipients, in_app, blast_id, created_by...}.
+- Admin: POST /api/admin/announcements (in-app insert_many inline + background email/SMS/push fanout with blast_logs), GET list (read_count + delivery stats merged from blast_logs), PUT (edit/hide via active), DELETE (cascade-deletes related notification docs).
+- Users: GET /api/announcements (role-filtered, per-user dismissed flag), POST /api/announcements/{id}/dismiss.
+
+**Frontend:**
+- `components/announcements/AnnouncementsPopup.jsx` — auto-opens after login for popup+undismissed items, 'Got it' dismisses (queued if multiple). Embedded in WorkerLayout + VALayout.
+- `components/announcements/AnnouncementsBoard.jsx` — expandable list, unread badge/new-dot, 'Mark as read'. Embedded top of WorkerFeed (/crew) + VADashboard (/va). Auto-hides when empty.
+- `pages/admin/AdminAnnouncements.jsx` (/ops/announcements, Megaphone nav): compose (title/body/audience checkboxes/channel checkboxes/popup toggle), list with popup/hidden/audience chips, read counts, delivery stats, hide toggle, delete.
+
+**Testing:** iteration_54.json — backend 17/17 pytest PASS, frontend 13/13 flows PASS (popup persistence, audience targeting, board-only, read counts, hide/delete). Cascade-delete added + verified post-test (381 notifications removed). Regression file: backend/tests/test_iter54_announcements.py.
+**Known pre-existing (unrelated):** WorkerLayout console hydration warning '<span> in <option>'.

@@ -199,7 +199,8 @@ async def delete_announcement(announcement_id: str, admin: dict = Depends(requir
     res = await db.announcements.delete_one({"announcement_id": announcement_id})
     if res.deleted_count == 0:
         raise HTTPException(404, "Announcement not found")
-    return {"ok": True}
+    cleanup = await db.notifications.delete_many({"announcement_id": announcement_id})
+    return {"ok": True, "notifications_removed": cleanup.deleted_count}
 
 
 # ---------------------------------------------------------------------------
