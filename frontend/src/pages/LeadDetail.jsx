@@ -10,6 +10,9 @@ import {
   CurrencyDollar,
   FloppyDisk,
   X,
+  CalendarBlank,
+  Phone,
+  ChatCircle,
 } from "@phosphor-icons/react";
 import { api, getErr } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -467,6 +470,9 @@ export default function LeadDetail({ scope = "admin" }) {
             </div>
           </section>
 
+          {/* CRM: contact log + comments */}
+          {!lead.deleted_at && <CrmActions apiBase={apiBase} onDone={load} />}
+
           {/* Activity timeline */}
           <section className="border border-[#E5E7EB] bg-white">
             <div className="border-b border-[#E5E7EB] px-5 py-3">
@@ -510,6 +516,8 @@ export default function LeadDetail({ scope = "admin" }) {
               </Button>
             )}
           </section>
+
+          {!lead.deleted_at && <FollowupCard lead={lead} apiBase={apiBase} onSaved={load} />}
 
           {lead.assigned_va_id && (
             <section className="border border-[#E5E7EB] bg-white p-5" data-testid="lead-assigned-va-card">
@@ -587,6 +595,9 @@ function ActivityRow({ event }) {
     note_added: "Note added",
     delivery_assigned: "Delivery VA assigned",
     delivery_unassigned: "Delivery VA removed",
+    comment: "Comment",
+    contact_logged: "Contact logged",
+    followup_set: "Follow-up updated",
   }[event.kind] || event.kind;
 
   return (
@@ -633,6 +644,29 @@ function ActivityDetail({ event }) {
       </ul>
     );
   }
+  if (event.kind === "comment") {
+    return (
+      <p className="mt-1 whitespace-pre-wrap border-l-2 border-[#0044FF] pl-2 text-xs text-[#374151]">
+        {d.text}
+      </p>
+    );
+  }
+  if (event.kind === "contact_logged") {
+    return (
+      <div className="mt-1 text-xs">
+        <span className="font-bold uppercase tracking-widest">{(d.method || "").replace(/_/g, " ")}</span>
+        {" — "}{d.outcome}
+      </div>
+    );
+  }
+  if (event.kind === "followup_set") {
+    return (
+      <div className="mt-1 text-xs">
+        {d.due_at ? <>Due <strong>{String(d.due_at).slice(0, 10)}</strong></> : "Follow-up cleared"}
+        {d.note ? ` — ${d.note}` : ""}
+      </div>
+    );
+  }
   if (event.kind === "delivery_assigned" || event.kind === "delivery_unassigned") {
     return (
       <div className="mt-1 text-xs">
@@ -646,4 +680,163 @@ function ActivityDetail({ event }) {
     return <div className="mt-1 text-xs italic text-[#4B5563]">&ldquo;{d.reason}&rdquo;</div>;
   }
   return null;
+}
+
+function FollowupCard({ lead, apiBase, onSaved }) {
+  const [due, setDue] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDue((lead.next_followup_at || "").slice(0, 10));
+    setNote(lead.followup_note || "");
+  }, [lead.next_followup_at, lead.followup_note]);
+
+  const overdue =
+    lead.next_followup_at &&
+    new Date(lead.next_followup_at) < new Date() &&
+    !["paid", "lost"].includes(lead.stage);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.post(`${apiBase}/followup`, { due_at: due || null, note: note || null });
+      toast.success(due ? "Follow-up saved" : "Follow-up cleared");
+      onSaved();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="border border-[#E5E7EB] bg-white p-5" data-testid="lead-followup-card">
+      <div className="font-mono-label flex items-center gap-1">
+        <CalendarBlank size={12} /> Next follow-up
+        {overdue && (
+          <span
+            data-testid="followup-overdue-badge"
+            className="ml-1 bg-[#DC2626] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white"
+          >
+            Overdue
+          </span>
+        )}
+      </div>
+      <Input
+        data-testid="followup-date-input"
+        type="date"
+        value={due}
+        onChange={(e) => setDue(e.target.value)}
+        className="mt-3 h-9 rounded-none border-[#030712]"
+      />
+      <Input
+        data-testid="followup-note-input"
+        placeholder="e.g. Call back after 2pm"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        className="mt-2 h-9 rounded-none border-[#030712]"
+      />
+      <Button
+        data-testid="followup-save-btn"
+        onClick={save}
+        disabled={saving}
+        className="mt-3 h-9 w-full rounded-none bg-[#030712] text-xs text-white"
+      >
+        {saving ? "Saving…" : "Save follow-up"}
+      </Button>
+    </section>
+  );
+}
+
+function CrmActions({ apiBase, onDone }) {
+  const [method, setMethod] = useState("call");
+  const [outcome, setOutcome] = useState("");
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const logContact = async () => {
+    if (!outcome.trim()) return toast.error("Describe the outcome of the contact");
+    setBusy(true);
+    try {
+      await api.post(`${apiBase}/contacts`, { method, outcome });
+      toast.success("Contact logged");
+      setOutcome("");
+      onDone();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const postComment = async () => {
+    if (!comment.trim()) return toast.error("Write a comment first");
+    setBusy(true);
+    try {
+      await api.post(`${apiBase}/comments`, { text: comment });
+      toast.success("Comment posted");
+      setComment("");
+      onDone();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="border border-[#E5E7EB] bg-white p-5" data-testid="lead-crm-actions">
+      <div className="font-mono-label">Log a contact attempt</div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <select
+          data-testid="contact-method-select"
+          value={method}
+          onChange={(e) => setMethod(e.target.value)}
+          className="h-9 border border-[#030712] bg-white px-2 text-sm"
+        >
+          <option value="call">Call</option>
+          <option value="text">Text</option>
+          <option value="email">Email</option>
+          <option value="in_person">In person</option>
+          <option value="other">Other</option>
+        </select>
+        <Input
+          data-testid="contact-outcome-input"
+          placeholder="Outcome — e.g. Left voicemail, will retry Tuesday"
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && logContact()}
+          className="h-9 min-w-[220px] flex-1 rounded-none border-[#030712]"
+        />
+        <Button
+          data-testid="contact-log-btn"
+          onClick={logContact}
+          disabled={busy}
+          className="h-9 rounded-none bg-[#030712] px-3 text-xs text-white"
+        >
+          <Phone size={12} className="mr-1" /> Log
+        </Button>
+      </div>
+      <div className="font-mono-label mt-5">Comment — visible to admin + VA</div>
+      <Textarea
+        data-testid="comment-input"
+        rows={2}
+        placeholder="Share an update on this lead…"
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        className="mt-2 rounded-none border-[#030712]"
+      />
+      <div className="mt-2 flex justify-end">
+        <Button
+          data-testid="comment-post-btn"
+          onClick={postComment}
+          disabled={busy}
+          className="h-9 rounded-none bg-[#0044FF] px-4 text-xs text-white hover:bg-[#0033CC]"
+        >
+          <ChatCircle size={12} className="mr-1" /> Post comment
+        </Button>
+      </div>
+    </section>
+  );
 }

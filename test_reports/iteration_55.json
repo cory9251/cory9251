@@ -1,0 +1,51 @@
+{
+  "summary": "Iter 55 — Commission Rate Control + CRM Pipeline Upgrade. Backend: 18/18 pytest pass (rates settings CRUD + validation, per-VA overrides CRUD + effective-config merge, override-driven digital calc = $150 on $1000@15%, global-rate-driven flat calc = $35 deep, admin+VA followup/contact/comment endpoints, stage-change + lead_comment notifications to VA, cross-owner 404 gate). Frontend smoke: /ops/va-program/rates renders 16 flat rate-input-* fields + rate-commercial-pct + rate-digital-pct + rates-save-btn + rates-reset-defaults; edited deep 25→30 persisted after reload and was restored to 25; sidebar 'Rates' link present. Pipeline page: pipeline-layout-table / pipeline-layout-board toggles work; pipeline-board renders all 7 stage columns (new_lead, contacted, quoted, booked, completed, paid, lost) with 331 board-card-* cards; table layout now shows new 'Follow-up' and 'Activity' columns. Global rates + VA overrides fully cleaned up after run (deep restored to 25, VA Demo overrides cleared, 12 CRMTEST leads soft-deleted).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminVAPipeline stage <select> (pre-existing, iter54 also flagged)", "issues": ["React hydration warning: '<span> cannot be a child of <option>' inside data-testid='pipeline-stage-...' select. Silent, does not crash UI, but noisy in console. Same root cause as WorkerLayout warning previously flagged."]}
+    ]
+  },
+  "verification_steps_all_passed": [
+    "GET /api/pm/commission-settings returns rates+commercial_pct+digital_pct+defaults",
+    "PUT commission-settings deep=35 persists on reload; rejects unknown key (400) and >100 pct (422)",
+    "GET/PUT /api/pm/vas/{id}/commission-overrides — set/clear works; unknown key → 400; bad va → 404",
+    "Override digital_pct=15 → commission=$150.00 on $1000 with calc_notes containing '15%'",
+    "Global deep=35 with no override → commission=$35 flat on deep cleaning lead through new_lead→…→paid",
+    "POST /api/pm/leads/{id}/followup sets next_followup_at + followup_note + adds 'followup_set' activity",
+    "POST /api/pm/leads/{id}/contacts increments contact_count on every call",
+    "POST /api/pm/leads/{id}/comments increments comment_count + fires kind=lead_comment notification to VA",
+    "PUT /api/pm/leads/{id}/stage fires kind=lead_stage_changed notification (non-paid transitions)",
+    "VA can self-followup/contact/comment on own lead; foreign lead → 404 for all 3",
+    "UI: /ops/va-program/rates has 16 flat rate-input-*, commercial %, digital %, save + reset btns; deep 25→30 persists on reload; restore-to-25 works via edit+save (form path)",
+    "UI: pipeline-layout-table / pipeline-layout-board toggles present; board renders 7 board-col-* columns; table headers include Follow-up + Activity"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter55_rates_and_crm.py",
+    "/app/test_reports/pytest/iter55.xml"
+  ],
+  "action_items": [
+    "Optional cleanup: fix React hydration warning '<span> cannot be a child of <option>' in AdminVAPipeline stage select (same pre-existing issue as WorkerLayout — silent noise only)."
+  ],
+  "critical_code_review_comments": [
+    "va_commission._resolve_commission_config correctly merges hardcoded defaults ← app_settings globals ← per-VA user.commission_overrides, with commercial_pct handled as %(0..100) uniformly (converted from the stored fraction 0.05 in COMMISSION_RATES when the app_setting is absent). Clean, single source of truth for both digital and cleaning paths.",
+    "routes/pm.py PUT commission-settings validates each rate key against OVERRIDABLE_FLAT_SERVICES and rejects out-of-range values (0..10000) — good server-side safety net beyond client validation.",
+    "Per-VA override PUT is a full-replace of the overrides dict (no partial merge), matching the frontend 'Clear all' UX. Documented as such — no bug.",
+    "Stage-change notification is skipped when the new stage matches the current stage (no-op guard) and when moving to 'paid' (paid already emits its own commission-earned notification). Correct behavior.",
+    "apply_lead_comment only inserts a lead_comment notification when actor.role != 'va' and lead has va_user_id — VAs replying to themselves don't spam their own notifications. Correct.",
+    "Pipeline board renders 331 cards without visible pagination — could get sluggish once lead volume climbs into thousands. Consider a per-column limit + 'load more' or virtualization when lead count > 500. Not a blocker for launch.",
+    "Pre-existing hydration warning ('<span> in <option>') still present in AdminVAPipeline select — cosmetic only but worth cleaning up in the next UI pass."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter55_rates_and_crm.py"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% (all rate + pipeline UI selectors verified)"},
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026!, va.demo@hcobcleaners.com / VaDemo2026! (VA_USER_ID=user_963e6aede023) — from /app/memory/test_credentials.md",
+  "seed_data_creation": "12 CRMTEST-* leads (all digital_other + 1 deep) created and soft-deleted at teardown. Global rates temporarily set to deep=35 during calc test then restored to deep=25. VA Demo commission_overrides temporarily set to {digital_pct:15} and {deep:40, digital_pct:15} for override tests, then cleared. Seed lead 'Acme Web Co' (lead_1b2e349427d9) untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression file: /app/backend/tests/test_iter55_rates_and_crm.py (18 tests, ~4s, self-cleaning). Uses REACT_APP_BACKEND_URL from frontend/.env fallback. VA notifications endpoint /api/notifications returns a bare list (not {items:[...]}); tests already handle both shapes. HTML5 drag&drop on the Kanban was NOT exercised via Playwright — main agent curl-verified stage transitions and board renders 331 cards cleanly; suggest a manual smoke of drag→drop + prompt-on-completed→paid before shipping. Rates page 'Reset to defaults' button restores form values only (not auto-persisted) — user must click Save after; tested restore flow manually via edit+save.",
+  "rca of the issue": "N/A — no defects. Two initial test failures were due to tests assuming {items:[...]} shape for /api/notifications when it actually returns a bare list; fixed in-test."
+}

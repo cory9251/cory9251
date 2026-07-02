@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { VACommissionOverrides } from "@/components/admin/VACommissionOverrides";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { toast } from "sonner";
@@ -192,6 +193,9 @@ export default function AdminVADetail() {
         <StatBox icon={CurrencyDollar} label="Paid lifetime" value={fmtMoney(stats.total_paid)} />
         <StatBox icon={Target} label="Paid count" value={stats.paid_count} />
       </div>
+
+      {/* Per-VA custom commission rates */}
+      <VACommissionOverrides vaUserId={va.user_id} />
 
       {/* Monthly goal editor */}
       <section className="mb-8 border border-[#E5E7EB] bg-white p-6" data-testid="va-goal-section">

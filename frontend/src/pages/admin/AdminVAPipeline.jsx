@@ -4,8 +4,9 @@ import { api, getErr } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { MagnifyingGlass, ArrowRight, Trash, ArrowCounterClockwise, Pencil } from "@phosphor-icons/react";
+import { MagnifyingGlass, ArrowRight, Trash, ArrowCounterClockwise, Pencil, Kanban, Rows, Phone, ChatCircle, CalendarBlank } from "@phosphor-icons/react";
 import MessageUserButton from "@/components/messages/MessageUserButton";
+import { PipelineBoard } from "@/components/admin/PipelineBoard";
 
 const STAGES = [
   { value: "new_lead", label: "New Lead", color: "bg-[#0044FF]" },
@@ -48,6 +49,7 @@ export default function AdminVAPipeline() {
   const [stage, setStage] = useState("");
   const [serviceType, setServiceType] = useState("");
   const [view, setView] = useState("active"); // 'active' | 'trash'
+  const [layout, setLayout] = useState(() => localStorage.getItem("pipeline_layout") || "table");
   const [jobValueMap, setJobValueMap] = useState({}); // lead_id → input val for Paid stage
 
   const load = async () => {
@@ -69,11 +71,13 @@ export default function AdminVAPipeline() {
     load();
   }, [stage, serviceType, view]);
 
-  const moveStage = async (lead, newStage) => {
+  const moveStage = async (lead, newStage, jobValueOverride) => {
     try {
       const payload = { stage: newStage };
       if (newStage === "paid") {
-        const v = parseFloat(jobValueMap[lead.lead_id]);
+        const v = jobValueOverride != null
+          ? parseFloat(jobValueOverride)
+          : parseFloat(jobValueMap[lead.lead_id]);
         if (Number.isFinite(v) && v > 0) payload.job_value = v;
       }
       await api.put(`/pm/leads/${lead.lead_id}/stage`, payload);
@@ -148,6 +152,28 @@ export default function AdminVAPipeline() {
         </button>
       </div>
 
+      {/* Table / Board layout toggle */}
+      <div className="mb-4 ml-3 inline-flex border border-[#030712] align-top">
+        <button
+          data-testid="pipeline-layout-table"
+          onClick={() => { setLayout("table"); localStorage.setItem("pipeline_layout", "table"); }}
+          className={`flex items-center gap-1 px-4 py-2 text-xs font-bold uppercase tracking-widest ${
+            layout === "table" ? "bg-[#030712] text-white" : "bg-white text-[#030712]"
+          }`}
+        >
+          <Rows size={12} /> Table
+        </button>
+        <button
+          data-testid="pipeline-layout-board"
+          onClick={() => { setLayout("board"); localStorage.setItem("pipeline_layout", "board"); }}
+          className={`flex items-center gap-1 border-l border-[#030712] px-4 py-2 text-xs font-bold uppercase tracking-widest ${
+            layout === "board" ? "bg-[#0044FF] text-white" : "bg-white text-[#030712]"
+          }`}
+        >
+          <Kanban size={12} /> Board
+        </button>
+      </div>
+
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative">
@@ -208,6 +234,12 @@ export default function AdminVAPipeline() {
         <div className="border border-dashed border-[#E5E7EB] bg-white p-10 text-center text-sm text-[#4B5563]">
           No leads found.
         </div>
+      ) : layout === "board" && view === "active" ? (
+        <PipelineBoard
+          items={items}
+          onMove={(lead, stage, jobValue) => moveStage(lead, stage, jobValue)}
+          onOpen={(lead) => nav(`/ops/va-program/pipeline/${lead.lead_id}`)}
+        />
       ) : (
         <div className="border border-[#E5E7EB] bg-white overflow-x-auto">
           <table className="w-full text-sm">
@@ -220,6 +252,8 @@ export default function AdminVAPipeline() {
                 <th className="px-3 py-3">Source</th>
                 <th className="px-3 py-3">Submitted</th>
                 <th className="px-3 py-3">Stage</th>
+                <th className="px-3 py-3">Follow-up</th>
+                <th className="px-3 py-3">Activity</th>
                 <th className="px-3 py-3">Actions</th>
               </tr>
             </thead>
@@ -270,6 +304,33 @@ export default function AdminVAPipeline() {
                     </td>
                     <td className="px-3 py-3">
                       <StageBadge stage={l.stage} />
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      {l.next_followup_at ? (
+                        <span
+                          data-testid={`followup-cell-${l.lead_id}`}
+                          className={`inline-flex items-center gap-1 ${
+                            new Date(l.next_followup_at) < new Date() && !["paid", "lost"].includes(l.stage)
+                              ? "font-bold text-[#DC2626]"
+                              : "text-[#4B5563]"
+                          }`}
+                          title={l.followup_note || ""}
+                        >
+                          <CalendarBlank size={11} /> {String(l.next_followup_at).slice(0, 10)}
+                        </span>
+                      ) : (
+                        <span className="text-[#D1D5DB]">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-[#4B5563]">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-0.5" title="Contact attempts">
+                          <Phone size={11} /> {l.contact_count || 0}
+                        </span>
+                        <span className="inline-flex items-center gap-0.5" title="Comments">
+                          <ChatCircle size={11} /> {l.comment_count || 0}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-3 py-3">
                       {view === "trash" ? (

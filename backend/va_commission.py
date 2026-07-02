@@ -120,6 +120,9 @@ CLEANER_REFERRAL_CAP = 100.0
 DUPLICATE_REOPEN_DAYS = 90  # leads completed/lost > 90 days old don't block dupes
 DEFAULT_DIGITAL_COMMISSION_PCT = 10.0  # % of project value; admin-editable via app_settings
 
+OVERRIDABLE_FLAT_SERVICES = [k for k in COMMISSION_RATES if k != "commercial_pct"]
+OVERRIDABLE_RATE_KEYS = set(OVERRIDABLE_FLAT_SERVICES) | {"commercial_pct", "digital_pct"}
+
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -276,6 +279,30 @@ class DigitalSettingsIn(BaseModel):
 
 class AssignVAIn(BaseModel):
     va_user_id: Optional[str] = None  # None/'' clears the delivery assignment
+
+
+class CommissionSettingsIn(BaseModel):
+    rates: Optional[dict] = None  # {service: flat $ amount}
+    commercial_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    digital_pct: Optional[float] = Field(default=None, ge=0, le=100)
+
+
+class VACommissionOverridesIn(BaseModel):
+    overrides: dict = Field(default_factory=dict)  # full replace; omit keys to clear
+
+
+class LeadFollowupIn(BaseModel):
+    due_at: Optional[str] = None  # ISO date; None/empty clears
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
+class LeadContactIn(BaseModel):
+    method: Literal["call", "text", "email", "in_person", "other"]
+    outcome: str = Field(min_length=1, max_length=500)
+
+
+class LeadCommentIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
 
 
 # ---------------------------------------------------------------------------
@@ -491,15 +518,53 @@ async def _get_digital_commission_pct() -> float:
     return min(100.0, max(0.0, pct))
 
 
+async def _resolve_commission_config(va_user_id: Optional[str]) -> dict:
+    """Effective rates: hardcoded defaults ← app_settings globals ← per-VA overrides."""
+    s = await db.app_settings.find_one(
+        {"_id": "global"},
+        {"_id": 0, "commission_rates": 1, "commercial_pct": 1, "digital_commission_pct": 1},
+    ) or {}
+    rates = {k: float(v) for k, v in COMMISSION_RATES.items() if k != "commercial_pct"}
+    for k, v in (s.get("commission_rates") or {}).items():
+        if k in rates:
+            try:
+                rates[k] = float(v)
+            except (TypeError, ValueError):
+                pass
+    try:
+        commercial_pct = float(s.get("commercial_pct"))
+    except (TypeError, ValueError):
+        commercial_pct = COMMISSION_RATES["commercial_pct"] * 100.0
+    digital_pct = await _get_digital_commission_pct()
+
+    overrides: dict = {}
+    if va_user_id:
+        u = await db.users.find_one({"user_id": va_user_id}, {"_id": 0, "commission_overrides": 1})
+        overrides = (u or {}).get("commission_overrides") or {}
+    for k, v in overrides.items():
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if k == "commercial_pct":
+            commercial_pct = fv
+        elif k == "digital_pct":
+            digital_pct = fv
+        elif k in rates:
+            rates[k] = fv
+    return {"rates": rates, "commercial_pct": commercial_pct, "digital_pct": digital_pct, "overrides": overrides}
+
+
 async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = None) -> dict:
     """Compute commission for a lead based on its service type."""
     svc = lead.get("service_type")
     phone = lead.get("prospect_phone_norm") or ""
     email = lead.get("prospect_email_norm") or ""
     va = lead.get("va_user_id")
+    cfg = await _resolve_commission_config(va)
 
     if svc in DIGITAL_SERVICE_TYPES:
-        pct = await _get_digital_commission_pct()
+        pct = cfg["digital_pct"]
         rev = float(job_value or lead.get("job_value") or 0)
         amount = round(rev * pct / 100.0, 2)
         return {
@@ -514,12 +579,13 @@ async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = Non
         # sub-types (medical/funeral/construction) and maintenance bundles
         # are by nature commercial deals.
         rev = float(job_value or lead.get("job_value") or 0)
-        amount = round(rev * COMMISSION_RATES["commercial_pct"], 2)
+        pct = cfg["commercial_pct"]
+        amount = round(rev * pct / 100.0, 2)
         return {
             "amount": amount,
             "kind": "commercial_one_time",
             "visit_number": None,
-            "notes": f"5% of ${rev:.2f} job value ({svc})",
+            "notes": f"{pct:g}% of ${rev:.2f} job value ({svc})",
         }
 
     if svc == "routine":
@@ -542,8 +608,8 @@ async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = Non
 
     # Flat one-time payouts. Bucketed at either $10 or $25 per the
     # COMMISSION_RATES table at the top of this file.
-    if svc in COMMISSION_RATES:
-        amt = COMMISSION_RATES[svc]
+    if svc in cfg["rates"]:
+        amt = cfg["rates"][svc]
         return {"amount": amt, "kind": "one_time", "visit_number": None,
                 "notes": f"{svc.replace('_', ' ').title()} flat ${amt:.0f}"}
 
@@ -605,3 +671,59 @@ async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculat
     }
     await db.commissions.insert_one(doc)
     return {k: v for k, v in doc.items() if k != "_id"}
+
+
+# ---------------------------------------------------------------------------
+# CRM helpers — follow-ups / contact log / comments (shared by pm.py + va.py)
+# ---------------------------------------------------------------------------
+async def apply_lead_followup(lead: dict, payload: "LeadFollowupIn", actor: dict) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead["lead_id"]},
+        {"$set": {
+            "next_followup_at": payload.due_at or None,
+            "followup_note": (payload.note or "").strip() or None,
+            "updated_at": now,
+        }},
+    )
+    await _log_lead_activity(
+        lead_id=lead["lead_id"], kind="followup_set", actor=actor,
+        detail={"due_at": payload.due_at or None, "note": (payload.note or "").strip() or None},
+    )
+    return await db.va_leads.find_one({"lead_id": lead["lead_id"]})
+
+
+async def apply_lead_contact(lead: dict, payload: "LeadContactIn", actor: dict) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead["lead_id"]},
+        {"$set": {"last_contact_at": now, "updated_at": now}, "$inc": {"contact_count": 1}},
+    )
+    await _log_lead_activity(
+        lead_id=lead["lead_id"], kind="contact_logged", actor=actor,
+        detail={"method": payload.method, "outcome": payload.outcome.strip()},
+    )
+    return await db.va_leads.find_one({"lead_id": lead["lead_id"]})
+
+
+async def apply_lead_comment(lead: dict, payload: "LeadCommentIn", actor: dict) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    await db.va_leads.update_one(
+        {"lead_id": lead["lead_id"]},
+        {"$set": {"updated_at": now}, "$inc": {"comment_count": 1}},
+    )
+    await _log_lead_activity(
+        lead_id=lead["lead_id"], kind="comment", actor=actor,
+        detail={"text": payload.text.strip()},
+    )
+    if actor.get("role") != "va" and lead.get("va_user_id"):
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+            "user_id": lead["va_user_id"],
+            "kind": "lead_comment",
+            "title": f"New comment on '{lead.get('prospect_name')}'",
+            "body": payload.text.strip()[:140],
+            "created_at": now,
+            "read": False,
+        })
+    return await db.va_leads.find_one({"lead_id": lead["lead_id"]})

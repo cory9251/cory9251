@@ -18,6 +18,12 @@ from auth_deps import _get_user_by_id
 from va_commission import (
     DIGITAL_SERVICE_TYPES,
     _get_digital_commission_pct,
+    LeadFollowupIn,
+    LeadContactIn,
+    LeadCommentIn,
+    apply_lead_followup,
+    apply_lead_contact,
+    apply_lead_comment,
     require_va,
     require_va_active,
     VARegisterDetailsIn,
@@ -845,3 +851,37 @@ async def va_delivery_projects(user: dict = Depends(require_va_active)):
     async for d in cur:
         items.append(_serialize_lead(d))
     return {"items": items, "commission_pct": await _get_digital_commission_pct()}
+
+
+# ---------------------------------------------------------------------------
+# CRM: follow-ups / contact log / comments (VA side — owner or delivery VA)
+# ---------------------------------------------------------------------------
+async def _va_crm_lead_or_404(lead_id: str, user: dict) -> dict:
+    lead = await db.va_leads.find_one({
+        "lead_id": lead_id,
+        "$or": [{"va_user_id": user["user_id"]}, {"assigned_va_id": user["user_id"]}],
+    })
+    if not lead or lead.get("deleted_at"):
+        raise HTTPException(404, "Lead not found")
+    return lead
+
+
+@router.post("/va/leads/{lead_id}/followup")
+async def va_set_followup(lead_id: str, payload: LeadFollowupIn, user: dict = Depends(require_va_active)):
+    lead = await _va_crm_lead_or_404(lead_id, user)
+    fresh = await apply_lead_followup(lead, payload, user)
+    return _serialize_lead(fresh)
+
+
+@router.post("/va/leads/{lead_id}/contacts")
+async def va_log_contact(lead_id: str, payload: LeadContactIn, user: dict = Depends(require_va_active)):
+    lead = await _va_crm_lead_or_404(lead_id, user)
+    fresh = await apply_lead_contact(lead, payload, user)
+    return _serialize_lead(fresh)
+
+
+@router.post("/va/leads/{lead_id}/comments")
+async def va_post_comment(lead_id: str, payload: LeadCommentIn, user: dict = Depends(require_va_active)):
+    lead = await _va_crm_lead_or_404(lead_id, user)
+    fresh = await apply_lead_comment(lead, payload, user)
+    return _serialize_lead(fresh)

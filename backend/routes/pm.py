@@ -19,6 +19,19 @@ from va_commission import (
     DIGITAL_SERVICE_TYPES,
     DigitalSettingsIn,
     AssignVAIn,
+    COMMISSION_RATES,
+    DEFAULT_DIGITAL_COMMISSION_PCT,
+    OVERRIDABLE_FLAT_SERVICES,
+    OVERRIDABLE_RATE_KEYS,
+    CommissionSettingsIn,
+    VACommissionOverridesIn,
+    LeadFollowupIn,
+    LeadContactIn,
+    LeadCommentIn,
+    apply_lead_followup,
+    apply_lead_contact,
+    apply_lead_comment,
+    _resolve_commission_config,
     _get_digital_commission_pct,
     require_program_manager_or_owner,
     LeadStageIn,
@@ -173,6 +186,19 @@ async def pm_update_lead_stage(
                 {"commission_id": existing["commission_id"]},
                 {"$set": {"status": "rejected", "calc_notes": "Lead marked lost", "updated_at": now}},
             )
+
+    # CRM: notify the VA on every stage move ('paid' already sends its own)
+    if fresh.get("va_user_id") and payload.stage != "paid" and payload.stage != lead.get("stage"):
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+            "user_id": fresh["va_user_id"],
+            "kind": "lead_stage_changed",
+            "title": f"Lead update: {fresh.get('prospect_name')}",
+            "body": f"Your lead moved to {payload.stage.replace('_', ' ').title()}."
+                    + (f" Note: {payload.note}" if payload.note else ""),
+            "created_at": now,
+            "read": False,
+        })
     return _serialize_lead(fresh)
 
 
@@ -418,6 +444,147 @@ async def pm_assign_delivery_va(
         "read": False,
     })
     fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
+
+
+# ---------------------------------------------------------------------------
+# Commission rate control — global defaults + per-VA overrides
+# ---------------------------------------------------------------------------
+async def _commission_settings_payload() -> dict:
+    cfg = await _resolve_commission_config(None)
+    return {
+        "rates": cfg["rates"],
+        "commercial_pct": cfg["commercial_pct"],
+        "digital_pct": cfg["digital_pct"],
+        "defaults": {
+            "rates": {k: v for k, v in COMMISSION_RATES.items() if k != "commercial_pct"},
+            "commercial_pct": COMMISSION_RATES["commercial_pct"] * 100.0,
+            "digital_pct": DEFAULT_DIGITAL_COMMISSION_PCT,
+        },
+    }
+
+
+@router.get("/pm/commission-settings")
+async def pm_get_commission_settings(admin: dict = Depends(require_program_manager_or_owner)):
+    return await _commission_settings_payload()
+
+
+@router.put("/pm/commission-settings")
+async def pm_set_commission_settings(
+    payload: CommissionSettingsIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    updates: dict = {}
+    if payload.rates is not None:
+        clean: dict = {}
+        for k, v in payload.rates.items():
+            if k not in OVERRIDABLE_FLAT_SERVICES:
+                raise HTTPException(400, f"Unknown service rate '{k}'")
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"Rate for '{k}' must be a number")
+            if fv < 0 or fv > 10000:
+                raise HTTPException(400, f"Rate for '{k}' out of range")
+            clean[k] = fv
+        updates["commission_rates"] = clean
+    if payload.commercial_pct is not None:
+        updates["commercial_pct"] = float(payload.commercial_pct)
+    if payload.digital_pct is not None:
+        updates["digital_commission_pct"] = float(payload.digital_pct)
+    if updates:
+        updates["commission_settings_updated_at"] = datetime.now(timezone.utc).isoformat()
+        updates["commission_settings_updated_by"] = admin["user_id"]
+        await db.app_settings.update_one({"_id": "global"}, {"$set": updates}, upsert=True)
+    return await _commission_settings_payload()
+
+
+@router.get("/pm/vas/{va_user_id}/commission-overrides")
+async def pm_get_va_commission_overrides(
+    va_user_id: str,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    va = await db.users.find_one(
+        {"user_id": va_user_id, "role": "va"},
+        {"_id": 0, "user_id": 1, "name": 1, "commission_overrides": 1},
+    )
+    if not va:
+        raise HTTPException(404, "VA not found")
+    cfg = await _resolve_commission_config(va_user_id)
+    return {
+        "va_user_id": va_user_id,
+        "va_name": va.get("name"),
+        "overrides": va.get("commission_overrides") or {},
+        "effective": {"rates": cfg["rates"], "commercial_pct": cfg["commercial_pct"], "digital_pct": cfg["digital_pct"]},
+        "globals": await _commission_settings_payload(),
+    }
+
+
+@router.put("/pm/vas/{va_user_id}/commission-overrides")
+async def pm_set_va_commission_overrides(
+    va_user_id: str,
+    payload: VACommissionOverridesIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    va = await db.users.find_one({"user_id": va_user_id, "role": "va"}, {"_id": 0, "user_id": 1})
+    if not va:
+        raise HTTPException(404, "VA not found")
+    clean: dict = {}
+    for k, v in (payload.overrides or {}).items():
+        if k not in OVERRIDABLE_RATE_KEYS:
+            raise HTTPException(400, f"Unknown rate key '{k}'")
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Override '{k}' must be a number")
+        if k in ("commercial_pct", "digital_pct"):
+            if fv < 0 or fv > 100:
+                raise HTTPException(400, f"'{k}' must be between 0 and 100")
+        elif fv < 0 or fv > 10000:
+            raise HTTPException(400, f"'{k}' out of range")
+        clean[k] = fv
+    await db.users.update_one(
+        {"user_id": va_user_id},
+        {"$set": {"commission_overrides": clean, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    cfg = await _resolve_commission_config(va_user_id)
+    return {
+        "va_user_id": va_user_id,
+        "overrides": clean,
+        "effective": {"rates": cfg["rates"], "commercial_pct": cfg["commercial_pct"], "digital_pct": cfg["digital_pct"]},
+    }
+
+
+# ---------------------------------------------------------------------------
+# CRM: follow-ups / contact log / comments (admin side)
+# ---------------------------------------------------------------------------
+async def _pm_lead_or_400(lead_id: str) -> dict:
+    lead = await db.va_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        raise HTTPException(400, "Lead is in Trash")
+    return lead
+
+
+@router.post("/pm/leads/{lead_id}/followup")
+async def pm_set_followup(lead_id: str, payload: LeadFollowupIn, admin: dict = Depends(require_program_manager_or_owner)):
+    lead = await _pm_lead_or_400(lead_id)
+    fresh = await apply_lead_followup(lead, payload, admin)
+    return _serialize_lead(fresh)
+
+
+@router.post("/pm/leads/{lead_id}/contacts")
+async def pm_log_contact(lead_id: str, payload: LeadContactIn, admin: dict = Depends(require_program_manager_or_owner)):
+    lead = await _pm_lead_or_400(lead_id)
+    fresh = await apply_lead_contact(lead, payload, admin)
+    return _serialize_lead(fresh)
+
+
+@router.post("/pm/leads/{lead_id}/comments")
+async def pm_post_comment(lead_id: str, payload: LeadCommentIn, admin: dict = Depends(require_program_manager_or_owner)):
+    lead = await _pm_lead_or_400(lead_id)
+    fresh = await apply_lead_comment(lead, payload, admin)
     return _serialize_lead(fresh)
 
 
