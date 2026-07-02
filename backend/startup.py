@@ -382,5 +382,7 @@ def start_background_tasks() -> None:
     imports during module load."""
     from routes.messages import _message_digest_runner
     from reminders import reminders_runner
+    from routes.bookkeeping import recurring_expenses_runner
     asyncio.create_task(_message_digest_runner())
     asyncio.create_task(reminders_runner())
+    asyncio.create_task(recurring_expenses_runner())
