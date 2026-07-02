@@ -1916,3 +1916,20 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Blast dialog auto-opens after create with channel checkboxes (in_app/email/sms/push) → POST /api/gigs/{id}/blast.
 
 **Testing:** Backend verified via curl (text w/ Claude, image w/ Claude vision, PDF w/ GPT-5.5 — all fields extracted correctly incl. relative-date resolution). Frontend E2E via testing agent iteration_57.json — 100% pass after fixing missing `AdminAIAssignment` import in App.js (route existed but import was absent → page crash; fixed). Test gig cleaned up.
+
+## 2026-07-02 — Professional Certified Badges & Testing System — DONE
+**Scope (user-confirmed):** Badges = specialty trades (cleaning, electrician, plumber, cargo van/box truck, drywall, painting + admin-custom). Workers earn by passing a one-shot multiple-choice test AND uploading proof (cert images/PDFs, portfolio links) → approved only after internal admin review. AI (Claude Sonnet 4.6) generates quiz questions. Badges gate specialty gigs (first access). NO retakes (results stored) — admin has reset override.
+
+**Backend (`routes/badges.py`):**
+- Collections: `badges` {badge_id, name, description, color, pass_pct, questions[{q,options,correct_index}], active, seed_key}, `badge_applications` {application_id, badge_id, user_id, status: test_passed|test_failed|pending_review|approved|rejected, score_pct, answers, documents[], portfolio_links[], notes, admin_note, reviewed_by}. `users.certified_badges: [badge_id]`.
+- Worker: GET /worker/badges; GET+POST /worker/badges/{id}/test (questions served without correct_index; one attempt enforced); POST/DELETE .../documents (object storage, kind=badge_doc, served via /api/files ACL); POST .../submit (needs ≥1 doc or link → pending_review).
+- Admin: badges CRUD (delete cascades: apps, users pull, gigs unset); POST /admin/badges/generate-quiz (Claude via emergentintegrations, validated JSON); GET /admin/badge-applications?status; approve (adds to certified_badges + notification) / reject / reset (deletes app, revokes if approved).
+- Gig gating: GigIn/GigPatch.required_badge_id; `_attach_required_badges()` enriches /gigs + /gigs/{id} with required_badge {name,color} + has_required_badge for workers; accept_gig 403s for uncertified; duplicate copies the field.
+- Seed: 6 badges × 8 hand-written questions, pass 80%, idempotent ($setOnInsert on seed_key) at startup.
+
+**Frontend:**
+- `pages/worker/WorkerCertifications.jsx` (/crew/certifications): badge cards with status chips (CERTIFIED / IN REVIEW / TEST PASSED / FAILED / NOT APPROVED), full-page test screen (radio options, score result), proof panel (doc upload chips, portfolio links, notes, submit for review). Entry points: feed CTA banner + profile link card.
+- `pages/admin/AdminBadges.jsx` (/ops/badges, 'Certifications' nav): Review queue tab (status filters, application cards w/ score, doc links, approve/reject w/ note, reset-allow-retake) + Badges tab (CRUD, active toggle, badge dialog with color swatches, question editor, AI test writer).
+- Gig gating UI: Create/Edit gig dialogs get 'Required certification' select; admin GigDetail chip; worker feed CERT REQUIRED/CERTIFIED pill; worker gig detail chip + cert-required-card (replaces Request button, links to /crew/certifications).
+
+**Testing:** iteration_70.json — backend 22/22 pytest PASS (regression file backend/tests/test_iter70_badges.py, idempotent), frontend 100% (worker test fail/pass flows, proof submit, admin approve, AI quiz gen ~30s real Claude, gig gating pill/card/chip, plain-gig regression). Known pre-existing: FeedFilters <span>-in-<option> hydration warning (unrelated).
