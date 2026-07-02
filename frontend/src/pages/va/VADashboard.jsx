@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import EarningsTicker from "@/components/va/EarningsTicker";
+import { AnnouncementsBoard } from "@/components/announcements/AnnouncementsBoard";
 import {
   Briefcase,
   HourglassMedium,
@@ -96,6 +97,11 @@ export default function VADashboard() {
         <p className="mt-2 text-sm text-[#4B5563]">
           Submit leads, track stages, and watch your commissions land. All earnings are reviewed by your Program Manager before payout.
         </p>
+      </div>
+
+      {/* Company announcements board (auto-hides when empty) */}
+      <div className="mb-6 max-w-3xl">
+        <AnnouncementsBoard />
       </div>
 
       {/* Earnings ticker — big money-on-the-screen banner */}

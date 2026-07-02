@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+import { AnnouncementsBoard } from "@/components/announcements/AnnouncementsBoard";
 import {
   Broom,
   Wrench,
@@ -104,6 +105,10 @@ export default function WorkerFeed() {
           (the component handles that). Sits above the verification banner so
           even fully-onboarded crews get the prompt first. */}
       <AvailableNowToggle />
+
+      {/* Company announcements — popup handles urgent ones; this board lets
+          workers revisit anything they dismissed (auto-hides when empty). */}
+      <AnnouncementsBoard />
 
       {/* Customer chats inbox — surfaces any project/gig chats the worker
           is in (auto-hides when empty). Closes the "I have no idea where to

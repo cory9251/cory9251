@@ -16,6 +16,7 @@ import {
   BookOpenText,
   Monitor,
 } from "@phosphor-icons/react";
+import { AnnouncementsPopup } from "@/components/announcements/AnnouncementsPopup";
 import { useAuth } from "@/context/AuthContext";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
@@ -246,6 +247,7 @@ export default function VALayout() {
             </div>
           </div>
         )}
+        <AnnouncementsPopup />
         <Outlet />
       </main>
     </div>

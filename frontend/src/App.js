@@ -50,6 +50,7 @@ import VAApprovedGuard from "@/components/va/VAApprovedGuard";
 import VADigitalServices from "@/pages/va/VADigitalServices";
 import AdminVADigital from "@/pages/admin/AdminVADigital";
 import AdminBookkeeping from "@/pages/admin/AdminBookkeeping";
+import AdminAnnouncements from "@/pages/admin/AdminAnnouncements";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
 import RatePage from "@/pages/RatePage";
@@ -140,6 +141,7 @@ function RouterShell() {
         <Route path="va-program/pipeline" element={<AdminVAPipeline />} />
         <Route path="va-program/digital" element={<AdminVADigital />} />
         <Route path="bookkeeping" element={<AdminBookkeeping />} />
+        <Route path="announcements" element={<AdminAnnouncements />} />
         <Route path="va-program/pipeline/:leadId" element={<LeadDetail scope="admin" />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />

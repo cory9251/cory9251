@@ -23,6 +23,7 @@ import {
   ChatCircleDots,
   Monitor,
   Calculator,
+  Megaphone,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -40,6 +41,7 @@ const nav = [
   { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
   { to: "/ops/referrals", label: "Referrals", icon: Handshake, end: false },
   { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },
+  { to: "/ops/announcements", label: "Announcements", icon: Megaphone, end: false },
   { to: "/ops/bookkeeping", label: "Bookkeeping", icon: Calculator, end: false },
   { to: "/ops/settings", label: "Settings", icon: Gear, end: false },
 ];

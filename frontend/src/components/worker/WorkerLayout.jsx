@@ -1,5 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { AnnouncementsPopup } from "@/components/announcements/AnnouncementsPopup";
 import {
   House,
   CheckSquare,
@@ -53,6 +54,7 @@ export default function WorkerLayout() {
         </header>
 
         <main className="flex-1 overflow-y-auto pb-24">
+          <AnnouncementsPopup />
           <Outlet />
         </main>
 
