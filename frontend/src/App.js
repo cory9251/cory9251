@@ -65,6 +65,9 @@ import WorkerFeed from "@/pages/worker/WorkerFeed";
 import WorkerProfile from "@/pages/worker/WorkerProfile";
 import WorkerAccepted from "@/pages/worker/WorkerAccepted";
 import WorkerGigDetail from "@/pages/worker/WorkerGigDetail";
+import PrivacyPolicy from "@/pages/legal/PrivacyPolicy";
+import Terms from "@/pages/legal/Terms";
+import SmsTerms from "@/pages/legal/SmsTerms";
 import "@/App.css";
 
 function RouterShell() {
@@ -110,6 +113,14 @@ function RouterShell() {
       <Route path="/work-with-us" element={<VAsLanding />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+
+      {/* Public legal pages — links submitted to Twilio for A2P 10DLC approval */}
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/terms-and-conditions" element={<Navigate to="/terms" replace />} />
+      <Route path="/sms-terms" element={<SmsTerms />} />
+      <Route path="/sms-messaging-terms" element={<Navigate to="/sms-terms" replace />} />
 
       {/* Admin / Ops */}
       <Route

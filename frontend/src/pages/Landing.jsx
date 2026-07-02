@@ -534,13 +534,16 @@ export default function Landing() {
             </a>{" "}
             + the broader network.
           </div>
-          <div className="flex gap-6 text-xs text-[#4B5563]">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-[#4B5563]">
             <Link to="/login">Sign in</Link>
             <Link to="/register">Apply to join</Link>
             <a href="/customers">For customers</a>
             <a href="https://hcobcleaners.com" target="_blank" rel="noreferrer">
               HCOB main site
             </a>
+            <Link to="/privacy" data-testid="footer-privacy-link">Privacy</Link>
+            <Link to="/terms" data-testid="footer-terms-link">Terms</Link>
+            <Link to="/sms-terms" data-testid="footer-sms-terms-link">SMS Terms</Link>
           </div>
         </div>
       </footer>
