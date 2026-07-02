@@ -1859,3 +1859,10 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Admin GigDetail crew table: green 'GPS ✓ {N}m' badge (gps-verified-*) for verified clock-ins; amber 'UNVERIFIED' badge (gps-flagged-*) with tooltip reason for flagged ones.
 
 **Testing:** iteration_52.json — backend 9/9 PASS (too-early 400, too-far 403, on-site verified, GPS-denied flagged, ungeocodable flagged, re-geocode on edit, coord privacy for requested workers, no-acceptance block, clock-out regression), frontend Playwright geolocation flows PASS. Test file: backend/tests/test_iter69_geofence_clockin.py.
+
+## 2026-07-02 — BUG FIX: Bookkeeping Transactions tab blank screen — DONE
+**Report:** User saw blank/white screen on the Transactions tab (production https://hcobnetwork.com).
+**Root cause:** `<DialogDescription>` was used in BookTransactions.jsx without being imported (an earlier import edit never landed on disk) → ReferenceError at render time → whole tab blank. Compiles fine (no no-undef lint), fails only at runtime — reproduced in preview too.
+**Fix:** Added DialogDescription to the dialog import (applied by testing agent iteration_53). Re-verified 11/11 flows (tab render, add/edit dialog, filters, CSV, recurring, tab switching) with 0 console errors.
+**User action required:** REDEPLOY to production to pick up the fix.
+**Deferred hardening ideas (from test report):** ErrorBoundary around /ops routes; eslint no-undef enforcement.
