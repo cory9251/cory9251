@@ -1882,3 +1882,22 @@ Terminal off-ramps: `void`, `self_fulfilled`
 
 **Testing:** iteration_54.json — backend 17/17 pytest PASS, frontend 13/13 flows PASS (popup persistence, audience targeting, board-only, read counts, hide/delete). Cascade-delete added + verified post-test (381 notifications removed). Regression file: backend/tests/test_iter54_announcements.py.
 **Known pre-existing (unrelated):** WorkerLayout console hydration warning '<span> in <option>'.
+
+## 2026-07-02 — Custom Commission Rates + CRM Pipeline Upgrade — DONE
+**Scope (user-confirmed):** (1) Editable global default rates in-app + per-VA overrides covering ALL rate types (flat cleaning $, commercial %, digital %); (2) full CRM: kanban board toggle, follow-up dates w/ overdue flags, contact log, 2-way admin↔VA comments, stage notifications; VAs see full timeline + comments + follow-up; table↔board toggle (not replace).
+
+**Backend:**
+- `va_commission.py`: `_resolve_commission_config(va_user_id)` — hardcoded defaults ← app_settings (commission_rates dict, commercial_pct, digital_commission_pct) ← per-VA `user.commission_overrides`; `_calc_commission_for_lead` uses cfg for digital/commercial/flat branches; new models (CommissionSettingsIn, VACommissionOverridesIn, LeadFollowupIn, LeadContactIn, LeadCommentIn); shared CRM helpers apply_lead_followup/contact/comment (comment by admin → notifies VA).
+- `routes/pm.py`: GET/PUT /api/pm/commission-settings (validated, returns defaults too); GET/PUT /api/pm/vas/{id}/commission-overrides (full-replace semantics); POST /api/pm/leads/{id}/followup|contacts|comments; stage-change now inserts `lead_stage_changed` notification to VA (except paid, which has its own).
+- `routes/va.py`: POST /api/va/leads/{id}/followup|contacts|comments (owner or assigned delivery VA; foreign lead → 404).
+- Lead doc new fields: next_followup_at, followup_note, last_contact_at, contact_count, comment_count.
+
+**Frontend:**
+- `pages/admin/AdminVARates.jsx` (/ops/va-program/rates, 'Rates' nav): 16 flat-rate inputs + commercial % + digital % + reset-to-defaults.
+- `components/admin/VACommissionOverrides.jsx` in AdminVADetail: global-vs-override grid, custom-count badge, clear all.
+- `components/admin/PipelineBoard.jsx`: 7-column kanban, HTML5 drag&drop, transition validation toasts, job-value prompt on drop-to-paid, cards show value/contacts/comments/follow-up-overdue.
+- `AdminVAPipeline.jsx`: Table↔Board toggle (localStorage persisted), new Follow-up (red when overdue) + Activity columns.
+- `LeadDetail.jsx` (shared admin+VA): FollowupCard sidebar (date+note+overdue badge), CrmActions (contact method/outcome log + comment composer), timeline renderers for comment/contact_logged/followup_set.
+
+**Testing:** iteration_55 (18/18 backend + rates/pipeline UI) + iteration_56 (3/3 drag gestures: valid move, invalid rejection, paid prompt). Regression files: backend/tests/test_iter55_rates_and_crm.py.
+**Deferred suggestions from review:** extract STAGES/STAGE_TRANSITIONS to shared lib (duplicated in 3 files); board virtualization if leads > 500; pre-existing hydration console warning (tooling-injected, not app code).
