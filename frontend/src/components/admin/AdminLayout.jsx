@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   House,
@@ -27,29 +27,66 @@ import {
   Percent,
   Sparkle,
   SealCheck,
+  CaretDown,
+  Coins,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
-const nav = [
+// Flat items at the top (no dropdown wrapper)
+const homeItems = [
   { to: "/ops", label: "Dashboard", icon: House, end: true },
   { to: "/ops/calendar", label: "Calendar", icon: CalendarBlank, end: false },
-  { to: "/ops/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: "pending" },
-  { to: "/ops/quotes", label: "Quotes", icon: EnvelopeOpen, end: false, badge: "quotes" },
-  { to: "/ops/assignments", label: "Assignments", icon: Briefcase, end: false },
-  { to: "/ops/ai-assignment", label: "AI Assignment", icon: Sparkle, end: false },
-  { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
-  { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
-  { to: "/ops/badges", label: "Certifications", icon: SealCheck, end: false },
-  { to: "/ops/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
-  { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
-  { to: "/ops/referrals", label: "Referrals", icon: Handshake, end: false },
-  { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },
-  { to: "/ops/announcements", label: "Announcements", icon: Megaphone, end: false },
-  { to: "/ops/bookkeeping", label: "Bookkeeping", icon: Calculator, end: false },
-  { to: "/ops/settings", label: "Settings", icon: Gear, end: false },
 ];
+
+// Grouped items — each group is a collapsible dropdown
+const groups = [
+  {
+    key: "work",
+    label: "Work Pipeline",
+    icon: Briefcase,
+    items: [
+      { to: "/ops/requests", label: "Requests", icon: ClockCounterClockwise, end: false, badge: "pending" },
+      { to: "/ops/quotes", label: "Quotes", icon: EnvelopeOpen, end: false, badge: "quotes" },
+      { to: "/ops/assignments", label: "Assignments", icon: Briefcase, end: false },
+      { to: "/ops/ai-assignment", label: "AI Assignment", icon: Sparkle, end: false },
+      { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
+    ],
+  },
+  {
+    key: "people",
+    label: "People",
+    icon: UsersThree,
+    items: [
+      { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
+      { to: "/ops/badges", label: "Certifications", icon: SealCheck, end: false },
+      { to: "/ops/referrals", label: "Referrals", icon: Handshake, end: false },
+      { to: "/ops/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
+    ],
+  },
+  {
+    key: "growth",
+    label: "Growth",
+    icon: Megaphone,
+    items: [
+      { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
+      { to: "/ops/announcements", label: "Announcements", icon: Megaphone, end: false },
+      { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },
+    ],
+  },
+  {
+    key: "finance",
+    label: "Finance",
+    icon: Coins,
+    items: [
+      { to: "/ops/bookkeeping", label: "Bookkeeping", icon: Calculator, end: false },
+      // { to: "/ops/payouts", ... } appended conditionally for owners
+    ],
+  },
+];
+
+const settingsItem = { to: "/ops/settings", label: "Settings", icon: Gear, end: false };
 
 const vaNav = [
   { to: "/ops/va-program", label: "VA Overview", icon: Handshake, end: true },
@@ -61,20 +98,169 @@ const vaNav = [
   { to: "/ops/va-program/commercial", label: "Commercial", icon: Buildings, end: false },
 ];
 
-const ownerNav = [
-  { to: "/ops/payouts", label: "Payouts (Owner)", icon: Receipt, end: false, badge: "payouts" },
-];
+const ownerPayoutsItem = { to: "/ops/payouts", label: "Payouts (Owner)", icon: Receipt, end: false, badge: "payouts" };
+
+/**
+ * Compute which group key contains the currently-active path.
+ * Falls back to null (nothing open) if the path is in the flat home/settings section.
+ */
+function activeGroupKey(pathname, groupsWithItems) {
+  // sort items in each group by descending prefix length for accurate match
+  for (const g of groupsWithItems) {
+    const match = [...g.items].sort((a, b) => b.to.length - a.to.length).find((n) =>
+      n.end ? pathname === n.to : pathname === n.to || pathname.startsWith(n.to + "/")
+    );
+    if (match) return g.key;
+  }
+  return null;
+}
+
+function itemBadgeCount(item, counts) {
+  if (item.badge === "pending") return counts.pending;
+  if (item.badge === "quotes") return counts.quotes;
+  if (item.badge === "messages") return counts.messages;
+  if (item.badge === "payouts") return counts.payouts;
+  if (item.badge === "va_queue") return counts.vaQueue;
+  return 0;
+}
+
+function groupBadgeCount(group, counts) {
+  return group.items.reduce((sum, it) => sum + (itemBadgeCount(it, counts) || 0), 0);
+}
+
+function badgeClassForItem(item) {
+  // Distinct colors: quotes = blue, everything else = amber
+  if (item.badge === "quotes") return "bg-[#0044FF] text-white";
+  return "bg-[#F59E0B] text-white";
+}
+
+function NavItem({ item, counts, onNavigate, testPrefix, size = "desktop" }) {
+  const count = itemBadgeCount(item, counts);
+  const padY = size === "mobile" ? "py-3" : "py-2.5";
+  const iconSize = size === "mobile" ? 20 : 18;
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      onClick={onNavigate}
+      data-testid={`${testPrefix}-${item.label.toLowerCase().replace(/ /g, "-")}`}
+      className={({ isActive }) =>
+        `flex items-center gap-3 border-l-2 pl-8 pr-3 ${padY} text-sm transition-colors ${
+          isActive
+            ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
+            : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+        }`
+      }
+    >
+      <item.icon size={iconSize} weight="duotone" />
+      <span className="flex-1">{item.label}</span>
+      {count > 0 && (
+        <span
+          data-testid={`${testPrefix}-${item.label.toLowerCase().replace(/ /g, "-")}-count`}
+          className={`inline-flex h-5 min-w-[20px] items-center justify-center px-1.5 text-[10px] font-bold tracking-widest ${badgeClassForItem(item)}`}
+        >
+          {count > 99 ? "99+" : count}
+        </span>
+      )}
+    </NavLink>
+  );
+}
+
+function NavGroup({ group, isOpen, onToggle, counts, onNavigate, testPrefix, size = "desktop" }) {
+  const groupCount = groupBadgeCount(group, counts);
+  const padY = size === "mobile" ? "py-3" : "py-2.5";
+  const iconSize = size === "mobile" ? 20 : 18;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        data-testid={`${testPrefix}-group-${group.key}`}
+        className={`flex w-full items-center gap-3 border-l-2 border-transparent px-3 ${padY} text-sm font-semibold text-[#030712] transition-colors hover:bg-[#F9FAFB]`}
+      >
+        <group.icon size={iconSize} weight="duotone" />
+        <span className="flex-1 text-left">{group.label}</span>
+        {!isOpen && groupCount > 0 && (
+          <span
+            data-testid={`${testPrefix}-group-${group.key}-count`}
+            className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+          >
+            {groupCount > 99 ? "99+" : groupCount}
+          </span>
+        )}
+        <CaretDown
+          size={14}
+          weight="bold"
+          className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+        />
+      </button>
+      {isOpen && (
+        <div className="mt-1 space-y-1">
+          {group.items.map((it) => (
+            <NavItem
+              key={it.to}
+              item={it}
+              counts={counts}
+              onNavigate={onNavigate}
+              testPrefix={testPrefix}
+              size={size}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [pendingCount, setPendingCount] = useState(null);
-  const [quotesCount, setQuotesCount] = useState(null);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [quotesCount, setQuotesCount] = useState(0);
   const [vaQueueCount, setVaQueueCount] = useState(0);
   const [payoutsCount, setPayoutsCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { count: messagesUnread } = useUnreadMessages();
+
+  // Groups w/ conditional Payouts (Owner) appended to Finance
+  const effectiveGroups = useMemo(() => {
+    return groups.map((g) => {
+      if (g.key === "finance" && user?.is_owner) {
+        return { ...g, items: [...g.items, ownerPayoutsItem] };
+      }
+      return g;
+    });
+  }, [user?.is_owner]);
+
+  // Which group is auto-open based on active route (single-group open at a time)
+  const openKey = useMemo(
+    () => activeGroupKey(location.pathname, effectiveGroups),
+    [location.pathname, effectiveGroups]
+  );
+
+  // VA is its own collapsible section — auto-open when route is under /ops/va-program
+  const vaAutoOpen = location.pathname.startsWith("/ops/va-program");
+  const [vaManualState, setVaManualState] = useState(null); // null = follow auto; true/false = user override for this session
+  const vaOpen = vaManualState === null ? vaAutoOpen : vaManualState;
+
+  // Manual override for the primary groups (per-mount session): null = follow auto
+  const [manualOpenKey, setManualOpenKey] = useState(null);
+  const effectiveOpenKey = manualOpenKey === undefined || manualOpenKey === null ? openKey : manualOpenKey;
+
+  // Reset manual override whenever the active route changes to a different group
+  useEffect(() => {
+    setManualOpenKey(null);
+    setVaManualState(null);
+  }, [location.pathname]);
+
+  const toggleGroup = (key) => {
+    setManualOpenKey((prev) => {
+      const current = prev === null ? openKey : prev;
+      return current === key ? "" : key; // "" = all closed
+    });
+  };
 
   const refreshPending = async () => {
     try {
@@ -159,14 +345,160 @@ export default function AdminLayout() {
     navigate("/", { replace: true });
   };
 
+  const counts = {
+    pending: pendingCount,
+    quotes: quotesCount,
+    messages: messagesUnread,
+    payouts: payoutsCount,
+    vaQueue: vaQueueCount,
+  };
+
   // Friendly section name for the mobile header — derived from the active nav.
-  const allNav = [...nav, ...vaNav, ...ownerNav];
+  const allNav = [
+    ...homeItems,
+    ...effectiveGroups.flatMap((g) => g.items),
+    ...vaNav,
+    settingsItem,
+  ];
   const activeItem = [...allNav]
     .sort((a, b) => b.to.length - a.to.length)
     .find((n) =>
       n.end ? location.pathname === n.to : location.pathname.startsWith(n.to)
     );
   const currentLabel = activeItem ? activeItem.label : "HCOB Network";
+
+  const renderNavBody = (testPrefix, size, onNavigate) => (
+    <>
+      {/* Home (flat) */}
+      <div className="font-mono-label mb-3 px-3">Home</div>
+      <div className="space-y-1">
+        {homeItems.map((it) => (
+          <NavLink
+            key={it.to}
+            to={it.to}
+            end={it.end}
+            onClick={onNavigate}
+            data-testid={`${testPrefix}-${it.label.toLowerCase()}`}
+            className={({ isActive }) =>
+              `flex items-center gap-3 border-l-2 px-3 ${
+                size === "mobile" ? "py-3" : "py-2.5"
+              } text-sm transition-colors ${
+                isActive
+                  ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
+                  : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+              }`
+            }
+          >
+            <it.icon size={size === "mobile" ? 20 : 18} weight="duotone" />
+            <span className="flex-1">{it.label}</span>
+          </NavLink>
+        ))}
+      </div>
+
+      {/* Grouped dropdown sections */}
+      <div className="font-mono-label mb-3 mt-6 px-3">Manage</div>
+      <div className="space-y-1">
+        {effectiveGroups.map((g) => (
+          <NavGroup
+            key={g.key}
+            group={g}
+            isOpen={effectiveOpenKey === g.key}
+            onToggle={() => toggleGroup(g.key)}
+            counts={counts}
+            onNavigate={onNavigate}
+            testPrefix={testPrefix}
+            size={size}
+          />
+        ))}
+      </div>
+
+      {/* Settings (flat, bottom of Manage) */}
+      <div className="mt-2 space-y-1">
+        <NavLink
+          to={settingsItem.to}
+          end={settingsItem.end}
+          onClick={onNavigate}
+          data-testid={`${testPrefix}-settings`}
+          className={({ isActive }) =>
+            `flex items-center gap-3 border-l-2 px-3 ${
+              size === "mobile" ? "py-3" : "py-2.5"
+            } text-sm transition-colors ${
+              isActive
+                ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
+                : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+            }`
+          }
+        >
+          <settingsItem.icon size={size === "mobile" ? 20 : 18} weight="duotone" />
+          <span className="flex-1">{settingsItem.label}</span>
+        </NavLink>
+      </div>
+
+      {/* VA Commission section — its own collapsible group */}
+      <div className="font-mono-label mb-3 mt-6 px-3">VA Commission</div>
+      <div className="space-y-1">
+        <button
+          type="button"
+          onClick={() => setVaManualState(!vaOpen)}
+          aria-expanded={vaOpen}
+          data-testid={`${testPrefix}-group-va`}
+          className={`flex w-full items-center gap-3 border-l-2 border-transparent px-3 ${
+            size === "mobile" ? "py-3" : "py-2.5"
+          } text-sm font-semibold text-[#030712] transition-colors hover:bg-[#F9FAFB]`}
+        >
+          <Handshake size={size === "mobile" ? 20 : 18} weight="duotone" />
+          <span className="flex-1 text-left">VA Program</span>
+          {!vaOpen && vaQueueCount > 0 && (
+            <span
+              data-testid={`${testPrefix}-group-va-count`}
+              className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+            >
+              {vaQueueCount > 99 ? "99+" : vaQueueCount}
+            </span>
+          )}
+          <CaretDown
+            size={14}
+            weight="bold"
+            className={`transition-transform duration-200 ${vaOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+        {vaOpen && (
+          <div className="mt-1 space-y-1">
+            {vaNav.map((n) => (
+              <NavLink
+                key={n.to}
+                to={n.to}
+                end={n.end}
+                onClick={onNavigate}
+                data-testid={`${testPrefix}-${n.label.toLowerCase().replace(/ /g, "-")}`}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 border-l-2 pl-8 pr-3 ${
+                    size === "mobile" ? "py-3" : "py-2.5"
+                  } text-sm transition-colors ${
+                    isActive
+                      ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
+                      : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
+                  }`
+                }
+              >
+                <n.icon size={size === "mobile" ? 20 : 18} weight="duotone" />
+                <span className="flex-1">{n.label}</span>
+                {n.badge === "va_queue" && vaQueueCount > 0 && (
+                  <span
+                    data-testid={`${testPrefix}-${n.label.toLowerCase().replace(/ /g, "-")}-count`}
+                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
+                  >
+                    {vaQueueCount > 99 ? "99+" : vaQueueCount}
+                  </span>
+                )}
+              </NavLink>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-white md:flex-row" data-testid="admin-layout">
       <aside className="hidden md:flex w-64 flex-col border-r border-[#E5E7EB] bg-white">
@@ -180,117 +512,7 @@ export default function AdminLayout() {
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto px-3 py-6">
-          <div className="font-mono-label mb-3 px-3">Manage</div>
-          <div className="space-y-1">
-            {nav.map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                end={n.end}
-                data-testid={`nav-${n.label.toLowerCase()}`}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 border-l-2 px-3 py-2.5 text-sm transition-colors ${
-                    isActive
-                      ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
-                      : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
-                  }`
-                }
-              >
-                <n.icon size={18} weight="duotone" />
-                <span className="flex-1">{n.label}</span>
-                {n.badge === "pending" && pendingCount > 0 && (
-                  <span
-                    data-testid="nav-requests-count"
-                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
-                  >
-                    {pendingCount > 99 ? "99+" : pendingCount}
-                  </span>
-                )}
-                {n.badge === "quotes" && quotesCount > 0 && (
-                  <span
-                    data-testid="nav-quotes-count"
-                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#0044FF] px-1.5 text-[10px] font-bold tracking-widest text-white"
-                  >
-                    {quotesCount > 99 ? "99+" : quotesCount}
-                  </span>
-                )}
-                {n.badge === "messages" && messagesUnread > 0 && (
-                  <span
-                    data-testid="nav-messages-count"
-                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
-                  >
-                    {messagesUnread > 99 ? "99+" : messagesUnread}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </div>
-
-          {/* VA Commission Program — Mechie + any admin */}
-          <div className="font-mono-label mb-3 mt-6 px-3">VA Commission</div>
-          <div className="space-y-1">
-            {vaNav.map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                end={n.end}
-                data-testid={`nav-${n.label.toLowerCase().replace(/ /g, "-")}`}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 border-l-2 px-3 py-2.5 text-sm transition-colors ${
-                    isActive
-                      ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
-                      : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
-                  }`
-                }
-              >
-                <n.icon size={18} weight="duotone" />
-                <span className="flex-1">{n.label}</span>
-                {n.badge === "va_queue" && vaQueueCount > 0 && (
-                  <span
-                    data-testid="nav-va-queue-count"
-                    className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
-                  >
-                    {vaQueueCount > 99 ? "99+" : vaQueueCount}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </div>
-
-          {/* Owner-only — final payout sign-off */}
-          {user?.is_owner && (
-            <>
-              <div className="font-mono-label mb-3 mt-6 px-3">Owner</div>
-              <div className="space-y-1">
-                {ownerNav.map((n) => (
-                  <NavLink
-                    key={n.to}
-                    to={n.to}
-                    end={n.end}
-                    data-testid={`nav-${n.label.toLowerCase().replace(/[ ()]/g, "-")}`}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 border-l-2 px-3 py-2.5 text-sm transition-colors ${
-                        isActive
-                          ? "border-violet-600 bg-violet-50 font-semibold text-[#030712]"
-                          : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
-                      }`
-                    }
-                  >
-                    <n.icon size={18} weight="duotone" />
-                    <span className="flex-1">{n.label}</span>
-                    {n.badge === "payouts" && payoutsCount > 0 && (
-                      <span
-                        data-testid="nav-payouts-count"
-                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-violet-600 px-1.5 text-[10px] font-bold tracking-widest text-white"
-                      >
-                        {payoutsCount > 99 ? "99+" : payoutsCount}
-                      </span>
-                    )}
-                  </NavLink>
-                ))}
-              </div>
-            </>
-          )}
+          {renderNavBody("nav", "desktop", undefined)}
         </nav>
         <div className="border-t border-[#E5E7EB] p-4">
           <div className="text-xs text-[#4B5563]">Signed in as</div>
@@ -397,112 +619,7 @@ export default function AdminLayout() {
               </button>
             </div>
             <nav className="flex-1 overflow-y-auto px-3 py-5">
-              <div className="font-mono-label mb-3 px-3">Manage</div>
-              <div className="space-y-1">
-                {nav.map((n) => (
-                  <NavLink
-                    key={n.to}
-                    to={n.to}
-                    end={n.end}
-                    onClick={() => setMobileOpen(false)}
-                    data-testid={`mobile-nav-${n.label.toLowerCase()}`}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 border-l-2 px-3 py-3 text-sm transition-colors ${
-                        isActive
-                          ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
-                          : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
-                      }`
-                    }
-                  >
-                    <n.icon size={20} weight="duotone" />
-                    <span className="flex-1">{n.label}</span>
-                    {n.badge === "pending" && pendingCount > 0 && (
-                      <span
-                        data-testid="mobile-nav-requests-count"
-                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
-                      >
-                        {pendingCount > 99 ? "99+" : pendingCount}
-                      </span>
-                    )}
-                    {n.badge === "quotes" && quotesCount > 0 && (
-                      <span
-                        data-testid="mobile-nav-quotes-count"
-                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#0044FF] px-1.5 text-[10px] font-bold tracking-widest text-white"
-                      >
-                        {quotesCount > 99 ? "99+" : quotesCount}
-                      </span>
-                    )}
-                    {n.badge === "messages" && messagesUnread > 0 && (
-                      <span
-                        data-testid="mobile-nav-messages-count"
-                        className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white"
-                      >
-                        {messagesUnread > 99 ? "99+" : messagesUnread}
-                      </span>
-                    )}
-                  </NavLink>
-                ))}
-              </div>
-
-              <div className="font-mono-label mb-3 mt-6 px-3">VA Commission</div>
-              <div className="space-y-1">
-                {vaNav.map((n) => (
-                  <NavLink
-                    key={n.to}
-                    to={n.to}
-                    end={n.end}
-                    onClick={() => setMobileOpen(false)}
-                    data-testid={`mobile-nav-${n.label.toLowerCase().replace(/ /g, "-")}`}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 border-l-2 px-3 py-3 text-sm transition-colors ${
-                        isActive
-                          ? "border-[#0044FF] bg-[#F0F4FF] font-semibold text-[#030712]"
-                          : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
-                      }`
-                    }
-                  >
-                    <n.icon size={20} weight="duotone" />
-                    <span className="flex-1">{n.label}</span>
-                    {n.badge === "va_queue" && vaQueueCount > 0 && (
-                      <span className="inline-flex h-5 min-w-[20px] items-center justify-center bg-[#F59E0B] px-1.5 text-[10px] font-bold tracking-widest text-white">
-                        {vaQueueCount > 99 ? "99+" : vaQueueCount}
-                      </span>
-                    )}
-                  </NavLink>
-                ))}
-              </div>
-
-              {user?.is_owner && (
-                <>
-                  <div className="font-mono-label mb-3 mt-6 px-3">Owner</div>
-                  <div className="space-y-1">
-                    {ownerNav.map((n) => (
-                      <NavLink
-                        key={n.to}
-                        to={n.to}
-                        end={n.end}
-                        onClick={() => setMobileOpen(false)}
-                        data-testid={`mobile-nav-${n.label.toLowerCase().replace(/[ ()]/g, "-")}`}
-                        className={({ isActive }) =>
-                          `flex items-center gap-3 border-l-2 px-3 py-3 text-sm transition-colors ${
-                            isActive
-                              ? "border-violet-600 bg-violet-50 font-semibold text-[#030712]"
-                              : "border-transparent text-[#4B5563] hover:bg-[#F9FAFB] hover:text-[#030712]"
-                          }`
-                        }
-                      >
-                        <n.icon size={20} weight="duotone" />
-                        <span className="flex-1">{n.label}</span>
-                        {n.badge === "payouts" && payoutsCount > 0 && (
-                          <span className="inline-flex h-5 min-w-[20px] items-center justify-center bg-violet-600 px-1.5 text-[10px] font-bold tracking-widest text-white">
-                            {payoutsCount > 99 ? "99+" : payoutsCount}
-                          </span>
-                        )}
-                      </NavLink>
-                    ))}
-                  </div>
-                </>
-              )}
+              {renderNavBody("mobile-nav", "mobile", () => setMobileOpen(false))}
             </nav>
             <div className="border-t border-[#E5E7EB] p-4">
               <div className="text-xs text-[#4B5563]">Signed in as</div>

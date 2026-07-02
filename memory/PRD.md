@@ -1933,3 +1933,22 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Gig gating UI: Create/Edit gig dialogs get 'Required certification' select; admin GigDetail chip; worker feed CERT REQUIRED/CERTIFIED pill; worker gig detail chip + cert-required-card (replaces Request button, links to /crew/certifications).
 
 **Testing:** iteration_70.json — backend 22/22 pytest PASS (regression file backend/tests/test_iter70_badges.py, idempotent), frontend 100% (worker test fail/pass flows, proof submit, admin approve, AI quiz gen ~30s real Claude, gig gating pill/card/chip, plain-gig regression). Known pre-existing: FeedFilters <span>-in-<option> hydration warning (unrelated).
+
+
+## 2026-07-02 — Menu Cleanup: Grouped Dropdowns — DONE
+**Scope (user-confirmed):** Admin sidebar compressed from a flat 16-item list into 5 sections with dropdowns. Worker bottom nav compressed from 5 crammed tabs into 4 tabs + "More" popover.
+
+**Admin (`components/admin/AdminLayout.jsx`):**
+- Flat "Home" section: Dashboard, Calendar.
+- Collapsible "Manage" groups: Work Pipeline (Requests, Quotes, Assignments, AI Assignment, Projects) · People (Workers, Certifications, Referrals, Messages) · Growth (Email Blast, Announcements, Reports) · Finance (Bookkeeping, +Payouts for owners).
+- Flat "Settings" below Manage groups.
+- "VA Program" now a single collapsible group housing all 7 VA items.
+- Auto-expand behavior: group containing the active route opens, others collapse. User can manually toggle; state resets to auto on next route change.
+- Collapsed groups show an aggregated badge count derived from their child items (pending requests, quotes, messages, payouts, VA queue). Individual item badges still render when the group is open.
+- Applies to both desktop sidebar and mobile drawer (same `renderNavBody` helper).
+
+**Worker (`components/worker/WorkerLayout.jsx`):**
+- Bottom nav reduced from 5 → 4 tabs: Feed, My Work, Messages, More.
+- "More" opens a shadcn Popover (side=top) exposing "Refer · earn 10%" and "Profile". `data-testid="tab-more"` and `data-testid="worker-more-menu"` for testability. Tab highlights blue when the active route is behind it.
+
+**Testing:** Verified via screenshot smoke tests — admin Assignments page auto-expands Work Pipeline with active row highlighted and sibling groups showing aggregated counts (People 28, Finance 38). Worker view confirms 4-column grid and the More popover renders both items above the tab bar.
