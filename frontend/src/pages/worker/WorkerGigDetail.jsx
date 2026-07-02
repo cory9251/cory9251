@@ -238,7 +238,7 @@ export default function WorkerGigDetail() {
   const canRequest = !isBlocked && hasId && verified && profileComplete;
 
   return (
-    <div className="px-5 py-6" data-testid="worker-gig-detail">
+    <div className="px-5 py-6 pb-28" data-testid="worker-gig-detail">
       <button
         onClick={() => nav("/crew")}
         className="font-mono-label mb-4 flex items-center gap-2 text-[#4B5563]"

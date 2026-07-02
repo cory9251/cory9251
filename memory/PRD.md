@@ -1844,3 +1844,18 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Frontend:** `/ops/bookkeeping` (nav-bookkeeping in ops sidebar): `AdminBookkeeping.jsx` shell + `components/admin/bookkeeping/` BookOverview (presets/date range, 4 KPIs, recharts monthly bars, category breakdown, per-project P&L table), BookTransactions (filters, totals strip, table, add/edit dialog, receipt attach/view, CSV export), BookRecurring (add form, pause/activate, delete). `lib/ledgerOptions.js` categories + money fmt.
 
 **Testing:** iteration_51.json — backend 13/13 PASS, frontend all flows PASS. DialogDescription a11y fix applied after. TEST seed data cleaned; ledger starts empty for production use.
+
+## 2026-07-02 — Geofenced + Schedule-Restricted Clock-In — DONE
+**Scope (user-confirmed):** 250m geofence radius; NO early clock-ins (only at/after scheduled_at); GPS failure or ungeocodable address → allow clock-in but FLAG for admin review; enforced on all gigs (no per-gig toggle).
+
+**Backend:**
+- `geo.py` (new): `geocode_address` (OSM Nominatim, keyless, UA header), `haversine_m`, `resolve_gig_coords` (lazy geocode + cache with `geocode_attempted`), `CLOCKIN_RADIUS_M=250`.
+- `routes/gigs.py`: create_gig geocodes address → `site_lat`/`site_lng` on gig docs (series share coords); update_gig re-geocodes when address_line/location changes; `_strip_sensitive_for_worker` also strips site coords pre-acceptance (no address leak).
+- `clock_in` rewritten: (1) schedule gate — 400 'Too early' if now < scheduled_at, message shows wait time; (2) geofence — 403 'too far' with distance if > 250m from site; (3) verified pass stores clock_in_lat/lng/accuracy/distance_m + location_verified=true; (4) GPS-denied or ungeocodable → allowed but location_flagged=true + location_flag_reason.
+- `models.py`: `ClockInIn {lat, lng, accuracy, location_error}`.
+
+**Frontend:**
+- WorkerGigDetail: clock-in captures browser geolocation (10s timeout, high accuracy) and sends with request; graceful fallback sends location_error; button shows 'Verifying location…'; hint copy updated; container pb-28 so button isn't under the fixed bottom nav (testing agent finding, fixed).
+- Admin GigDetail crew table: green 'GPS ✓ {N}m' badge (gps-verified-*) for verified clock-ins; amber 'UNVERIFIED' badge (gps-flagged-*) with tooltip reason for flagged ones.
+
+**Testing:** iteration_52.json — backend 9/9 PASS (too-early 400, too-far 403, on-site verified, GPS-denied flagged, ungeocodable flagged, re-geocode on edit, coord privacy for requested workers, no-acceptance block, clock-out regression), frontend Playwright geolocation flows PASS. Test file: backend/tests/test_iter69_geofence_clockin.py.
