@@ -57,10 +57,12 @@ from models import (
     GigTagsIn,
     AssignWorkerIn,
     CancelShiftIn,
+    ClockInIn,
     WorkerAgreementIn,
     WORKER_AGREEMENT_RULES_V1,
     WORKER_AGREEMENT_VERSION,
 )
+from geo import geocode_address, haversine_m, resolve_gig_coords, CLOCKIN_RADIUS_M
 
 router = APIRouter()
 
@@ -116,6 +118,8 @@ def _strip_sensitive_for_worker(gig: dict, my_acceptance: Optional[dict]) -> dic
         return gig
     g = dict(gig)
     g.pop("address_line", None)
+    g.pop("site_lat", None)  # coords would leak the exact address
+    g.pop("site_lng", None)
     return g
 
 
@@ -417,6 +421,11 @@ async def _publish_due_gigs_loop():
 @router.post("/gigs")
 async def create_gig(payload: GigIn, admin: dict = Depends(require_admin)):
     base = _gig_doc(payload, admin["user_id"])
+
+    coords = await geocode_address(payload.address_line or payload.location)
+    base["site_lat"] = coords["lat"] if coords else None
+    base["site_lng"] = coords["lng"] if coords else None
+    base["geocode_attempted"] = True
 
     rec = payload.recurrence or "none"
     count = max(1, min(52, payload.repeat_count or 1)) if rec != "none" else 1
@@ -791,6 +800,16 @@ async def update_gig(
                 400,
                 f"Cannot reduce backup slots below current backups ({backups_filled} backups already approved)",
             )
+
+    if "address_line" in updates or "location" in updates:
+        new_addr = (
+            updates.get("address_line") or gig.get("address_line")
+            or updates.get("location") or gig.get("location")
+        )
+        coords = await geocode_address(new_addr)
+        updates["site_lat"] = coords["lat"] if coords else None
+        updates["site_lng"] = coords["lng"] if coords else None
+        updates["geocode_attempted"] = True
 
     if not updates:
         return {k: v for k, v in gig.items() if k != "_id"}
@@ -1902,7 +1921,12 @@ async def publish_gig(gig_id: str, admin: dict = Depends(require_admin)):
 
 # ---- Clock in / out --------------------------------------------------------
 @router.post("/gigs/{gig_id}/clock-in")
-async def clock_in(gig_id: str, user: dict = Depends(get_current_user)):
+async def clock_in(
+    gig_id: str,
+    payload: Optional[ClockInIn] = None,
+    user: dict = Depends(get_current_user),
+):
+    payload = payload or ClockInIn()
     if user.get("role") != "worker":
         raise HTTPException(403, "Only workers can clock in")
     acceptance = await db.gig_acceptances.find_one(
@@ -1917,12 +1941,72 @@ async def clock_in(gig_id: str, user: dict = Depends(get_current_user)):
     if acceptance.get("clock_out_at"):
         raise HTTPException(400, "Already completed — cannot clock in again")
 
-    now = datetime.now(timezone.utc).isoformat()
+    gig = await db.gigs.find_one({"gig_id": gig_id})
+    if not gig:
+        raise HTTPException(404, "Gig not found")
+
+    # -- Schedule gate: no clock-ins before the scheduled shift start --
+    now_dt = datetime.now(timezone.utc)
+    sched_raw = gig.get("scheduled_at")
+    if sched_raw:
+        try:
+            sched_dt = datetime.fromisoformat(str(sched_raw).replace("Z", "+00:00"))
+            if sched_dt.tzinfo is None:
+                sched_dt = sched_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            sched_dt = None
+        if sched_dt and now_dt < sched_dt:
+            mins = int((sched_dt - now_dt).total_seconds() // 60) + 1
+            wait = f"{mins} minute{'s' if mins != 1 else ''}" if mins < 120 else f"about {mins // 60} hours"
+            raise HTTPException(
+                400,
+                f"Too early to clock in — this shift starts {gig.get('scheduled_date') or 'later'}. Try again in {wait}.",
+            )
+
+    # -- Geofence: worker must be within CLOCKIN_RADIUS_M of the job site --
+    location_verified = False
+    location_flagged = False
+    flag_reason = None
+    distance_m = None
+    site = await resolve_gig_coords(db, gig)
+    if site and payload.lat is not None and payload.lng is not None:
+        distance_m = round(haversine_m(payload.lat, payload.lng, site["lat"], site["lng"]), 1)
+        if distance_m > CLOCKIN_RADIUS_M:
+            raise HTTPException(
+                403,
+                f"You're too far from the job site to clock in — about {int(distance_m)}m away "
+                f"(allowed: {int(CLOCKIN_RADIUS_M)}m). Move closer to the job address and try again.",
+            )
+        location_verified = True
+    elif site:
+        location_flagged = True
+        flag_reason = payload.location_error or "Worker device did not provide a GPS location"
+    else:
+        location_flagged = True
+        flag_reason = "Job address could not be geocoded — location unverifiable"
+
+    now = now_dt.isoformat()
     await db.gig_acceptances.update_one(
         {"acceptance_id": acceptance["acceptance_id"]},
-        {"$set": {"clock_in_at": now, "status": "on_the_clock"}},
+        {"$set": {
+            "clock_in_at": now,
+            "status": "on_the_clock",
+            "clock_in_lat": payload.lat,
+            "clock_in_lng": payload.lng,
+            "clock_in_accuracy_m": payload.accuracy,
+            "clock_in_distance_m": distance_m,
+            "location_verified": location_verified,
+            "location_flagged": location_flagged,
+            "location_flag_reason": flag_reason,
+        }},
     )
-    return {"ok": True, "clock_in_at": now}
+    return {
+        "ok": True,
+        "clock_in_at": now,
+        "location_verified": location_verified,
+        "location_flagged": location_flagged,
+        "distance_m": distance_m,
+    }
 
 
 @router.post("/gigs/{gig_id}/clock-out")

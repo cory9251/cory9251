@@ -1,0 +1,33 @@
+{
+  "summary": "Iter69 (index 52): Verified geofenced + schedule-restricted worker clock-in end-to-end. All 5 backend scenarios pass (too-early 400, too-far 403 w/ distance, on-site 200 verified, GPS-denied flagged, ungeocodable flagged) plus create/update re-geocode, address privacy for 'requested' worker, no-acceptance blocked, and clock-out regression. Frontend: worker WorkerGigDetail clock-in-btn triggers /api/gigs/{id}/clock-in with geolocation, timer starts on success. Admin GigDetail crew table shows the green 'GPS ✓ 35m' verified badge with data-testid gps-verified-{acceptanceId} and correct tooltip.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "WorkerGigDetail (/crew/assignments/{gig_id})", "issues": ["The clock-in-btn (Y≈776) can be visually overlapped by the fixed bottom worker nav (Y≈793 REFER · EARN 10%). Playwright force-click via center coords hit the bottom nav — real users on short screens could also mis-tap. Consider adding bottom padding (pb-24) on the assignment detail container OR raising the nav z-index so the button isn't behind it. JS-dispatched click worked, confirming the handler is correct."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter69_geofence_clockin.py",
+    "/app/test_reports/pytest/iter69_geofence.xml"
+  ],
+  "action_items": [
+    "Add pb-24 (or higher z-index for the button vs. bottom nav) on WorkerGigDetail so the clock-in/clock-out button isn't visually behind the fixed bottom nav on short viewports — this is what caused Playwright's default click to land on the 'Refer · Earn 10%' nav item. Not a functional break of the API but a real-user mis-tap risk."
+  ],
+  "critical_code_review_comments": [
+    "geo.py: Nominatim free tier is 1 req/s w/ shared UA; consider adding a retry-with-backoff and a small in-memory cache keyed by address to reduce load and avoid rate-limit misses when many gigs are created in a burst.",
+    "routes/gigs.py clock_in: the schedule gate uses gig.scheduled_at only; if only scheduled_local is present the gate silently no-ops. Consider falling back to scheduled_local when scheduled_at is missing.",
+    "routes/gigs.py clock_in: if payload.lat/lng are provided but site coords are None (ungeocodable), the current branch flags but never re-attempts geocoding once address is fixed — resolve_gig_coords sets geocode_attempted=True on first miss and won't retry. Consider clearing geocode_attempted whenever address_line changes (already done in update_gig? verify)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter69_geofence_clockin.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (worker on-site clock-in + admin verified badge both confirmed via Playwright + backend state)"},
+  "test_credentials": "Used /app/memory/test_credentials.md — admin@hcobcleaners.com / HcobAdmin2026! and worker.demo@hcobcleaners.com / WorkerDemo2026!",
+  "seed_data_creation": "All GEOTEST gigs auto-cleaned in teardown_module. UI-test gig gig_7103db21d5b2 deleted at end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iter69_geofence_clockin.py is safe to re-run; it creates 8 fresh GEOTEST gigs (all deleted in teardown). Note: creation sleeps ~1.2s each for Nominatim politeness — full run takes ~15-30s. For the far-away 403 test, backend returns the distance number in the human message; assert on 'too far from the job site' + digits. Nominatim was healthy in this run; if you see intermittent None coords, retry the test.",
+  "rca of the issue": "N/A — no defects found. One UX polish item flagged: on WorkerGigDetail the clock-in button visually overlaps the fixed worker bottom nav on the reference viewport, causing coordinate-based clicks (including a real user's thumb tap on a short device) to potentially hit the 'Refer · Earn 10%' tab instead. Backend + API integration are correct end-to-end."
+}

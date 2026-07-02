@@ -49,6 +49,7 @@ import {
   Link as LinkIcon,
   ChatCircleDots,
 } from "@phosphor-icons/react";
+import { MapPin } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
 import PickProjectForGigDialog from "@/components/admin/PickProjectForGigDialog";
@@ -868,6 +869,24 @@ export default function GigDetail() {
                     </td>
                     <td className="border-b border-[#E5E7EB] px-3 py-3 text-xs text-[#4B5563]">
                       {a.clock_in_at ? new Date(a.clock_in_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "—"}
+                      {a.clock_in_at && a.location_verified && (
+                        <div
+                          data-testid={`gps-verified-${a.acceptance_id}`}
+                          className="mt-0.5 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-[#10B981]"
+                          title={a.clock_in_distance_m != null ? `Verified on site — ${Math.round(a.clock_in_distance_m)}m from job address` : "Verified on site"}
+                        >
+                          <MapPin size={9} weight="fill" /> GPS ✓{a.clock_in_distance_m != null ? ` ${Math.round(a.clock_in_distance_m)}m` : ""}
+                        </div>
+                      )}
+                      {a.clock_in_at && a.location_flagged && (
+                        <div
+                          data-testid={`gps-flagged-${a.acceptance_id}`}
+                          className="mt-0.5 inline-flex items-center gap-1 bg-[#F59E0B] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white"
+                          title={a.location_flag_reason || "Location could not be verified"}
+                        >
+                          <MapPin size={9} weight="fill" /> UNVERIFIED
+                        </div>
+                      )}
                     </td>
                     <td className="border-b border-[#E5E7EB] px-3 py-3 text-xs text-[#4B5563]">
                       {a.clock_out_at ? new Date(a.clock_out_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "—"}

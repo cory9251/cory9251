@@ -167,11 +167,33 @@ export default function WorkerGigDetail() {
     }
   };
 
+  const getPosition = () =>
+    new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        return resolve({ location_error: "Geolocation not supported on this device" });
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) =>
+          resolve({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+          }),
+        (err) => resolve({ location_error: err?.message || "Location unavailable" }),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+
   const clockIn = async () => {
     setBusy(true);
     try {
-      await api.post(`/gigs/${gigId}/clock-in`);
-      toast.success("Clocked in — timer running");
+      const loc = await getPosition();
+      const { data } = await api.post(`/gigs/${gigId}/clock-in`, loc);
+      if (data.location_verified) {
+        toast.success("Clocked in — location verified on site");
+      } else {
+        toast.success("Clocked in — timer running (location not verified, flagged for review)");
+      }
       load();
     } catch (e) {
       toast.error(getErr(e));
@@ -589,7 +611,8 @@ export default function WorkerGigDetail() {
           ) : (
             <>
               <div className="mt-2 text-sm text-[#4B5563]">
-                Tap clock-in when you arrive on site. We'll track your time
+                Clock-in is location-verified — you must be at the job address,
+                at or after the scheduled start time. We'll track your time
                 automatically.
               </div>
               <Button
@@ -599,7 +622,7 @@ export default function WorkerGigDetail() {
                 className="mt-4 h-14 w-full rounded-2xl bg-[#10B981] text-base font-bold tracking-wide text-white hover:bg-[#0e9971]"
               >
                 <Play size={20} weight="fill" className="mr-2" />
-                {busy ? "Clocking in…" : "Clock in"}
+                {busy ? "Verifying location…" : "Clock in"}
               </Button>
             </>
           )}

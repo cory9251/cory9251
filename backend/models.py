@@ -91,6 +91,13 @@ class ProfileUpdateIn(BaseModel):
 
 
 # ----- Gigs ------------------------------------------------------------------
+class ClockInIn(BaseModel):
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    accuracy: Optional[float] = None  # GPS accuracy radius in meters
+    location_error: Optional[str] = Field(default=None, max_length=300)
+
+
 class GigIn(BaseModel):
     title: str
     description: str
