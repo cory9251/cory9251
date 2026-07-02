@@ -1901,3 +1901,18 @@ Terminal off-ramps: `void`, `self_fulfilled`
 
 **Testing:** iteration_55 (18/18 backend + rates/pipeline UI) + iteration_56 (3/3 drag gestures: valid move, invalid rejection, paid prompt). Regression files: backend/tests/test_iter55_rates_and_crm.py.
 **Deferred suggestions from review:** extract STAGES/STAGE_TRANSITIONS to shared lib (duplicated in 3 files); board virtualization if leads > 500; pre-existing hydration console warning (tooling-injected, not app code).
+
+## 2026-07-02 — AI Assignment Maker — DONE
+**Scope (user-confirmed):** Admin types free text and/or uploads a PDF / Word (.docx) / image work order → AI (Claude Sonnet 4.6 or GPT-5.5 via Emergent LLM key) parses it into a single draft assignment → admin reviews/edits pre-filled form → creates via normal POST /api/gigs → optional blast dialog.
+
+**Backend (`routes/ai_assignments.py`):**
+- POST /api/admin/ai-assignments/parse (multipart: text?, model, file?) — admin-only.
+- PDF text via pypdf (15 pages max), DOCX via python-docx (paragraphs+tables), images passed as base64 `ImageContent` for vision. 15MB file cap, 20k char doc cap.
+- `emergentintegrations.llm.chat` LlmChat with fresh session per request; system prompt returns strict JSON (title, description, category, location preview, address_line, scheduled_local, pay_rate, pay_type, slots, duration_hours, contact_phone, ai_notes, missing_fields) with relative-date resolution ("this Friday" → concrete date).
+- `_sanitize_draft` hardens LLM output (enum coercion, numeric guards, length caps).
+
+**Frontend (`pages/admin/AdminAIAssignment.jsx`, /ops/ai-assignment, Sparkle nav):**
+- 3-step flow: input (textarea + file chip + model select) → review (editable pre-filled form, ai_notes callout, missing_fields warning) → done (view gig / blast again / create another).
+- Blast dialog auto-opens after create with channel checkboxes (in_app/email/sms/push) → POST /api/gigs/{id}/blast.
+
+**Testing:** Backend verified via curl (text w/ Claude, image w/ Claude vision, PDF w/ GPT-5.5 — all fields extracted correctly incl. relative-date resolution). Frontend E2E via testing agent iteration_57.json — 100% pass after fixing missing `AdminAIAssignment` import in App.js (route existed but import was absent → page crash; fixed). Test gig cleaned up.
