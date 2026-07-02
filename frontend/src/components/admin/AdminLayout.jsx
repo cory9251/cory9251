@@ -26,6 +26,7 @@ import {
   Megaphone,
   Percent,
   Sparkle,
+  SealCheck,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -40,6 +41,7 @@ const nav = [
   { to: "/ops/ai-assignment", label: "AI Assignment", icon: Sparkle, end: false },
   { to: "/ops/projects", label: "Projects", icon: FolderSimplePlus, end: false },
   { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
+  { to: "/ops/badges", label: "Certifications", icon: SealCheck, end: false },
   { to: "/ops/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
   { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
   { to: "/ops/referrals", label: "Referrals", icon: Handshake, end: false },

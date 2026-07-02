@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, API, getErr } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,8 @@ import {
   CalendarBlank,
   TShirt,
   CurrencyDollar,
+  SealCheck,
+  CaretRight,
 } from "@phosphor-icons/react";
 
 // Pretty labels for the profile-complete checklist
@@ -509,6 +512,23 @@ export default function WorkerProfile() {
           {saving ? "Saving…" : "Save profile"}
         </Button>
       </form>
+
+      <Link
+        to="/crew/certifications"
+        data-testid="profile-certifications-link"
+        className="mt-4 flex items-center gap-3 rounded-2xl border border-[#0044FF]/20 bg-[#F0F4FF] p-4 hover:bg-[#E0E9FF]"
+      >
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0044FF] text-white">
+          <SealCheck size={20} weight="fill" />
+        </div>
+        <div className="flex-1">
+          <div className="font-display text-sm font-bold text-[#1D4ED8]">Professional Certifications</div>
+          <div className="mt-0.5 text-xs text-[#1D4ED8]/80">
+            Take tests & upload credentials to unlock specialty assignments.
+          </div>
+        </div>
+        <CaretRight size={18} className="shrink-0 text-[#1D4ED8]" />
+      </Link>
 
       <ChangePasswordCard />
     </div>

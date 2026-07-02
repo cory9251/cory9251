@@ -28,6 +28,7 @@ import {
   EyeSlash,
   UsersThree,
   FolderSimple,
+  SealCheck,
 } from "@phosphor-icons/react";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -236,6 +237,7 @@ export default function WorkerGigDetail() {
   const profileMissing = user?.profile_missing_fields || [];
   const profileComplete = profileMissing.length === 0;
   const canRequest = !isBlocked && hasId && verified && profileComplete;
+  const needsBadge = !!gig.required_badge && !gig.has_required_badge;
 
   return (
     <div className="px-5 py-6 pb-28" data-testid="worker-gig-detail">
@@ -253,6 +255,16 @@ export default function WorkerGigDetail() {
         <h1 className="mt-2 font-display text-3xl font-black tracking-tight">
           {gig.title}
         </h1>
+        {gig.required_badge && (
+          <div
+            data-testid="worker-required-badge-chip"
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black tracking-widest text-white"
+            style={{ backgroundColor: gig.has_required_badge ? "#10B981" : (gig.required_badge.color || "#0044FF") }}
+          >
+            <SealCheck size={12} weight="fill" />
+            {gig.has_required_badge ? "YOU'RE CERTIFIED" : "REQUIRES"} · {gig.required_badge.name.toUpperCase()}
+          </div>
+        )}
         {gig.project_lite && (
           <button
             data-testid="worker-project-lite-badge"
@@ -733,6 +745,30 @@ export default function WorkerGigDetail() {
                 {!profileComplete ? "Complete my profile →" : "Upload my ID →"}
               </Button>
             )}
+          </div>
+        ) : needsBadge ? (
+          <div
+            data-testid="cert-required-card"
+            className="rounded-2xl border border-[#0044FF]/30 bg-[#F0F4FF] p-5"
+          >
+            <div className="flex items-center gap-2 text-[#1D4ED8]">
+              <SealCheck size={20} weight="fill" />
+              <div className="font-display text-base font-bold">
+                {gig.required_badge.name} certification required
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-[#1D4ED8]/90">
+              This is a specialty assignment — only workers certified by HCOB
+              can request it. Pass the test and upload your credentials to get
+              first access to jobs like this.
+            </p>
+            <Button
+              data-testid="get-certified-btn"
+              onClick={() => nav("/crew/certifications")}
+              className="mt-4 h-12 w-full rounded-2xl bg-[#0044FF] text-white hover:bg-[#0036cc]"
+            >
+              Get certified →
+            </Button>
           </div>
         ) : (
           <Button

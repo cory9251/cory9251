@@ -127,6 +127,8 @@ class GigIn(BaseModel):
     ] = "2_3_days"
     payment_timeline_note: Optional[str] = None
     contact_phone: Optional[str] = None
+    # Optional certification gate — only workers holding this badge can request.
+    required_badge_id: Optional[str] = None
     # Optional link to a parent project. When set, this gig is shown alongside
     # its sibling gigs in the worker UI so the crews can coordinate.
     project_id: Optional[str] = None
@@ -161,6 +163,7 @@ class GigPatch(BaseModel):
     ] = None
     payment_timeline_note: Optional[str] = None
     contact_phone: Optional[str] = None
+    required_badge_id: Optional[str] = None
     project_id: Optional[str] = None
     clear_project: Optional[bool] = False
     status: Optional[str] = None  # admin can flip status from the Edit dialog

@@ -53,6 +53,8 @@ import AdminVARates from "@/pages/admin/AdminVARates";
 import AdminBookkeeping from "@/pages/admin/AdminBookkeeping";
 import AdminAnnouncements from "@/pages/admin/AdminAnnouncements";
 import AdminAIAssignment from "@/pages/admin/AdminAIAssignment";
+import AdminBadges from "@/pages/admin/AdminBadges";
+import WorkerCertifications from "@/pages/worker/WorkerCertifications";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
 import RatePage from "@/pages/RatePage";
@@ -146,6 +148,7 @@ function RouterShell() {
         <Route path="bookkeeping" element={<AdminBookkeeping />} />
         <Route path="announcements" element={<AdminAnnouncements />} />
         <Route path="ai-assignment" element={<AdminAIAssignment />} />
+        <Route path="badges" element={<AdminBadges />} />
         <Route path="va-program/pipeline/:leadId" element={<LeadDetail scope="admin" />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />
@@ -184,6 +187,7 @@ function RouterShell() {
         <Route path="my-gigs" element={<Navigate to="/crew/my-assignments" replace />} />
         <Route path="messages" element={<Messages />} />
         <Route path="refer" element={<WorkerReferrals />} />
+        <Route path="certifications" element={<WorkerCertifications />} />
         <Route path="me" element={<WorkerProfile />} />
       </Route>
 

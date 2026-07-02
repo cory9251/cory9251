@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   CaretRight,
   FolderSimple,
+  SealCheck,
 } from "@phosphor-icons/react";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
@@ -115,6 +116,24 @@ export default function WorkerFeed() {
           find my chats" gap workers were running into. */}
       <WorkerCustomerChatsInbox />
 
+      {/* Certifications entry point — specialty jobs are gated behind badges */}
+      <button
+        data-testid="feed-certifications-cta"
+        onClick={() => nav("/crew/certifications")}
+        className="mt-4 flex w-full items-center gap-3 rounded-2xl border border-[#0044FF]/20 bg-[#F0F4FF] p-4 text-left hover:bg-[#E0E9FF]"
+      >
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0044FF] text-white">
+          <SealCheck size={20} weight="fill" />
+        </div>
+        <div className="flex-1">
+          <div className="font-display text-sm font-bold text-[#1D4ED8]">Get certified — unlock specialty jobs</div>
+          <div className="mt-0.5 text-xs text-[#1D4ED8]/80">
+            Electrician, plumber, box truck & more. Pass the test, upload proof, get first access.
+          </div>
+        </div>
+        <CaretRight size={18} className="shrink-0 text-[#1D4ED8]" />
+      </button>
+
       {showBanner && (
         <button
           data-testid="verification-banner"
@@ -212,7 +231,7 @@ export default function WorkerFeed() {
                   tagBorder || "border border-black/5"
                 }`}
               >
-                {(activeTags.length > 0 || showPayPill || g.project) && (
+                {(activeTags.length > 0 || showPayPill || g.project || g.required_badge) && (
                   <div
                     data-testid={`tag-stack-${g.gig_id}`}
                     className="-mt-1 mb-3 flex flex-wrap gap-1.5"
@@ -246,6 +265,18 @@ export default function WorkerFeed() {
                           className={pt.pulse ? "animate-pulse" : ""}
                         />
                         {pt.short}
+                      </span>
+                    )}
+                    {g.required_badge && (
+                      <span
+                        data-testid={`badge-pill-${g.gig_id}`}
+                        className="inline-flex max-w-[220px] items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white"
+                        style={{ backgroundColor: g.has_required_badge ? "#10B981" : (g.required_badge.color || "#0044FF") }}
+                      >
+                        <SealCheck size={11} weight="fill" />
+                        <span className="truncate">
+                          {g.has_required_badge ? "CERTIFIED" : "CERT REQUIRED"} · {g.required_badge.name.toUpperCase()}
+                        </span>
                       </span>
                     )}
                     {g.project && (

@@ -93,6 +93,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "payment_timeline": payload.payment_timeline or "2_3_days",
         "payment_timeline_note": payload.payment_timeline_note,
         "contact_phone": payload.contact_phone,
+        "required_badge_id": payload.required_badge_id,
         "project_id": payload.project_id,
         "status": payload.status or "open",
         "publish_at": payload.publish_at,
@@ -508,6 +509,26 @@ async def create_gig(payload: GigIn, admin: dict = Depends(require_admin)):
     return {**first, "created_count": count, "series_id": series_id}
 
 
+async def _attach_required_badges(gigs: List[dict], user: dict) -> None:
+    """Enrich gigs with the required certification badge (name/color) and, for
+    workers, whether they hold it."""
+    bids = list({g.get("required_badge_id") for g in gigs if g.get("required_badge_id")})
+    if not bids:
+        return
+    badges = await db.badges.find(
+        {"badge_id": {"$in": bids}}, {"_id": 0, "badge_id": 1, "name": 1, "color": 1}
+    ).to_list(200)
+    bmap = {b["badge_id"]: b for b in badges}
+    is_worker = user.get("role") == "worker"
+    mine = set(user.get("certified_badges") or [])
+    for g in gigs:
+        bid = g.get("required_badge_id")
+        if bid and bid in bmap:
+            g["required_badge"] = bmap[bid]
+            if is_worker:
+                g["has_required_badge"] = bid in mine
+
+
 @router.get("/gigs")
 async def list_gigs(
     status: Optional[str] = Query(None),
@@ -533,6 +554,7 @@ async def list_gigs(
         .sort([("is_rush", -1), ("rush_at", -1), ("created_at", -1)])
         .to_list(500)
     )
+    await _attach_required_badges(gigs, user)
 
     # For workers, attach acceptance state + hide sensitive address until accepted
     if user.get("role") == "worker":
@@ -594,6 +616,7 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
     gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
     if not gig:
         raise HTTPException(404, "Gig not found")
+    await _attach_required_badges([gig], user)
     if user.get("role") == "admin":
         # Attach BOTH pending requests and approved acceptances
         all_rows = await db.gig_acceptances.find(
@@ -897,6 +920,7 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "payment_timeline": src.get("payment_timeline") or "2_3_days",
         "payment_timeline_note": src.get("payment_timeline_note"),
         "contact_phone": src.get("contact_phone"),
+        "required_badge_id": src.get("required_badge_id"),
         "project_id": src.get("project_id"),
         "status": "open",
         "publish_at": None,
@@ -993,6 +1017,16 @@ async def accept_gig(
         )
     if gig.get("status") != "open":
         raise HTTPException(400, "Gig is not open")
+
+    # Certification gate — specialty gigs require the badge before requesting.
+    req_bid = gig.get("required_badge_id")
+    if req_bid and req_bid not in (user.get("certified_badges") or []):
+        b = await db.badges.find_one({"badge_id": req_bid}, {"_id": 0, "name": 1})
+        raise HTTPException(
+            403,
+            f"This assignment requires the {(b or {}).get('name') or 'required'} certification. "
+            "Pass the test and get approved on your Certifications page first.",
+        )
 
     existing = await db.gig_acceptances.find_one(
         {"gig_id": gig_id, "worker_id": user["user_id"]}

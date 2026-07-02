@@ -49,7 +49,7 @@ import {
   Link as LinkIcon,
   ChatCircleDots,
 } from "@phosphor-icons/react";
-import { MapPin } from "@phosphor-icons/react";
+import { MapPin, SealCheck } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
 import PickProjectForGigDialog from "@/components/admin/PickProjectForGigDialog";
@@ -229,6 +229,15 @@ export default function GigDetail() {
           <h1 className="mt-2 font-display text-4xl font-black tracking-tight">
             {gig.title}
           </h1>
+          {gig.required_badge && (
+            <div
+              data-testid="gig-required-badge-chip"
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-black tracking-widest text-white"
+              style={{ backgroundColor: gig.required_badge.color || "#0044FF" }}
+            >
+              <SealCheck size={12} weight="fill" /> REQUIRES: {gig.required_badge.name.toUpperCase()}
+            </div>
+          )}
           {(() => {
             const activeTags = getOrderedTags(gig.tags);
             const pt = getPaymentTimeline(gig.payment_timeline);

@@ -97,6 +97,7 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
     payment_timeline: "2_3_days",
     payment_timeline_note: "",
     contact_phone: "",
+    required_badge_id: "",
   });
   const [date, setDate] = useState(init.date);
   const [hour, setHour] = useState(init.hour);
@@ -104,6 +105,16 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
   const [ampm, setAmpm] = useState(init.ampm);
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Certification badges for the "required certification" gate select.
+  const [badgeOptions, setBadgeOptions] = useState([]);
+  useEffect(() => {
+    if (!open) return;
+    api
+      .get("/admin/badges")
+      .then(({ data }) => setBadgeOptions((data || []).filter((b) => b.active)))
+      .catch(() => {});
+  }, [open]);
 
   useEffect(() => {
     if (open && gig) {
@@ -122,6 +133,7 @@ export default function EditGigDialog({ open, onOpenChange, gig, onSaved }) {
         payment_timeline: gig.payment_timeline || "2_3_days",
         payment_timeline_note: gig.payment_timeline_note || "",
         contact_phone: gig.contact_phone || "",
+        required_badge_id: gig.required_badge_id || "",
       });
       const d = decomposeTime(gig);
       setDate(d.date);

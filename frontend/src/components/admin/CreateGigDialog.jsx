@@ -92,6 +92,7 @@ export default function CreateGigDialog({
     payment_timeline: "2_3_days",
     payment_timeline_note: "",
     contact_phone: "",
+    required_badge_id: "",
   });
   const [date, setDate] = useState(initialDate || today);
   const [hour, setHour] = useState("9");
@@ -108,6 +109,16 @@ export default function CreateGigDialog({
     }
   }, []);
   const [loading, setLoading] = useState(false);
+
+  // Certification badges for the "required certification" gate select.
+  const [badgeOptions, setBadgeOptions] = useState([]);
+  useEffect(() => {
+    if (!open) return;
+    api
+      .get("/admin/badges")
+      .then(({ data }) => setBadgeOptions((data || []).filter((b) => b.active)))
+      .catch(() => {});
+  }, [open]);
 
   // Sync initialDate when reopened from calendar cell
   React.useEffect(() => {
@@ -191,6 +202,7 @@ export default function CreateGigDialog({
           : null,
         break_minutes: parseInt(form.break_minutes || 0),
         address_line: form.address_line.trim() || null,
+        required_badge_id: form.required_badge_id || null,
         recurrence,
         repeat_count: recurrence === "none" ? 1 : parseInt(repeatCount || 1),
       });
@@ -215,6 +227,7 @@ export default function CreateGigDialog({
         payment_timeline: "2_3_days",
         payment_timeline_note: "",
         contact_phone: "",
+        required_badge_id: "",
       });
     } catch (e) {
       toast.error(getErr(e));
@@ -305,6 +318,32 @@ export default function CreateGigDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="md:col-span-2">
+            <Label className="font-mono-label">Required certification (optional)</Label>
+            <Select
+              value={form.required_badge_id || "none"}
+              onValueChange={(v) => set("required_badge_id", v === "none" ? "" : v)}
+            >
+              <SelectTrigger
+                data-testid="gig-required-badge"
+                className="mt-2 h-11 rounded-none border-[#030712]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None — open to all workers</SelectItem>
+                {badgeOptions.map((b) => (
+                  <SelectItem key={b.badge_id} value={b.badge_id}>
+                    {b.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="mt-1 text-[11px] text-[#4B5563]">
+              Only workers HCOB-certified for this specialty can request the assignment.
+            </div>
           </div>
 
           <div className="md:col-span-2">
