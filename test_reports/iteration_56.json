@@ -1,0 +1,56 @@
+{
+  "summary": "Iter56 SINGLE-FOCUS test: HTML5 native drag-and-drop on Kanban PipelineBoard at /ops/va-program/pipeline. All three drag gestures verified end-to-end via JS-dispatched DragEvent + shared DataTransfer (dragstart tick separated from drop tick so React setDragId flushes before handleDrop closure runs). Backend was NOT tested (iter55 already covered 18/18). Cleanup performed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminVAPipeline stage filter <select>", "issues": ["React hydration warning: <span data-ve-dynamic> injected as child of <option> (from ve tooling). Non-blocking but pollutes console. Not caused by app code — safe to ignore in prod build."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter56_setup_drag_leads.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PipelineBoard.jsx handleDrop reads dragId from closure — works fine with real browser drag because state is flushed between dragstart→drop by user gesture timing; only synthetic single-tick JS dispatch reveals the timing coupling. Not a bug in production.",
+    "STAGE_TRANSITIONS is duplicated verbatim in both PipelineBoard.jsx (lines 16-24) and AdminVAPipeline.jsx (lines 21-29). Extract to /app/frontend/src/lib/pipelineStages.js to avoid drift.",
+    "STAGES array is also duplicated across the same two files (lines 6-14 vs 11-19). Same recommendation — single source of truth."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter56_setup_drag_leads.py (created — helper to seed CRMTEST-drag leads + cleanup)"
+  ],
+  "success_rate": {"backend": "n/a (not tested per request)", "frontend": "100% (3/3 drag gestures verified)"},
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026! ; va.demo@hcobcleaners.com / VaDemo2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created two CRMTEST-drag-{tag}-{suffix} leads via POST /api/va/leads as va.demo, advanced one through contacted→quoted→booked→completed as admin via PUT /api/pm/leads/{id}/stage. Both soft-deleted via DELETE /api/pm/leads/{id} after tests (both returned 200).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "HTML5 drag-and-drop cannot be exercised via Playwright locator.drag_to() in headless Chromium for this app because React's onDragStart mutates state and the same-tick drop closure would still see stale dragId. Working pattern: (1) evaluate DRAGSTART_JS on source with a shared window.__iter56_dt DataTransfer, (2) await page.wait_for_timeout(500) so setDragId flushes, (3) evaluate DROP_JS on target dispatching dragenter+dragover+drop with the same DataTransfer. See exact JS snippets in iteration_56 conversation log. paid stage prompt is a window.prompt — register page.on('dialog', ...) BEFORE the drop dispatch.",
+  "test_results_detail": {
+    "test1_valid_drag_new_lead_to_contacted": {
+      "status": "PASS",
+      "toast": "Moved to contacted",
+      "card_in_contacted": true,
+      "card_still_in_new_lead": false,
+      "lead_used": "lead_eb942deefbf5 (CRMTEST-drag-newlead-*)"
+    },
+    "test2_invalid_drag_new_lead_to_booked": {
+      "status": "PASS",
+      "toast": "Can't move new lead → booked. Allowed: contacted, lost",
+      "card_still_in_new_lead": true,
+      "card_moved_to_booked": false,
+      "lead_used": "lead_1b05b167f2ee (pre-existing new_lead card — not mutated because transition rejected)"
+    },
+    "test3_paid_drag_completed_to_paid_with_prompt": {
+      "status": "PASS",
+      "dialog_fired": true,
+      "dialog_message": "Job value ($) for \"CRMTEST-drag-completed-e8794e\"? Commission is calculated from this.",
+      "dialog_accepted_with": "500",
+      "toast": "Moved to paid",
+      "card_in_paid": true,
+      "card_shows_$500": true,
+      "card_still_in_completed": false,
+      "lead_used": "lead_b3d6446b45ea (CRMTEST-drag-completed-*, advanced new_lead→contacted→quoted→booked→completed via PUT /api/pm/leads/{id}/stage)"
+    }
+  }
+}
