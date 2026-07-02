@@ -1,0 +1,49 @@
+{
+  "summary": "E2E backend + frontend testing of the new 'VA Digital Services' feature. Backend: 9/9 pytest cases pass (digital-settings GET/PUT persist, VA digital lead create w/o property_size, cleaning 400 guard, /pm/leads?category=digital|cleaning filter isolation, stage progression contacted→quoted→booked→completed→paid with $300 commission at 10%, assign-va, /va/projects, va can fetch assigned-lead detail). Frontend: all 10 requested UI flows PASS (VA sidebar nav, /va/digital banner + form toggle, submit digital lead w/ live commission preview, admin /ops/va-program/digital 4 KPIs + rate save+persist across reload+restore, per-row stage buttons digital-move-{leadId}-{stage}, job-value input + move-to-paid, digital-lead-link → lead detail with $300 commission + DELIVERY VA sidebar card, activity row 'Delivery VA assigned', edit form shows field-estimated_budget + service optgroup with Digital services, digital lead size shows '—' in view mode). Two minor cosmetic observations noted below.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "LeadDetail edit form for a digital lead", "issues": ["When entering Edit mode on a digital lead that has no property_size, the SIZE dropdown defaults to 'Studio' instead of showing an empty/'—' selection. Saving without noticing could accidentally set property_size='studio' on a digital lead. Consider adding an empty first option or hiding the SIZE field entirely for digital service types."]},
+    {"screen": "LeadDetail commission sidebar (paid digital lead)", "issues": ["Commission sidebar shows the correct amount ($300.00 = 3000 × 10%) and status PENDING APPROVAL, but does NOT surface a visible 'digital_pct' calc-note / kind label. Review request explicitly asks for 'kind digital_pct calc note' to be visible so PMs can distinguish digital-percentage commissions from cleaning-tier commissions. Nice-to-have visibility improvement."]}
+    ]
+  },
+  "test_results": {
+    "backend_pytest": "9/9 PASS — /app/test_reports/pytest/iter_va_digital.xml",
+    "va_login_and_sidebar_nav": "PASS — va-nav-digital-services present in VA sidebar; navigates to /va/digital",
+    "va_digital_page": "PASS — digital-commission-banner shows 'You earn 10% ...'; digital-new-lead-btn toggles digital-lead-form",
+    "va_submit_lead": "PASS — filled name/phone/service=Website development/budget=2000; live preview '≈ $200.00 potential commission at 10%' displayed; submitted → toast 'Digital lead submitted — ownership locked to you.' Lead appears in digital-leads-table with NEW LEAD stage and $200.00 est commission column",
+    "admin_ops_digital_sidebar_entry": "PASS — sidebar link to /ops/va-program/digital present under VA COMMISSION section",
+    "admin_digital_page_kpis": "PASS — digital-kpi-total (6), digital-kpi-active (In Pipeline 4), digital-kpi-closed (Closed Paid Value $6500), digital-rate-card all present. digital-leads-table lists ONLY digital service leads",
+    "admin_rate_edit_persist": "PASS — set digital-rate-input to 15, digital-rate-save → toast 'Digital commission rate saved: 10%'; reload → input value = 15 (persists); restored to 10",
+    "admin_stage_progression": "PASS — clicked digital-move-lead_c47a8cb69423-{contacted,quoted,booked,completed} sequentially; entered digital-job-value-lead_c47a8cb69423 = 3000; clicked digital-move-...-paid → succeeded. Stage flipped to PAID",
+    "admin_lead_detail_commission": "PASS (partial) — digital-lead-link opens /ops/va-program/pipeline/{leadId}; $ COMMISSION card shows $300.00 PENDING APPROVAL (=3000×10%). Missing 'digital_pct' calc note text (see design_issues)",
+    "admin_assign_delivery_va": "PASS — digital-assign-va-{leadId} native <select> populated with VAs; selecting VA Demo shows toast 'Delivery VA assigned'; lead detail sidebar renders lead-assigned-va-card with 'DELIVERY VA · VA Demo · Assigned 7/2/2026'; activity timeline shows 'Delivery VA assigned — → VA Demo'",
+    "va_delivery_projects": "PASS — /va/digital 'My delivery projects' section renders digital-project-* cards (2 assigned) with PAID badge, $ value, sourced-by, assigned-on date. Click opens /va/leads/{leadId} detail",
+    "backend_property_size_guard": "PASS — POST /api/va/leads with service_type=deep and no property_size returns 400 'Property size is required for cleaning services.' Digital service types accept payload without property_size",
+    "regression_category_filter": "PASS — GET /api/pm/leads?category=digital returns only leads whose service_type ∈ digital family (6); ?category=cleaning excludes them",
+    "leaddetail_edit_form_digital": "PASS — Edit mode shows field-estimated_budget input (value=2000); service_type <select> contains 'Digital services' optgroup; digital lead view mode shows SIZE '—'"
+  },
+  "critical_code_review_comments": [
+    "AdminVADigital edit form: when editing a digital lead the SIZE dropdown defaults to 'Studio' instead of leaving property_size null — risk of silently attaching a cleaning-only field to a digital lead on Save. Should add an empty '— none —' option OR conditionally hide the SIZE field when service_type ∈ DIGITAL_SERVICE_TYPES.",
+    "LeadDetail commission sidebar does not label the commission calc kind (digital_pct vs tier-based). Adding the calc_notes or a small badge (e.g. '10% of $3000') would satisfy the review-request requirement and help PMs during audits.",
+    "The delivery-VA <select> (digital-assign-va-{leadId}) renders duplicate VA entries (e.g. 'VA X' appears many times). Same underlying dataset seems to be loaded/duplicated across rows or across group re-renders — appears cosmetic since selecting VA Demo works, but list is very long and confusing. Suggest de-duplicating by user_id and sorting alphabetically."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter_va_digital.py",
+    "/app/test_reports/pytest/iter_va_digital.xml"
+  ],
+  "action_items": [
+    "Add 'digital_pct' calc note / label (e.g. '10% of $3000.00') to $ COMMISSION sidebar on LeadDetail for digital leads",
+    "Fix SIZE dropdown default in LeadDetail edit form so digital leads don't accidentally get property_size='studio' on Save (either hide field for digital service_type or add empty option)",
+    "De-duplicate the digital-assign-va-{leadId} <select> options (many repeated names like 'VA X', 'PM Created VA')"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter_va_digital.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% functional (10/10 flows) — 2 cosmetic gaps"},
+  "test_credentials": "admin@hcobcleaners.com / HcobAdmin2026!  ·  va.demo@hcobcleaners.com / VaDemo2026!",
+  "seed_data_creation": "Created a handful of TEST_iter_digital_* leads (web_development, budget 2000 & 3000) under va.demo. Lead lead_c47a8cb69423 (TEST_iter_ui_digital_1782961678) progressed to PAID at job_value=3000, commission=$300, delivery VA=VA Demo. All seed rows are prefixed TEST_ for easy cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "VA Digital Services feature is fully functional end-to-end. All data-testids from review request exist and work. Digital commission rate is currently 10%. The only follow-ups are cosmetic: (1) SIZE dropdown default in edit form for digital leads, (2) missing digital_pct calc note in commission sidebar, (3) dedupe of assign-va select options. Backend responses use `commission_pct` key (not digital_commission_pct) and the assign-va endpoint expects payload {va_user_id}. Stage endpoint is PUT /api/pm/leads/{lead_id}/stage."
+}

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import MessageUserButton from "@/components/messages/MessageUserButton";
-import { SERVICE_TYPES, PROPERTY_SIZES, LEAD_SOURCES, serviceTypeLabel, leadSourceLabel } from "@/lib/leadOptions";
+import { SERVICE_TYPES, DIGITAL_SERVICE_TYPES, PROPERTY_SIZES, LEAD_SOURCES, serviceTypeLabel, leadSourceLabel, isDigitalService } from "@/lib/leadOptions";
 
 /**
  * Lead detail page — shared by admin (/ops/va-program/leads/:id) and VA
@@ -58,6 +58,7 @@ export default function LeadDetail({ scope = "admin" }) {
         preferred_datetime: data.lead.preferred_datetime || "",
         source: data.lead.source || "",
         notes: data.lead.notes || "",
+        estimated_budget: data.lead.estimated_budget ?? "",
         job_value: data.lead.job_value ?? "",
         reason: "",
       });
@@ -105,6 +106,9 @@ export default function LeadDetail({ scope = "admin" }) {
       // Numeric fields
       if ("job_value" in payload) {
         payload.job_value = parseFloat(payload.job_value);
+      }
+      if ("estimated_budget" in payload) {
+        payload.estimated_budget = parseFloat(payload.estimated_budget);
       }
       await api.patch(apiBase, payload);
       toast.success("Lead updated");
@@ -336,9 +340,16 @@ export default function LeadDetail({ scope = "admin" }) {
                     onChange={(e) => setForm({ ...form, service_type: e.target.value })}
                     className="h-9 border border-[#030712] bg-white px-2 text-sm"
                   >
-                    {SERVICE_TYPES.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
+                    <optgroup label="Field services">
+                      {SERVICE_TYPES.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Digital services">
+                      {DIGITAL_SERVICE_TYPES.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </optgroup>
                   </select>
                 ) : (
                   <span>{serviceTypeLabel(lead.service_type)}</span>
@@ -357,7 +368,7 @@ export default function LeadDetail({ scope = "admin" }) {
                     ))}
                   </select>
                 ) : (
-                  <span className="uppercase font-mono text-xs">{lead.property_size}</span>
+                  <span className="uppercase font-mono text-xs">{lead.property_size || "—"}</span>
                 )}
               </Field>
               <Field label="Source">
@@ -389,6 +400,23 @@ export default function LeadDetail({ scope = "admin" }) {
                   <span>{lead.preferred_datetime || "—"}</span>
                 )}
               </Field>
+              {isDigitalService(lead.service_type) && (
+                <Field label="Estimated budget ($)">
+                  {editing ? (
+                    <Input
+                      data-testid="field-estimated_budget"
+                      type="number"
+                      value={form.estimated_budget}
+                      onChange={(e) => setForm({ ...form, estimated_budget: e.target.value })}
+                      className="h-9 rounded-none border-[#030712]"
+                    />
+                  ) : (
+                    <span>
+                      {lead.estimated_budget != null ? `$${Number(lead.estimated_budget).toFixed(2)}` : "—"}
+                    </span>
+                  )}
+                </Field>
+              )}
               {scope === "admin" && (
                 <Field label="Job value ($)">
                   {editing ? (
@@ -481,6 +509,18 @@ export default function LeadDetail({ scope = "admin" }) {
             )}
           </section>
 
+          {lead.assigned_va_id && (
+            <section className="border border-[#E5E7EB] bg-white p-5" data-testid="lead-assigned-va-card">
+              <div className="font-mono-label">Delivery VA</div>
+              <div className="mt-2 text-sm font-semibold">{lead.assigned_va_name || lead.assigned_va_id}</div>
+              {lead.assigned_at && (
+                <div className="mt-1 text-xs text-[#4B5563]">
+                  Assigned {new Date(lead.assigned_at).toLocaleDateString()}
+                </div>
+              )}
+            </section>
+          )}
+
           {commission && (
             <section className="border border-[#E5E7EB] bg-white p-5">
               <div className="font-mono-label flex items-center gap-1">
@@ -540,6 +580,8 @@ function ActivityRow({ event }) {
     restored: "Restored from Trash",
     reassigned: "Reassigned",
     note_added: "Note added",
+    delivery_assigned: "Delivery VA assigned",
+    delivery_unassigned: "Delivery VA removed",
   }[event.kind] || event.kind;
 
   return (
@@ -584,6 +626,15 @@ function ActivityDetail({ event }) {
         ))}
         {d.reason && <li className="italic text-[#4B5563]">&ldquo;{d.reason}&rdquo;</li>}
       </ul>
+    );
+  }
+  if (event.kind === "delivery_assigned" || event.kind === "delivery_unassigned") {
+    return (
+      <div className="mt-1 text-xs">
+        <span className="text-[#9CA3AF]">{d.from || "—"}</span>
+        <span className="mx-1">→</span>
+        <span className="font-semibold">{d.to || "—"}</span>
+      </div>
     );
   }
   if (event.kind === "deleted" && d.reason) {

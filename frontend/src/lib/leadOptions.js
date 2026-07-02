@@ -60,9 +60,24 @@ export const LEAD_SOURCES = [
   { value: "other", label: "Other" },
 ];
 
+export const DIGITAL_SERVICE_TYPES = [
+  { value: "product_sourcing", label: "Source management / product sourcing" },
+  { value: "web_development", label: "Website development" },
+  { value: "app_development", label: "App development" },
+  { value: "social_media_marketing", label: "Social media / marketing" },
+  { value: "seo_content", label: "SEO / content writing" },
+  { value: "graphic_design", label: "Graphic design / branding" },
+  { value: "digital_other", label: "Other digital service" },
+];
+
+export const ALL_SERVICE_TYPES = [...SERVICE_TYPES, ...DIGITAL_SERVICE_TYPES];
+
+export const isDigitalService = (v) =>
+  DIGITAL_SERVICE_TYPES.some((o) => o.value === v);
+
 /** Reverse-lookup helper used in detail views. */
 export const serviceTypeLabel = (v) =>
-  SERVICE_TYPES.find((o) => o.value === v)?.label || v || "—";
+  ALL_SERVICE_TYPES.find((o) => o.value === v)?.label || v || "—";
 
 export const leadSourceLabel = (v) =>
   LEAD_SOURCES.find((o) => o.value === v)?.label || v?.replace(/_/g, " ") || "—";

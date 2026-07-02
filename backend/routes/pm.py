@@ -16,6 +16,10 @@ from config import db
 from auth_deps import _get_user_by_id, hash_password
 from notifications import _send_user_email, _public_base
 from va_commission import (
+    DIGITAL_SERVICE_TYPES,
+    DigitalSettingsIn,
+    AssignVAIn,
+    _get_digital_commission_pct,
     require_program_manager_or_owner,
     LeadStageIn,
     LeadEditIn,
@@ -48,6 +52,7 @@ async def pm_list_leads(
     va_user_id: Optional[str] = None,
     stage: Optional[str] = None,
     service_type: Optional[str] = None,
+    category: Optional[str] = None,  # 'digital' | 'cleaning'
     q: Optional[str] = None,
     trash: Optional[bool] = False,  # ?trash=true → show only soft-deleted
     include_trashed: Optional[bool] = False,  # ?include_trashed=true → include trashed in result
@@ -60,6 +65,10 @@ async def pm_list_leads(
         query["stage"] = stage
     if service_type:
         query["service_type"] = service_type
+    elif category == "digital":
+        query["service_type"] = {"$in": sorted(DIGITAL_SERVICE_TYPES)}
+    elif category == "cleaning":
+        query["service_type"] = {"$nin": sorted(DIGITAL_SERVICE_TYPES)}
     if q:
         query["$or"] = [
             {"prospect_name": {"$regex": re.escape(q), "$options": "i"}},
@@ -222,6 +231,8 @@ async def pm_edit_lead(
         _add("source", payload.source)
     if payload.notes is not None:
         _add("notes", payload.notes.strip())
+    if payload.estimated_budget is not None:
+        _add("estimated_budget", float(payload.estimated_budget))
     if payload.job_value is not None:
         _add("job_value", float(payload.job_value))
 
@@ -320,6 +331,92 @@ async def pm_restore_lead(
         {"$set": {"deleted_at": None, "deleted_by": None, "deleted_reason": None, "updated_at": now}},
     )
     await _log_lead_activity(lead_id=lead_id, kind="restored", actor=admin, detail={})
+    fresh = await db.va_leads.find_one({"lead_id": lead_id})
+    return _serialize_lead(fresh)
+
+
+# ---------------------------------------------------------------------------
+# Digital services — commission rate + delivery VA assignment
+# ---------------------------------------------------------------------------
+@router.get("/pm/digital-settings")
+async def pm_get_digital_settings(admin: dict = Depends(require_program_manager_or_owner)):
+    return {"commission_pct": await _get_digital_commission_pct()}
+
+
+@router.put("/pm/digital-settings")
+async def pm_set_digital_settings(
+    payload: DigitalSettingsIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    now = datetime.now(timezone.utc).isoformat()
+    await db.app_settings.update_one(
+        {"_id": "global"},
+        {"$set": {
+            "digital_commission_pct": float(payload.commission_pct),
+            "digital_commission_updated_at": now,
+            "digital_commission_updated_by": admin["user_id"],
+        }},
+        upsert=True,
+    )
+    return {"commission_pct": await _get_digital_commission_pct()}
+
+
+@router.post("/pm/leads/{lead_id}/assign-va")
+async def pm_assign_delivery_va(
+    lead_id: str,
+    payload: AssignVAIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    """Assign (or clear) the VA who will deliver this digital project."""
+    lead = await db.va_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("deleted_at"):
+        raise HTTPException(400, "Lead is in Trash")
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not payload.va_user_id:
+        prev = lead.get("assigned_va_name")
+        await db.va_leads.update_one(
+            {"lead_id": lead_id},
+            {"$set": {"assigned_va_id": None, "assigned_va_name": None, "assigned_at": None, "updated_at": now}},
+        )
+        await _log_lead_activity(lead_id=lead_id, kind="delivery_unassigned", actor=admin, detail={"from": prev})
+        fresh = await db.va_leads.find_one({"lead_id": lead_id})
+        return _serialize_lead(fresh)
+
+    va = await db.users.find_one(
+        {"user_id": payload.va_user_id, "role": "va"},
+        {"_id": 0, "user_id": 1, "name": 1, "va_status": 1},
+    )
+    if not va:
+        raise HTTPException(400, "Target VA not found")
+    if (va.get("va_status") or "pending") != "approved":
+        raise HTTPException(400, "VA must be approved before being assigned delivery work")
+    await db.va_leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "assigned_va_id": va["user_id"],
+            "assigned_va_name": va.get("name"),
+            "assigned_at": now,
+            "updated_at": now,
+        }},
+    )
+    await _log_lead_activity(
+        lead_id=lead_id,
+        kind="delivery_assigned",
+        actor=admin,
+        detail={"from": lead.get("assigned_va_name"), "to": va.get("name")},
+    )
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
+        "user_id": va["user_id"],
+        "kind": "va_delivery_assigned",
+        "title": "New delivery project",
+        "body": f"You've been assigned to deliver '{lead.get('prospect_name')}' — {str(lead.get('service_type') or '').replace('_', ' ')}.",
+        "created_at": now,
+        "read": False,
+    })
     fresh = await db.va_leads.find_one({"lead_id": lead_id})
     return _serialize_lead(fresh)
 

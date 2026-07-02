@@ -47,6 +47,8 @@ import VAMyLeads from "@/pages/va/VAMyLeads";
 import VAEarnings from "@/pages/va/VAEarnings";
 import VATraining from "@/pages/va/VATraining";
 import VAApprovedGuard from "@/components/va/VAApprovedGuard";
+import VADigitalServices from "@/pages/va/VADigitalServices";
+import AdminVADigital from "@/pages/admin/AdminVADigital";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
 import RatePage from "@/pages/RatePage";
@@ -135,6 +137,7 @@ function RouterShell() {
         <Route path="va-program" element={<AdminVAOverview />} />
         <Route path="va-program/analytics" element={<AdminVAAnalytics />} />
         <Route path="va-program/pipeline" element={<AdminVAPipeline />} />
+        <Route path="va-program/digital" element={<AdminVADigital />} />
         <Route path="va-program/pipeline/:leadId" element={<LeadDetail scope="admin" />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />
@@ -189,6 +192,7 @@ function RouterShell() {
         <Route path="submit" element={<VAApprovedGuard featureLabel="Submit Lead"><VASubmitLead /></VAApprovedGuard>} />
         <Route path="leads" element={<VAApprovedGuard featureLabel="My Leads"><VAMyLeads /></VAApprovedGuard>} />
         <Route path="leads/:leadId" element={<VAApprovedGuard featureLabel="Lead detail"><LeadDetail scope="va" /></VAApprovedGuard>} />
+        <Route path="digital" element={<VAApprovedGuard featureLabel="Digital Services"><VADigitalServices /></VAApprovedGuard>} />
         <Route path="earnings" element={<VAApprovedGuard featureLabel="Earnings"><VAEarnings /></VAApprovedGuard>} />
         <Route path="leaderboard" element={<VALeaderboard />} />
         <Route path="templates" element={<VATemplates />} />

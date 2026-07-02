@@ -16,6 +16,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from config import db
 from auth_deps import _get_user_by_id
 from va_commission import (
+    DIGITAL_SERVICE_TYPES,
+    _get_digital_commission_pct,
     require_va,
     require_va_active,
     VARegisterDetailsIn,
@@ -389,6 +391,10 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
         raise HTTPException(400, "Phone or email required")
     addr_norm = _normalize_address(payload.prospect_address)
 
+    is_digital = payload.service_type in DIGITAL_SERVICE_TYPES
+    if not is_digital and not payload.property_size:
+        raise HTTPException(400, "Property size is required for this service type")
+
     # Self-referral check: prospect address must not match VA's registered address
     va_addr_norm = _normalize_address(user.get("va_address"))
     if va_addr_norm and addr_norm and va_addr_norm == addr_norm:
@@ -440,6 +446,7 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
         "prospect_address_norm": addr_norm,
         "service_type": payload.service_type,
         "property_size": payload.property_size,
+        "estimated_budget": payload.estimated_budget,
         "preferred_datetime": payload.preferred_datetime,
         "source": payload.source,
         "notes": (payload.notes or "").strip(),
@@ -469,8 +476,11 @@ async def va_list_leads(stage: Optional[str] = None, user: dict = Depends(requir
 
 @router.get("/va/leads/{lead_id}")
 async def va_get_lead(lead_id: str, user: dict = Depends(require_va_active)):
-    """VAs see their own lead detail + activity timeline. Other VAs' leads are 404."""
-    lead = await db.va_leads.find_one({"lead_id": lead_id, "va_user_id": user["user_id"]})
+    """VAs see their own lead detail (or one assigned to them for delivery)."""
+    lead = await db.va_leads.find_one({
+        "lead_id": lead_id,
+        "$or": [{"va_user_id": user["user_id"]}, {"assigned_va_id": user["user_id"]}],
+    })
     if not lead:
         raise HTTPException(404, "Lead not found")
     activity = []
@@ -542,6 +552,8 @@ async def va_edit_lead(
         _add("source", payload.source)
     if payload.notes is not None:
         _add("notes", payload.notes.strip())
+    if payload.estimated_budget is not None:
+        _add("estimated_budget", float(payload.estimated_budget))
 
     if not changes:
         return _serialize_lead(lead)
@@ -811,3 +823,25 @@ async def va_my_commercial_accounts(user: dict = Depends(require_va_active)):
     async for d in cur:
         items.append({k: v for k, v in d.items() if k != "_id"})
     return {"items": items}
+
+
+@router.get("/va/digital-settings")
+async def va_digital_settings(user: dict = Depends(require_va)):
+    """Current digital-services commission rate + accepted service types."""
+    return {
+        "commission_pct": await _get_digital_commission_pct(),
+        "service_types": sorted(DIGITAL_SERVICE_TYPES),
+    }
+
+
+@router.get("/va/projects")
+async def va_delivery_projects(user: dict = Depends(require_va_active)):
+    """Digital leads assigned to this VA for delivery."""
+    items = []
+    cur = db.va_leads.find({
+        "assigned_va_id": user["user_id"],
+        "deleted_at": {"$in": [None, ""]},
+    }).sort("stage_changed_at", -1)
+    async for d in cur:
+        items.append(_serialize_lead(d))
+    return {"items": items, "commission_pct": await _get_digital_commission_pct()}

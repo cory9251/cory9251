@@ -14,6 +14,7 @@ import {
   Trophy,
   Lightbulb,
   BookOpenText,
+  Monitor,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
@@ -22,6 +23,7 @@ const tabs = [
   { to: "/va", label: "Dashboard", icon: Gauge, end: true, requiresApproved: false },
   { to: "/va/submit", label: "Submit Lead", icon: PlusCircle, end: false, requiresApproved: true },
   { to: "/va/leads", label: "My Leads", icon: Kanban, end: false, requiresApproved: true },
+  { to: "/va/digital", label: "Digital Services", icon: Monitor, end: false, requiresApproved: true },
   { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false, requiresApproved: true },
   { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false, requiresApproved: false },
   { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false, requiresApproved: false },

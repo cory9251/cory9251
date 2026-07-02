@@ -49,7 +49,25 @@ LeadServiceType = Literal[
     "specialty_construction",
     "specialty",  # legacy bucket — kept so existing leads stay valid
     "unknown",
+    # Digital / remote services — commission is a % of project value
+    "product_sourcing",
+    "web_development",
+    "app_development",
+    "social_media_marketing",
+    "seo_content",
+    "graphic_design",
+    "digital_other",
 ]
+
+DIGITAL_SERVICE_TYPES = frozenset({
+    "product_sourcing",
+    "web_development",
+    "app_development",
+    "social_media_marketing",
+    "seo_content",
+    "graphic_design",
+    "digital_other",
+})
 LeadPropertySize = Literal["studio", "1br", "2br", "3br", "4br", "5br", "commercial"]
 LeadSource = Literal[
     "facebook_marketplace",
@@ -100,6 +118,7 @@ RECURRING_LIFETIME_CAP = 100.0
 CLEANER_REFERRAL_TIERS = {1: 20.0, 5: 30.0, 10: 50.0}
 CLEANER_REFERRAL_CAP = 100.0
 DUPLICATE_REOPEN_DAYS = 90  # leads completed/lost > 90 days old don't block dupes
+DEFAULT_DIGITAL_COMMISSION_PCT = 10.0  # % of project value; admin-editable via app_settings
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +136,8 @@ class LeadIn(BaseModel):
     prospect_email: Optional[str] = None
     prospect_address: Optional[str] = None  # used for self-referral check
     service_type: LeadServiceType
-    property_size: LeadPropertySize
+    property_size: Optional[LeadPropertySize] = None  # required for non-digital (route-enforced)
+    estimated_budget: Optional[float] = Field(default=None, ge=0)  # digital leads
     preferred_datetime: Optional[str] = None  # ISO 8601 date or datetime
     source: LeadSource
     notes: Optional[str] = Field(default=None, max_length=2000)
@@ -141,6 +161,7 @@ class LeadEditIn(BaseModel):
     preferred_datetime: Optional[str] = None
     source: Optional[LeadSource] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
+    estimated_budget: Optional[float] = Field(default=None, ge=0)
     job_value: Optional[float] = None  # admin only — enforced in route
     # Reassign owner — admin only — enforced in route
     va_user_id: Optional[str] = None
@@ -247,6 +268,14 @@ class CommercialAccountPatch(BaseModel):
     monthly_revenue: Optional[float] = None
     active: Optional[bool] = None
     notes: Optional[str] = None
+
+
+class DigitalSettingsIn(BaseModel):
+    commission_pct: float = Field(ge=0, le=100)
+
+
+class AssignVAIn(BaseModel):
+    va_user_id: Optional[str] = None  # None/'' clears the delivery assignment
 
 
 # ---------------------------------------------------------------------------
@@ -453,12 +482,32 @@ async def _va_lifetime_recurring_total(va_user_id: str, phone_norm: str, email_n
     return total
 
 
+async def _get_digital_commission_pct() -> float:
+    s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "digital_commission_pct": 1})
+    try:
+        pct = float((s or {}).get("digital_commission_pct"))
+    except (TypeError, ValueError):
+        return DEFAULT_DIGITAL_COMMISSION_PCT
+    return min(100.0, max(0.0, pct))
+
+
 async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = None) -> dict:
     """Compute commission for a lead based on its service type."""
     svc = lead.get("service_type")
     phone = lead.get("prospect_phone_norm") or ""
     email = lead.get("prospect_email_norm") or ""
     va = lead.get("va_user_id")
+
+    if svc in DIGITAL_SERVICE_TYPES:
+        pct = await _get_digital_commission_pct()
+        rev = float(job_value or lead.get("job_value") or 0)
+        amount = round(rev * pct / 100.0, 2)
+        return {
+            "amount": amount,
+            "kind": "digital_pct",
+            "visit_number": None,
+            "notes": f"{pct:g}% of ${rev:.2f} project value ({str(svc).replace('_', ' ')})",
+        }
 
     if svc in ("commercial", "specialty_medical", "specialty_funeral", "specialty_construction", "maintenance_bundle"):
         # All commercial-like services pay the 5% revenue cut. Specialty

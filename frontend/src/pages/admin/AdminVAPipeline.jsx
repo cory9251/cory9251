@@ -184,6 +184,10 @@ export default function AdminVAPipeline() {
           <option value="moveout">Move-out</option>
           <option value="specialty">Specialty</option>
           <option value="commercial">Commercial</option>
+          <option value="product_sourcing">Product sourcing</option>
+          <option value="web_development">Web development</option>
+          <option value="app_development">App development</option>
+          <option value="social_media_marketing">Social media / marketing</option>
         </select>
         <Button
           onClick={load}
