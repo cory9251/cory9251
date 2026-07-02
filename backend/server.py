@@ -61,6 +61,7 @@ from notifications import (
 from routes.messages import router as messages_router, _message_digest_runner
 from routes.bookkeeping import router as bookkeeping_router
 from routes.announcements import router as announcements_router
+from routes.ai_assignments import router as ai_assignments_router
 from routes.push import router as push_router
 from routes.auth import router as auth_router
 from routes.profile import router as profile_router, _upload_user_image
@@ -1324,6 +1325,7 @@ api.include_router(owner_router)
 api.include_router(projects_router)
 api.include_router(bookkeeping_router)
 api.include_router(announcements_router)
+api.include_router(ai_assignments_router)
 app.include_router(api)
 
 app.add_middleware(
