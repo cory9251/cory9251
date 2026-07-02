@@ -1831,3 +1831,16 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - P1: Referral Program Phase 2 (public leaderboard, category overrides, duplicate-address detection)
 - P2: Shift History CSV/Sheets export; Stripe auto-payouts
 - P3: Review collection blasts; monthly VA summary emails; AI-suggested replies
+
+## 2026-07-02 — Bookkeeping / Expenses Section (Admin-only) — DONE
+**Scope (user-confirmed):** Admin-only. Expenses + income (P&L), link entries to projects/assignments for per-project profitability, receipt uploads (image/PDF), full reporting (P&L summary, category breakdown, monthly chart, date-range filters, CSV export), recurring monthly expenses (auto-log).
+
+**Backend (`routes/bookkeeping.py`, registered in server.py; runner in startup.py):**
+- Collections: `ledger_entries`, `recurring_expenses`.
+- Endpoints: GET/POST `/api/admin/ledger`, PUT/DELETE `/api/admin/ledger/{entry_id}`, POST `/api/admin/ledger/{entry_id}/receipt` (object storage, served via existing `/api/files/{path}`), GET `/api/admin/ledger/summary` (totals, by category, by month, by project), GET `/api/admin/ledger/export` (CSV w/ totals), GET `/api/admin/ledger/meta` (categories + projects + gigs for linking), CRUD `/api/admin/recurring-expenses`.
+- `recurring_expenses_runner` background loop (6h) + immediate generation on create; entries tagged `recurring_id`, created_by 'Recurring (auto)'.
+- Categories — expense: supplies, travel_fuel, equipment, software, contractor_pay, payroll, marketing, insurance, rent_utilities, taxes_fees, other; income: assignment_income, project_income, digital_income, referral_income, other_income.
+
+**Frontend:** `/ops/bookkeeping` (nav-bookkeeping in ops sidebar): `AdminBookkeeping.jsx` shell + `components/admin/bookkeeping/` BookOverview (presets/date range, 4 KPIs, recharts monthly bars, category breakdown, per-project P&L table), BookTransactions (filters, totals strip, table, add/edit dialog, receipt attach/view, CSV export), BookRecurring (add form, pause/activate, delete). `lib/ledgerOptions.js` categories + money fmt.
+
+**Testing:** iteration_51.json — backend 13/13 PASS, frontend all flows PASS. DialogDescription a11y fix applied after. TEST seed data cleaned; ledger starts empty for production use.

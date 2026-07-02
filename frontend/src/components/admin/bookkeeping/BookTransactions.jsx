@@ -228,6 +228,9 @@ export const BookTransactions = () => {
         <DialogContent className="max-w-lg rounded-none border-[#030712]" data-testid="book-entry-dialog">
           <DialogHeader>
             <DialogTitle className="font-display font-black">{editingId ? "Edit entry" : "Add entry"}</DialogTitle>
+            <DialogDescription className="text-xs text-[#4B5563]">
+              Record an expense or income entry in the ledger.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <div className="flex gap-2">
