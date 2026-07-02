@@ -25,6 +25,8 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [workerPhone, setWorkerPhone] = useState("");
+  const [smsOptIn, setSmsOptIn] = useState(false);
   const [vaPhone, setVaPhone] = useState("");
   const [vaAddress, setVaAddress] = useState("");
   const [err, setErr] = useState("");
@@ -39,6 +41,12 @@ export default function Register() {
       if (role === "va") {
         if (vaPhone) payload.va_phone = vaPhone;
         if (vaAddress) payload.va_address = vaAddress;
+      } else {
+        // Worker signup — phone + SMS opt-in (Twilio A2P 10DLC)
+        if (workerPhone) payload.phone = workerPhone;
+        // Server ignores opt-in if phone is missing, but we send the truthful
+        // checkbox state either way for the consent audit trail.
+        payload.sms_opt_in = !!(smsOptIn && workerPhone);
       }
       const u = await register(payload);
       if (role === "va") {
@@ -228,6 +236,80 @@ export default function Register() {
                   <div className="border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                     Your account will be flagged <strong>pending</strong> until the Program Manager approves you.
                   </div>
+                </>
+              )}
+
+              {!isVA && (
+                <>
+                  <div>
+                    <Label htmlFor="worker_phone" className="font-mono-label">
+                      Mobile phone <span className="text-[#9CA3AF]">(optional — needed to receive text alerts)</span>
+                    </Label>
+                    <Input
+                      data-testid="register-worker-phone"
+                      id="worker_phone"
+                      type="tel"
+                      autoComplete="tel"
+                      inputMode="tel"
+                      placeholder="(410) 555-0123"
+                      value={workerPhone}
+                      onChange={(e) => {
+                        setWorkerPhone(e.target.value);
+                        // If they clear the phone, silently un-opt-in so we
+                        // never record consent without a number to text.
+                        if (!e.target.value) setSmsOptIn(false);
+                      }}
+                      className="mt-2 h-12 rounded-none border-[#030712]"
+                    />
+                  </div>
+
+                  {/* Twilio A2P 10DLC opt-in — checkbox must not be pre-checked
+                      and consent language must appear next to it. */}
+                  <label
+                    htmlFor="sms_opt_in"
+                    className={`flex cursor-pointer items-start gap-3 border p-3 text-xs transition-colors ${
+                      workerPhone
+                        ? "border-[#E5E7EB] bg-[#F9FAFB] hover:border-[#030712]"
+                        : "cursor-not-allowed border-[#E5E7EB] bg-[#F9FAFB] opacity-60"
+                    }`}
+                  >
+                    <input
+                      data-testid="register-sms-opt-in"
+                      id="sms_opt_in"
+                      type="checkbox"
+                      checked={smsOptIn}
+                      onChange={(e) => setSmsOptIn(e.target.checked)}
+                      disabled={!workerPhone}
+                      className="mt-0.5 h-4 w-4 accent-[#0044FF]"
+                    />
+                    <span className="leading-relaxed text-[#1F2937]">
+                      I agree to receive text messages from HCOB Network about assignment
+                      opportunities, dispatch, and job updates at the mobile number I provided.
+                      Message frequency varies (about 1&ndash;10 per month). Message and data
+                      rates may apply. Reply <strong>STOP</strong> to opt out, <strong>HELP</strong>
+                      {" "}for help. Consent is not a condition of joining. See our{" "}
+                      <Link
+                        to="/privacy"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#0044FF] hover:underline"
+                        data-testid="register-privacy-link"
+                      >
+                        Privacy Policy
+                      </Link>{" "}
+                      and{" "}
+                      <Link
+                        to="/sms-terms"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#0044FF] hover:underline"
+                        data-testid="register-sms-terms-link"
+                      >
+                        SMS Messaging Terms
+                      </Link>
+                      .
+                    </span>
+                  </label>
                 </>
               )}
 

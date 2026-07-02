@@ -21,6 +21,11 @@ class RegisterIn(BaseModel):
     password: str = Field(min_length=6)
     name: str
     role: Optional[Literal["worker", "admin", "va"]] = "worker"
+    # Worker-only optional fields captured at signup
+    phone: Optional[str] = None
+    # Twilio A2P 10DLC consent — checkbox on the signup form.
+    # Only True if the user actively opted in; never pre-checked.
+    sms_opt_in: Optional[bool] = False
     # VA-only optional fields captured at signup
     va_phone: Optional[str] = None
     va_address: Optional[str] = None  # registered home address — self-referral check

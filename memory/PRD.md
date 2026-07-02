@@ -1952,3 +1952,22 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - "More" opens a shadcn Popover (side=top) exposing "Refer · earn 10%" and "Profile". `data-testid="tab-more"` and `data-testid="worker-more-menu"` for testability. Tab highlights blue when the active route is behind it.
 
 **Testing:** Verified via screenshot smoke tests — admin Assignments page auto-expands Work Pipeline with active row highlighted and sibling groups showing aggregated counts (People 28, Finance 38). Worker view confirms 4-column grid and the More popover renders both items above the tab bar.
+
+## 2026-07-02 — Twilio A2P 10DLC Legal Pages + Worker SMS Opt-In — DONE
+**Scope:** User is applying for a Twilio SMS API key and needs (a) publicly-hosted legal pages to submit as consent URLs, and (b) an actual opt-in checkbox on the worker signup form so the flow matches what's promised in those docs.
+
+**Legal pages (public, no auth required):**
+- New files: `pages/legal/LegalLayout.jsx`, `PrivacyPolicy.jsx`, `Terms.jsx`, `SmsTerms.jsx`. Shared header/footer with cross-link nav bar.
+- Routes wired in `App.js`: `/privacy` (Privacy Policy), `/terms` (Terms & Conditions — Text Messaging Program), `/sms-terms` (SMS Messaging Terms one-pager). Long-form aliases `/privacy-policy`, `/terms-and-conditions`, `/sms-messaging-terms` redirect to the short forms.
+- Content lifted verbatim from user-supplied PDFs. Effective Date set to Feb 26, 2026 (easy string-search to update).
+- Landing footer links to all three (`data-testid="footer-privacy-link"` etc.).
+
+**Worker signup SMS opt-in:**
+- `Register.jsx`: added mobile phone input + non-pre-checked checkbox with full Twilio-compliant consent language (message topics, 1–10/month frequency, msg&data rates, STOP/HELP, "consent is not a condition of joining") and inline links to `/privacy` + `/sms-terms`. Checkbox is disabled until a phone is entered; clearing the phone silently un-opts-in.
+- `models.py` `RegisterIn`: added optional `phone` and `sms_opt_in: bool` fields.
+- `routes/auth.py` worker signup: writes `phone`, and — only when opt-in=true AND phone is present — records `sms_opt_in: True`, `sms_opt_in_at: <iso timestamp>`, `sms_opt_in_source: "worker_signup_form"` for the A2P 10DLC consent audit trail. Empty phone silently forces `sms_opt_in=False`.
+
+**Testing:** Screenshot smoke test of `/privacy`, `/terms`, `/sms-terms`, and the updated `/register` (checkbox visible with all required disclosures + links). Backend verified via 3 curl scenarios: opt-in+phone → recorded with timestamp/source; opt-in but no phone → ignored (False); phone but opt-in=false → phone kept, opt-in False. Lint clean.
+
+**Twilio submission URLs (post-deploy):** `https://hcobnetwork.com/privacy` · `https://hcobnetwork.com/terms` · `https://hcobnetwork.com/sms-terms`.
+

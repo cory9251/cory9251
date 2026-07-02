@@ -80,6 +80,11 @@ async def register(payload: RegisterIn, response: Response):
         return await _get_user_by_id(user_id)
 
     user_id = f"user_{uuid.uuid4().hex[:12]}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    worker_phone = (payload.phone or "").strip()
+    # Twilio A2P 10DLC: only record opt-in if the box was checked AND a phone
+    # was provided. Store the timestamp + source for the consent audit trail.
+    sms_opted_in = bool(payload.sms_opt_in and worker_phone)
     doc = {
         "user_id": user_id,
         "email": email,
@@ -92,7 +97,7 @@ async def register(payload: RegisterIn, response: Response):
         # auto-approving here would be a lie that breaks the badge UI and
         # the booking gate alike.
         "worker_status": "pending",
-        "phone": "",
+        "phone": worker_phone,
         "address": "",
         "bio": "",
         "skills": [],
@@ -111,7 +116,11 @@ async def register(payload: RegisterIn, response: Response):
         "avatar_path": None,
         "id_image_path": None,
         "id_verified": False,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        # Twilio A2P 10DLC consent audit trail
+        "sms_opt_in": sms_opted_in,
+        "sms_opt_in_at": now_iso if sms_opted_in else None,
+        "sms_opt_in_source": "worker_signup_form" if sms_opted_in else None,
+        "created_at": now_iso,
         "auth_provider": "local",
     }
     await db.users.insert_one(doc)
