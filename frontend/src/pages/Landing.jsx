@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { BACKEND_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
@@ -85,7 +86,7 @@ export default function Landing() {
   const [gigsLoading, setGigsLoading] = useState(true);
 
   useEffect(() => {
-    const apiBase = process.env.REACT_APP_BACKEND_URL;
+    const apiBase = BACKEND_URL;
     axios
       .get(`${apiBase}/api/public/gigs?limit=3`)
       .then((r) => setLiveGigs(r.data || []))

@@ -12,9 +12,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
+import { BACKEND_URL } from "@/lib/api";
 import { ChatCircle, PaperPlaneTilt, Lock, Lightning } from "@phosphor-icons/react";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const API = `${BACKEND_URL}/api`;
 
 function _shortTime(iso) {
   if (!iso) return "";

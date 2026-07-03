@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChatCircleDots, Copy, Check, X, ArrowClockwise, ArrowSquareOut } from "@phosphor-icons/react";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+import { API } from "@/lib/api";
 
 export default function CustomerChatDialog({ gigId, trigger }) {
   const [open, setOpen] = useState(false);

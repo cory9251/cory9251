@@ -2013,3 +2013,10 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Testing:** iteration_71 — 12/12 backend pytest (cookie flags, CORS allow/deny, ?auth=401, HTML-as-jpg 400, real PNG 200, nosniff, cookie+bearer) + frontend E2E (worker+admin login with Lax cookie, logout/re-login, ProtectedImg renders, /ops/referrals 148 items regression pass). Test file: `/app/backend/tests/test_iter71_p0_security.py`.
 **NOTE:** Fixes live in PREVIEW — REDEPLOY required for production. Production deploy env should carry the updated CORS_ORIGINS/.env values.
 **Remaining (P3 hardening, not yet done):** seeded passwords in startup.py, login rate-limiting, unescaped $regex in admin worker search.
+
+
+## 2026-07-03 — BUGFIX: Production login broken after deploy ("Something went wrong") — DONE
+**Root cause:** Production frontend bundle was built with `REACT_APP_BACKEND_URL=https://www.hcobnetwork.com`, but Cloudflare 308-redirects all www traffic to apex `hcobnetwork.com`. Browsers forbid redirects on CORS preflight (login POST is preflighted), so every API call failed as a network error → frontend generic "Something went wrong." Deployed backend itself was healthy (verified via curl: 401 on bad creds, correct CORS echo + allow-credentials on apex).
+**Fix:** `lib/api.js` now exports `BACKEND_URL` via `computeBackendBase()` — if the page is served over https from a different host than the env URL (and not localhost), it uses `window.location.origin` (frontend + backend always share a domain behind the ingress). Preview/localhost behavior unchanged. Also pointed the 4 stray direct users of `process.env.REACT_APP_BACKEND_URL` (CustomerChatDialog, QuoteRequestForm, CustomerChat, Landing) at the shared lib.
+**Verified:** node unit-check of all 4 host scenarios (prod apex→origin FIX, preview→env, localhost→env, www→env) + preview admin login E2E screenshot (dashboard loads).
+**NOTE:** REDEPLOY required for production. Long-term: user should set the deployment custom domain / REACT_APP_BACKEND_URL to the apex `https://hcobnetwork.com` (contact Emergent Support if domain config needs changing).

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { BACKEND_URL } from "@/lib/api";
 import {
   Phone,
   PaperPlaneTilt,
@@ -36,7 +37,7 @@ const PHONE_HREF = "tel:+14108709347";
 const PHONE_DISPLAY = "(410) 870-9347";
 
 export default function QuoteRequestForm() {
-  const apiBase = process.env.REACT_APP_BACKEND_URL;
+  const apiBase = BACKEND_URL;
   const [f, setF] = useState({
     name: "",
     phone: "",
