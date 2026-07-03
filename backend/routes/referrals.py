@@ -40,6 +40,7 @@ from notifications import (
     _send_sms_sync,
     _send_user_email,
     notify_admins,
+    email_admins,
 )
 
 router = APIRouter()
@@ -434,6 +435,18 @@ async def submit_referral(
         f"New contractor referral: {payload.property_address.strip()}",
         f"{user.get('name') or 'A contractor'} spotted a {payload.service_category.replace('_', ' ')} lead",
         url="/ops/referrals",
+    )
+    await email_admins(
+        f"[HCOB Lead] Contractor referral: {payload.property_address.strip()}",
+        "New contractor referral",
+        f"<p><strong>{user.get('name') or 'A contractor'}</strong> spotted a lead in the field.</p>"
+        f"<p><strong>Address:</strong> {doc['property_address']}<br/>"
+        f"<strong>Category:</strong> {payload.service_category.replace('_', ' ')}<br/>"
+        f"<strong>Intent:</strong> {'Wants the job themselves' if payload.intent == 'for_myself' else 'Referring to the network'}<br/>"
+        f"<strong>Contact:</strong> {doc['contact'].get('name') or '—'} {doc['contact'].get('phone') or ''}</p>"
+        f"<p>{doc['opportunity_description']}</p>",
+        cta_label="Review referral",
+        cta_url=f"{_public_base()}/ops/referrals",
     )
     logger.info(
         f"referral submitted: {rid} by {user['user_id']} ({user.get('name')}) "

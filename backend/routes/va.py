@@ -15,7 +15,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from config import db
 from auth_deps import _get_user_by_id
-from notifications import notify_admins
+from notifications import notify_admins, email_admins, _public_base
 from va_commission import (
     DIGITAL_SERVICE_TYPES,
     _get_digital_commission_pct,
@@ -470,6 +470,19 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
         f"New VA lead: {payload.prospect_name.strip()}",
         f"{user.get('name') or 'A VA'} submitted a {payload.service_type} lead",
         url=f"/ops/va-program/pipeline/{lead_id}",
+    )
+    await email_admins(
+        f"[HCOB Lead] New VA lead: {payload.prospect_name.strip()}",
+        "New VA lead",
+        f"<p><strong>{user.get('name') or 'A VA'}</strong> just submitted a new lead.</p>"
+        f"<p><strong>Prospect:</strong> {doc['prospect_name']}<br/>"
+        f"<strong>Phone:</strong> {doc['prospect_phone'] or '—'}<br/>"
+        f"<strong>Email:</strong> {doc['prospect_email'] or '—'}<br/>"
+        f"<strong>Service:</strong> {payload.service_type}<br/>"
+        f"<strong>Address:</strong> {doc['prospect_address'] or '—'}</p>"
+        + (f"<p>{doc['notes']}</p>" if doc.get("notes") else ""),
+        cta_label="Open lead",
+        cta_url=f"{_public_base()}/ops/va-program/pipeline/{lead_id}",
     )
     return _serialize_lead(doc)
 

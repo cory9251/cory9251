@@ -2036,3 +2036,10 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - NotificationBell already supports `url` field navigation — no frontend change needed.
 - Verified via curl: all 3 events produce unread admin notifications with correct titles/links. Test data cleaned up.
 - REDEPLOY needed for production.
+
+
+## 2026-07-03 — Email notifications for new leads — DONE
+- New `email_admins(subject, title, body_html, cta_label, cta_url)` in notifications.py — best-effort (never raises), sends to `app_settings.quote_notify_email` → env HCOB_OWNER_EMAIL, using same creds resolution as quote emails (settings resend_api_key → env RESEND_API_KEY), wrapped in _email_layout with absolute CTA links via _public_base().
+- Wired into VA lead creation (va.py) and contractor referral submission (referrals.py). Quote requests already had owner email.
+- Verified in preview: email code executes fully, fails only on preview's placeholder Resend key ("API key is invalid") while submissions still succeed. Will deliver in production where the real key lives.
+- REDEPLOY needed.

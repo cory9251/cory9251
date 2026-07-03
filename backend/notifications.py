@@ -54,6 +54,34 @@ async def notify_admins(title: str, body: str = "", url: Optional[str] = None) -
     return len(admin_ids)
 
 
+async def email_admins(
+    subject: str,
+    title: str,
+    body_html: str,
+    cta_label: Optional[str] = None,
+    cta_url: Optional[str] = None,
+) -> bool:
+    """Best-effort email to the owner's lead inbox (settings override → env).
+    Logs failures, never raises — lead capture must not fail on email issues."""
+    try:
+        creds = await _resolve_email_creds()
+        s = await _get_settings_doc()
+        to = (
+            s.get("quote_notify_email")
+            or os.environ.get("HCOB_OWNER_EMAIL", "corymclarke7126@gmail.com")
+        ).strip()
+        if not (creds.get("api_key") and creds.get("sender") and to):
+            return False
+        html = _email_layout(title, body_html, cta_label, cta_url)
+        await asyncio.to_thread(
+            _send_email_sync, creds["api_key"], creds["sender"], to, subject, html
+        )
+        return True
+    except Exception as e:
+        logger.error(f"email_admins failed ({subject}): {e}")
+        return False
+
+
 # ---- Blast safety (kill switch + cooldown) ---------------------------------
 # These guards exist because a SEV1 incident (Feb-2026) showed that without
 # them a single misclick or duplicate user record can drain the Resend quota.
