@@ -30,6 +30,30 @@ from config import (
 )
 
 
+# ---- Admin bell notifications ----------------------------------------------
+async def notify_admins(title: str, body: str = "", url: Optional[str] = None) -> int:
+    """Drop an in-app bell notification for every admin user."""
+    admin_ids = await db.users.distinct("user_id", {"role": "admin"})
+    if not admin_ids:
+        return 0
+    now = datetime.now(timezone.utc).isoformat()
+    await db.notifications.insert_many(
+        [
+            {
+                "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
+                "user_id": uid,
+                "title": title,
+                "body": body,
+                "url": url,
+                "read": False,
+                "created_at": now,
+            }
+            for uid in admin_ids
+        ]
+    )
+    return len(admin_ids)
+
+
 # ---- Blast safety (kill switch + cooldown) ---------------------------------
 # These guards exist because a SEV1 incident (Feb-2026) showed that without
 # them a single misclick or duplicate user record can drain the Resend quota.

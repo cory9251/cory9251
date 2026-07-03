@@ -57,6 +57,7 @@ from notifications import (
     _send_user_email,
     _send_gig_event_email,
     _log_blast,
+    notify_admins,
 )
 from routes.messages import router as messages_router, _message_digest_runner
 from routes.bookkeeping import router as bookkeeping_router
@@ -849,6 +850,13 @@ async def create_quote_request(payload: QuoteRequestIn, request: Request):
         "sms_error": None,
     }
     await db.quote_requests.insert_one(doc)
+
+    # In-app bell notification for admins
+    await notify_admins(
+        f"New quote request: {name}",
+        f"{doc['service']} · {phone}" + (f" · {doc['address']}" if doc.get("address") else ""),
+        url="/ops/quotes",
+    )
 
     # Email the owner — primary delivery channel for new leads.
     settings_doc = await _get_settings_doc()

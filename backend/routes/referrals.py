@@ -39,6 +39,7 @@ from notifications import (
     _resolve_sms_creds,
     _send_sms_sync,
     _send_user_email,
+    notify_admins,
 )
 
 router = APIRouter()
@@ -429,6 +430,11 @@ async def submit_referral(
         "void_reason": None,
     }
     await db.referral_leads.insert_one(doc)
+    await notify_admins(
+        f"New contractor referral: {payload.property_address.strip()}",
+        f"{user.get('name') or 'A contractor'} spotted a {payload.service_category.replace('_', ' ')} lead",
+        url="/ops/referrals",
+    )
     logger.info(
         f"referral submitted: {rid} by {user['user_id']} ({user.get('name')}) "
         f"intent={payload.intent} category={payload.service_category}"

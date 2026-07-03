@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from config import db
 from auth_deps import _get_user_by_id
+from notifications import notify_admins
 from va_commission import (
     DIGITAL_SERVICE_TYPES,
     _get_digital_commission_pct,
@@ -465,6 +466,11 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
         "updated_at": now,
     }
     await db.va_leads.insert_one(doc)
+    await notify_admins(
+        f"New VA lead: {payload.prospect_name.strip()}",
+        f"{user.get('name') or 'A VA'} submitted a {payload.service_type} lead",
+        url=f"/ops/va-program/pipeline/{lead_id}",
+    )
     return _serialize_lead(doc)
 
 

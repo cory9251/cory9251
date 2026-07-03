@@ -2028,3 +2028,11 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Link updates: worker Landing "Need a project done?" + footer "For customers" → `/`; Login/Register back-links + PublicGigPage brand links → `/work`; customer page footer gained "For contractors — join the crew → /work" and "Refer leads · earn → /vas" links.
 - Verified via screenshot script: home shows customers-page testid, /work shows worker landing, /customers redirects to /.
 - REDEPLOY needed for production.
+
+
+## 2026-07-03 — Admin bell notifications for new leads — DONE
+- New helper `notify_admins(title, body, url)` in `/app/backend/notifications.py` — inserts a bell notification for every `role=admin` user (owner + Mechie).
+- Wired into 3 lead sources: POST /va/leads (→ /ops/va-program/pipeline/{lead_id}), POST /public/quote-requests (→ /ops/quotes, alongside existing owner email), POST /worker/referrals (→ /ops/referrals).
+- NotificationBell already supports `url` field navigation — no frontend change needed.
+- Verified via curl: all 3 events produce unread admin notifications with correct titles/links. Test data cleaned up.
+- REDEPLOY needed for production.
