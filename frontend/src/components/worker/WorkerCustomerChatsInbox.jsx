@@ -60,8 +60,6 @@ export default function WorkerCustomerChatsInbox() {
     }
   };
 
-  const active = threads.filter((t) => t.status !== "closed");
-
   return (
     <div className="mt-4" data-testid="worker-customer-chats-inbox">
       <div className="border border-[#0044FF]/20 bg-[#F5F8FF] p-4">
@@ -71,14 +69,13 @@ export default function WorkerCustomerChatsInbox() {
             Customer chats
           </span>
           <span className="ml-auto text-[10px] font-mono uppercase tracking-widest text-[#6B7280]">
-            {active.length}/{threads.length} live
+            {threads.length} live
           </span>
         </div>
         <ul className="mt-3 space-y-2">
           {threads.slice(0, 5).map((t) => {
             const title = t.title || t.project_title || t.gig_title || "—";
             const isProject = t.scope_type === "project";
-            const closed = t.status === "closed";
             return (
               <li key={t.thread_id}>
                 <button
@@ -102,11 +99,6 @@ export default function WorkerCustomerChatsInbox() {
                       {isProject && (
                         <span className="shrink-0 text-[9px] font-mono uppercase tracking-widest px-1 py-0.5 bg-[#0044FF] text-white">
                           Project
-                        </span>
-                      )}
-                      {closed && (
-                        <span className="shrink-0 text-[9px] font-mono uppercase tracking-widest px-1 py-0.5 bg-[#9CA3AF] text-white">
-                          Ended
                         </span>
                       )}
                     </div>

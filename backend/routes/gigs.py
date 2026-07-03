@@ -68,6 +68,65 @@ router = APIRouter()
 
 
 # ============================================================================
+# Auto-complete past-scheduled gigs
+# ============================================================================
+# Any gig whose `scheduled_at` is in the past should be treated as done: it
+# can't be booked anymore and shouldn't clutter the worker feed. We do it as
+# a lazy sweep on hot GET endpoints so it stays consistent without needing a
+# separate cron worker. Debounced module-wide so N concurrent requests only
+# fire the update_many once per minute.
+_LAST_EXPIRY_SWEEP_TS: float = 0.0
+_EXPIRY_SWEEP_INTERVAL_S: int = 60
+
+
+async def _sweep_expired_gigs() -> int:
+    """Flip past-scheduled open/coming_soon/filled gigs to `completed`.
+
+    Returns the number of gigs updated (0 if debounced or no matches).
+    Silent-fails so it never blocks a user-facing request.
+    """
+    global _LAST_EXPIRY_SWEEP_TS
+    now = datetime.now(timezone.utc)
+    if (now.timestamp() - _LAST_EXPIRY_SWEEP_TS) < _EXPIRY_SWEEP_INTERVAL_S:
+        return 0
+    _LAST_EXPIRY_SWEEP_TS = now.timestamp()
+    try:
+        now_iso = now.isoformat()
+        result = await db.gigs.update_many(
+            {
+                "scheduled_at": {"$ne": None, "$lt": now_iso},
+                "status": {"$in": ["open", "coming_soon", "filled"]},
+            },
+            {"$set": {
+                "status": "completed",
+                "auto_completed_at": now_iso,
+                "auto_completed_reason": "scheduled_date_passed",
+            }},
+        )
+        if result.modified_count:
+            logger.info(
+                f"[gig-sweep] auto-completed {result.modified_count} past-date gigs"
+            )
+        return result.modified_count or 0
+    except Exception:
+        logger.exception("[gig-sweep] auto-complete failed (non-fatal)")
+        return 0
+
+
+def _is_past(scheduled_at: Optional[str]) -> bool:
+    """True if the ISO timestamp is in the past. Missing/invalid = False."""
+    if not scheduled_at:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(scheduled_at).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt < datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+
+# ============================================================================
 # Helpers — re-exported for use by other modules (admin/timesheet/reports)
 # ============================================================================
 def _gig_doc(payload: GigIn, created_by: str) -> dict:
@@ -535,6 +594,11 @@ async def list_gigs(
     category: Optional[str] = Query(None),
     user: dict = Depends(get_current_user),
 ):
+    # Lazy sweep: past-scheduled gigs auto-flip to `completed` so they stop
+    # appearing in the worker feed and can't be booked. Also fires customer-
+    # thread auto-close since threads follow gig status. Debounced to at most
+    # once every 60s per worker regardless of API load.
+    await _sweep_expired_gigs()
     query: dict = {}
     # "all" means: no status filter at all (used by admin calendar / worker accepted list)
     if status and status != "all":
@@ -613,6 +677,9 @@ async def list_gigs(
 
 @router.get("/gigs/{gig_id}")
 async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
+    # Same lazy sweep as list_gigs so a stale-status page immediately flips
+    # to `completed` when the schedule has passed.
+    await _sweep_expired_gigs()
     gig = await db.gigs.find_one({"gig_id": gig_id}, {"_id": 0})
     if not gig:
         raise HTTPException(404, "Gig not found")
@@ -1009,6 +1076,13 @@ async def accept_gig(
     gig = await db.gigs.find_one({"gig_id": gig_id})
     if not gig:
         raise HTTPException(404, "Gig not found")
+    # Past-date guard: even if the sweep hasn't flipped the status yet,
+    # never let a worker book a gig whose scheduled datetime has passed.
+    if _is_past(gig.get("scheduled_at")):
+        raise HTTPException(
+            400,
+            "This assignment's scheduled date has already passed and is no longer available."
+        )
     if gig.get("status") == "coming_soon":
         publish_at = gig.get("publish_at")
         when = f" — opens {publish_at[:16].replace('T', ' ')}" if publish_at else ""

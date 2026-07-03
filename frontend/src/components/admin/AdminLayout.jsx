@@ -33,6 +33,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
+import NotificationBell from "@/components/NotificationBell";
 
 // Flat items at the top (no dropdown wrapper)
 const homeItems = [
@@ -560,14 +561,17 @@ export default function AdminLayout() {
               </div>
             </div>
           </div>
-          <button
-            data-testid="admin-mobile-logout"
-            onClick={onLogout}
-            aria-label="Sign out"
-            className="grid h-9 w-9 place-items-center border border-[#E5E7EB] text-[#030712] hover:bg-[#030712] hover:text-white"
-          >
-            <SignOut size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationBell variant="light" homePath="/ops" />
+            <button
+              data-testid="admin-mobile-logout"
+              onClick={onLogout}
+              aria-label="Sign out"
+              className="grid h-9 w-9 place-items-center border border-[#E5E7EB] text-[#030712] hover:bg-[#030712] hover:text-white"
+            >
+              <SignOut size={14} />
+            </button>
+          </div>
         </header>
 
         {/* Slide-out drawer + backdrop */}
@@ -637,6 +641,11 @@ export default function AdminLayout() {
       </div>
 
       <main className="flex-1 overflow-y-auto">
+        {/* Desktop-only top action bar — houses the notification bell. Mobile
+            already gets one in its sticky header. */}
+        <div className="hidden md:flex sticky top-0 z-10 items-center justify-end gap-2 border-b border-[#E5E7EB] bg-white/95 backdrop-blur px-6 py-2">
+          <NotificationBell variant="light" homePath="/ops" />
+        </div>
         <Outlet />
       </main>
     </div>

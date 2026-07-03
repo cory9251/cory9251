@@ -14,6 +14,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import NotificationBell from "@/components/NotificationBell";
 
 // Primary tabs shown in the bottom bar (4 slots)
 const primaryTabs = [
@@ -57,14 +58,17 @@ export default function WorkerLayout() {
               <div className="font-mono-label text-[9px]">{user?.name}</div>
             </div>
           </div>
-          <button
-            data-testid="worker-logout-btn"
-            onClick={onLogout}
-            className="grid h-9 w-9 place-items-center border border-[#E5E7EB] text-[#030712] hover:bg-[#030712] hover:text-white"
-            aria-label="sign out"
-          >
-            <SignOut size={16} />
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationBell variant="light" homePath="/crew" />
+            <button
+              data-testid="worker-logout-btn"
+              onClick={onLogout}
+              className="grid h-9 w-9 place-items-center border border-[#E5E7EB] text-[#030712] hover:bg-[#030712] hover:text-white"
+              aria-label="sign out"
+            >
+              <SignOut size={16} />
+            </button>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto pb-24">

@@ -139,15 +139,44 @@ async def _contractor_participants(thread: dict) -> list[dict]:
     ]
 
 
+async def _project_has_active_gigs(project_id: str) -> bool:
+    """True if any gig linked to this project is still in an active status.
+
+    Active = open / coming_soon / filled / (any status with a future
+    scheduled_at). If nothing is active, we consider the project complete
+    and its customer thread eligible for auto-close.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    doc = await db.gigs.find_one({
+        "project_id": project_id,
+        "$or": [
+            {"status": {"$in": ["open", "coming_soon", "filled"]}},
+            {"scheduled_at": {"$gt": now_iso}},
+        ],
+    }, {"_id": 0, "gig_id": 1})
+    return doc is not None
+
+
 async def _is_thread_active(thread: dict) -> tuple[bool, Optional[str]]:
     """Return (is_active, reason_if_not).
 
     Gig-scoped: auto-flip to closed when the backing gig is `completed`.
-    Project-scoped: never auto-close (per-user choice — projects are
-    long-lived; admin manually closes via /close)."""
+    Project-scoped: auto-flip to closed when every linked gig is complete
+    AND no future gigs remain on the project."""
     if thread.get("status") == "closed":
         return False, thread.get("closed_reason") or "Thread is closed"
     if thread.get("scope_type") == "project":
+        pid = thread.get("project_id")
+        if pid and not await _project_has_active_gigs(pid):
+            await db.customer_threads.update_one(
+                {"thread_id": thread["thread_id"]},
+                {"$set": {
+                    "status": "closed",
+                    "closed_at": _now_iso(),
+                    "closed_reason": "Project completed — no remaining active gigs",
+                }},
+            )
+            return False, "Project completed — chat closed"
         return True, None
     gig = await db.gigs.find_one(
         {"gig_id": thread["gig_id"]}, {"_id": 0, "status": 1}
@@ -798,19 +827,30 @@ async def crew_list_my_threads(user: dict = Depends(get_current_user)):
         {"_id": 0, "gig_id": 1},
     ).to_list(length=2000)
     gig_ids = list({a["gig_id"] for a in accs if a.get("gig_id")})
+    raw: list[dict] = []
     if gig_ids:
         async for t in db.customer_threads.find({
             "gig_id": {"$in": gig_ids},
             "scope_type": {"$in": ["gig", None]},
+            "status": {"$ne": "closed"},
         }).sort("last_message_at", -1):
-            items.append(_serialize_thread(t, viewer="contractor"))
+            raw.append(t)
 
     # 2) Project threads where worker is a participant
     async for t in db.customer_threads.find({
         "scope_type": "project",
         "participant_contractor_ids": worker_id,
+        "status": {"$ne": "closed"},
     }).sort("last_message_at", -1):
-        items.append(_serialize_thread(t, viewer="contractor"))
+        raw.append(t)
+
+    # Evaluate active-status on each — this triggers auto-close for gigs that
+    # are now completed and projects with no remaining active gigs. Only
+    # still-active threads get surfaced in the inbox.
+    for t in raw:
+        active, _reason = await _is_thread_active(t)
+        if active:
+            items.append(_serialize_thread(t, viewer="contractor"))
 
     return {"items": items}
 

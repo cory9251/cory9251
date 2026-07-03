@@ -1971,3 +1971,20 @@ Terminal off-ramps: `void`, `self_fulfilled`
 
 **Twilio submission URLs (post-deploy):** `https://hcobnetwork.com/privacy` · `https://hcobnetwork.com/terms` · `https://hcobnetwork.com/sms-terms`.
 
+
+## 2026-07-02 — Notification Bell + Past-Date Gig Auto-Complete + Thread Close — DONE
+**Scope:** Worker feed felt cluttered (customer chats from long-completed projects still surfaced), and there was no unified notifications surface. Also, gigs whose scheduled date had passed were still showing up in the worker feed and being bookable.
+
+**Backend:**
+- `routes/gigs.py`: new `_sweep_expired_gigs()` helper (debounced to once per 60s module-wide) that flips gigs with `scheduled_at < now` and status ∈ {open, coming_soon, filled} to `status="completed"` with an `auto_completed_at` audit stamp. Fires lazily at the top of `GET /gigs` and `GET /gigs/{gig_id}`. Verified on preview: cut open-gig count from 72 → 23; 54 past-date gigs marked with `auto_completed_at`, 0 past-date gigs remained in bookable statuses.
+- `routes/gigs.py`: `accept_gig` gained an explicit past-date guard (`_is_past(gig.scheduled_at)`) so even a race between fetch and click can't book a passed assignment. Returns 400 with a friendly message.
+- `routes/customer_threads.py`: extended `_is_thread_active()` — for `scope_type=project` threads, checks `_project_has_active_gigs()` (any gig on the project that's open/coming_soon/filled OR has future `scheduled_at`); when none remain the thread is auto-flipped to `closed` with reason `"Project completed — no remaining active gigs"`. Gig-scoped auto-close on gig `completed` still works (unchanged behaviour, now triggered by the sweep too).
+- `routes/customer_threads.py`: `/crew/customer-threads/mine` now filters `status != "closed"` at the query level AND runs `_is_thread_active()` per candidate — so a project that just completed drops out of the worker's inbox on the very next poll.
+
+**Frontend:**
+- New shared component `components/NotificationBell.jsx` — polls `GET /notifications` every 30s + on `window` event `hcob:notifications-changed`. Renders a bell icon with a red unread badge, popover of the latest 15 items (bullet + title + body + relative timestamp), "Mark all read" bulk action, per-item optimistic mark-read on click. Click routing: `n.url` → `n.project_id` → `n.gig_id` → home fallback. Empty state: "You&apos;re all caught up."
+- Wired into `WorkerLayout.jsx` (top-right of the sticky header, next to sign-out) and `AdminLayout.jsx` (mobile: in the top bar next to sign-out; desktop: new sticky top-right action bar inside `<main>`).
+- `WorkerCustomerChatsInbox.jsx`: removed the now-dead "Ended" pill + `active/total` split (server already excludes closed threads), simplified counter to `N live`.
+
+**Testing:** Backend curl verified sweep results (0 past-date bookable gigs; 54 past-date + `auto_completed_at` populated). Screenshots verified: worker feed shows bell with 99+ badge + open popover with real notifications; admin desktop shows sticky top-right bar with bell (93 badge); admin mobile bar shows bell next to sign-out. Lint clean.
+
