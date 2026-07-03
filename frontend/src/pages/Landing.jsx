@@ -115,7 +115,7 @@ export default function Landing() {
           <div className="flex items-center gap-2">
             <a
               data-testid="nav-customers-link"
-              href="/customers"
+              href="/"
               className="hidden md:inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-[#030712] hover:text-[#0044FF]"
             >
               Need a project done? <ArrowRight size={14} />
@@ -538,7 +538,7 @@ export default function Landing() {
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-[#4B5563]">
             <Link to="/login">Sign in</Link>
             <Link to="/register">Apply to join</Link>
-            <a href="/customers">For customers</a>
+            <a href="/">For customers</a>
             <a href="https://hcobcleaners.com" target="_blank" rel="noreferrer">
               HCOB main site
             </a>

@@ -78,8 +78,9 @@ function RouterShell() {
   }
   return (
     <Routes>
+      <Route path="/" element={<CustomersPage />} />
       <Route
-        path="/"
+        path="/work"
         element={
           <PublicOnly>
             <Landing />
@@ -106,8 +107,8 @@ function RouterShell() {
       <Route path="/rate/:token" element={<RatePage />} />
       <Route path="/gigs/:gigId" element={<PublicGigPage />} />
       <Route path="/c/:token" element={<CustomerChat />} />
-      <Route path="/customers" element={<CustomersPage />} />
-      <Route path="/services" element={<CustomersPage />} />
+      <Route path="/customers" element={<Navigate to="/" replace />} />
+      <Route path="/services" element={<Navigate to="/" replace />} />
       <Route path="/vas" element={<VAsLanding />} />
       <Route path="/earn" element={<VAsLanding />} />
       <Route path="/work-with-us" element={<VAsLanding />} />

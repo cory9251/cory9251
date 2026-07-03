@@ -2020,3 +2020,11 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Fix:** `lib/api.js` now exports `BACKEND_URL` via `computeBackendBase()` — if the page is served over https from a different host than the env URL (and not localhost), it uses `window.location.origin` (frontend + backend always share a domain behind the ingress). Preview/localhost behavior unchanged. Also pointed the 4 stray direct users of `process.env.REACT_APP_BACKEND_URL` (CustomerChatDialog, QuoteRequestForm, CustomerChat, Landing) at the shared lib.
 **Verified:** node unit-check of all 4 host scenarios (prod apex→origin FIX, preview→env, localhost→env, www→env) + preview admin login E2E screenshot (dashboard loads).
 **NOTE:** REDEPLOY required for production. Long-term: user should set the deployment custom domain / REACT_APP_BACKEND_URL to the apex `https://hcobnetwork.com` (contact Emergent Support if domain config needs changing).
+
+
+## 2026-07-03 — Homepage swap: customer page is now the site root — DONE
+- `/` now renders CustomersPage (was worker Landing). `/customers` and `/services` 301-style redirect to `/`.
+- Worker landing moved to `/work` (kept PublicOnly — logged-in staff bounce to their portal).
+- Link updates: worker Landing "Need a project done?" + footer "For customers" → `/`; Login/Register back-links + PublicGigPage brand links → `/work`; customer page footer gained "For contractors — join the crew → /work" and "Refer leads · earn → /vas" links.
+- Verified via screenshot script: home shows customers-page testid, /work shows worker landing, /customers redirects to /.
+- REDEPLOY needed for production.

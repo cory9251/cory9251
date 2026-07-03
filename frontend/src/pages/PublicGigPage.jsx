@@ -84,7 +84,7 @@ export default function PublicGigPage() {
             This gig is no longer available or the link is invalid.
           </p>
           <Link
-            to="/"
+            to="/work"
             className="mt-4 inline-block text-[#0044FF] underline"
           >
             Back to HCOB Network →
@@ -104,7 +104,7 @@ export default function PublicGigPage() {
     <div className="min-h-screen bg-[#F9FAFB] py-10 px-4">
       <div className="mx-auto max-w-md">
         <Link
-          to="/"
+          to="/work"
           className="font-mono-label inline-flex items-center gap-1.5 text-[#0044FF]"
         >
           <Sparkle size={12} weight="fill" /> HCOB Network

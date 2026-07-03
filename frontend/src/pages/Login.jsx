@@ -66,7 +66,7 @@ export default function Login() {
     <div className="min-h-screen bg-white" data-testid="login-page">
       <div className="grid min-h-screen grid-cols-1 lg:grid-cols-2">
         <div className="hidden lg:flex flex-col justify-between bg-[#030712] p-12 text-white">
-          <Link to="/" className="font-mono-label flex items-center gap-2 text-white/80 hover:text-white">
+          <Link to="/work" className="font-mono-label flex items-center gap-2 text-white/80 hover:text-white">
             <ArrowLeft size={14} /> Back home
           </Link>
           <div>

@@ -504,6 +504,18 @@ export default function CustomersPage() {
           </div>
         </div>
         <div className="border-t border-[#E5E7EB] py-5 text-center text-[11px] text-[#4B5563]">
+          <div className="mb-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
+            <a
+              data-testid="footer-contractors-link"
+              href="/work"
+              className="font-semibold hover:text-[#0044FF]"
+            >
+              For contractors — join the crew →
+            </a>
+            <a href="/vas" className="hover:text-[#0044FF]">
+              Refer leads · earn
+            </a>
+          </div>
           © {new Date().getFullYear()} HCOB Network · Baltimore, MD
         </div>
       </footer>
