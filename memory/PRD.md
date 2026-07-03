@@ -1996,3 +1996,20 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Fix:** Moved the settings GET/PUT route definitions above the `{referral_id}` routes (with a comment noting the ordering constraint). No frontend change needed.
 **Verified (preview):** curl — settings returns `{"commission_rate":0.1}`, detail-by-id works, list returns all items. Screenshot — admin referrals page renders full list (149 items incl. fresh worker submission), status pills, no error banner.
 **NOTE:** Fix exists in PREVIEW only — user must REDEPLOY for production (hcobnetwork.com) to pick it up.
+
+
+## 2026-07-03 — P0 SECURITY FIXES (SEC-001, SEC-002, SEC-003) — DONE, VERIFIED 12/12
+**SEC-001 — CORS + CSRF:**
+- `server.py`: replaced `allow_origins=["*"] + allow_credentials=True` with env-driven allowlist (`CORS_ORIGINS`, comma-separated) + `CORS_ORIGIN_REGEX` (covers *.preview.emergentagent.com, *.emergent.host, hcobnetwork.com/www). Evil origins now get NO CORS headers.
+- `backend/.env`: `CORS_ORIGINS` set to explicit preview + production origins; `CORS_ORIGIN_REGEX` added.
+- `auth_deps.py cookie_kwargs()`: session cookie `SameSite=None` → `SameSite=Lax` (frontend + API are same-origin in both preview and prod) — native CSRF defense. HttpOnly + Secure kept.
+**SEC-002 — token leak via file URLs:**
+- `routes/profile.py download_file`: removed `?auth=<token>` query-param auth entirely; endpoint now uses `Depends(get_current_user)` (cookie or Authorization Bearer). Frontend never used ?auth= (uses `fetch(..., credentials:'include')` / same-site cookies) so no client change needed. Session-expiry check now enforced on file GETs too (was previously missing).
+**SEC-003 — stored XSS via uploads:**
+- `storage.py`: new `validate_upload(data, filename, allow_pdf)` — magic-byte sniffing via `filetype` lib; allowlist jpg/png/webp/gif (+pdf where allowed); returns the SNIFFED content-type which is what gets stored, so declared-CT spoofing is dead.
+- Applied to ALL storage-backed uploads: profile avatar/ID (`_upload_user_image`, was completely unvalidated + now 10MB cap), bookkeeping receipts, badge documents, message attachments. Removed now-dead declared-CT allowlist constants (RECEIPT_TYPES, ALLOWED_DOC_TYPES).
+- `download_file` serving: always sends `X-Content-Type-Options: nosniff`; `Content-Disposition: inline` only for image/jpeg,png,webp,gif + application/pdf; anything else forced to `application/octet-stream` + `attachment` (legacy pre-fix files can never execute).
+- Installed `filetype==1.2.0`; requirements.txt refreshed via pip freeze.
+**Testing:** iteration_71 — 12/12 backend pytest (cookie flags, CORS allow/deny, ?auth=401, HTML-as-jpg 400, real PNG 200, nosniff, cookie+bearer) + frontend E2E (worker+admin login with Lax cookie, logout/re-login, ProtectedImg renders, /ops/referrals 148 items regression pass). Test file: `/app/backend/tests/test_iter71_p0_security.py`.
+**NOTE:** Fixes live in PREVIEW — REDEPLOY required for production. Production deploy env should carry the updated CORS_ORIGINS/.env values.
+**Remaining (P3 hardening, not yet done):** seeded passwords in startup.py, login rate-limiting, unescaped $regex in admin worker search.
