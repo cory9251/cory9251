@@ -24,6 +24,7 @@ emergentintegrations==0.1.2
 fastapi==0.110.1
 fastuuid==0.14.0
 filelock==3.29.0
+filetype==1.2.0
 flake8==7.3.0
 frozenlist==1.8.0
 fsspec==2026.4.0
@@ -102,6 +103,7 @@ pywebpush==2.3.0
 PyYAML==6.0.3
 referencing==0.37.0
 regex==2026.5.9
+reportlab==5.0.0
 requests==2.34.2
 requests-oauthlib==2.0.0
 resend==2.30.1

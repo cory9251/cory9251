@@ -35,11 +35,13 @@ SESSION_DAYS = 7
 
 
 def cookie_kwargs() -> dict:
-    """httpOnly cookie config that works for Emergent preview (cross-site)."""
+    """httpOnly session cookie. SameSite=Lax — frontend and API share the same
+    origin (preview + production), so Lax works everywhere and blocks CSRF
+    from third-party sites."""
     return dict(
         httponly=True,
         secure=True,
-        samesite="none",
+        samesite="lax",
         path="/",
         max_age=SESSION_DAYS * 86400,
     )

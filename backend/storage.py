@@ -66,6 +66,30 @@ def get_object(path: str):
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
+_IMAGE_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+PDF_TYPE = "application/pdf"
+
+
+def validate_upload(data: bytes, filename: str, allow_pdf: bool = False) -> tuple:
+    """Magic-byte sniffing — only real images (and PDFs when allowed) pass.
+    Returns (ext, sniffed_content_type). Blocks HTML/SVG/scripts even when
+    the client lies about content-type (stored-XSS defense)."""
+    import filetype
+    kind = filetype.guess(data[:8192] if data else b"")
+    mime = kind.mime if kind else None
+    if mime in _IMAGE_TYPES:
+        return _IMAGE_TYPES[mime], mime
+    if allow_pdf and mime == PDF_TYPE:
+        return "pdf", PDF_TYPE
+    allowed = "an image (jpg/png/webp/gif)" + (" or PDF" if allow_pdf else "")
+    raise HTTPException(400, f"Invalid or unsupported file — upload {allowed}.")
+
+
 def _ext_from(filename: str, content_type: str) -> str:
     """Best-effort file extension from filename or MIME."""
     if "." in (filename or ""):

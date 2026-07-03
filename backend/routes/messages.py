@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from config import db, logger, APP_NAME
 from va_commission import block_unapproved_va
-from storage import put_object, _ext_from
+from storage import put_object, validate_upload
 from notifications import (
     _send_user_email,
     _public_base,
@@ -560,21 +560,17 @@ async def upload_message_attachment(
 ):
     """Upload an image attachment. Returns the storage path which the client
     then passes in attachment_paths on send_message."""
-    if file.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
-        raise HTTPException(400, "Only images supported (jpg, png, webp, gif)")
     data = await file.read()
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(400, "Attachment too large (max 10MB)")
-    ext = _ext_from(file.filename or "", file.content_type or "")
+    ext, ct = validate_upload(data, file.filename or "")
     path = f"{APP_NAME}/messages/{user['user_id']}/{uuid.uuid4().hex}.{ext}"
-    result = await asyncio.to_thread(
-        put_object, path, data, file.content_type or "application/octet-stream"
-    )
+    result = await asyncio.to_thread(put_object, path, data, ct)
     await db.files.insert_one({
         "file_id": str(uuid.uuid4()),
         "storage_path": result["path"],
         "original_filename": file.filename,
-        "content_type": file.content_type,
+        "content_type": ct,
         "size": result.get("size"),
         "owner_id": user["user_id"],
         "kind": "message_attachment",
@@ -583,7 +579,7 @@ async def upload_message_attachment(
     return {
         "path": result["path"],
         "size": result.get("size"),
-        "content_type": file.content_type,
+        "content_type": ct,
     }
 
 

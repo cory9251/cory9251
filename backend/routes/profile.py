@@ -11,13 +11,13 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response as FastAPIResponse
 from pydantic import BaseModel
 
 from config import db, APP_NAME
 from auth_deps import get_current_user, _get_user_by_id
-from storage import put_object, get_object, _ext_from
+from storage import put_object, get_object, validate_upload
 from constants import (
     WORKER_SKILLS,
     SKILL_LABELS,
@@ -105,19 +105,22 @@ async def update_profile(payload: ProfileUpdateIn, request: Request, user: dict 
     return await _get_user_by_id(user["user_id"])
 
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
 async def _upload_user_image(user_id: str, kind: str, file: UploadFile) -> str:
-    ext = _ext_from(file.filename or "", file.content_type or "")
-    path = f"{APP_NAME}/users/{user_id}/{kind}/{uuid.uuid4().hex}.{ext}"
     data = await file.read()
-    result = await asyncio.to_thread(
-        put_object, path, data, file.content_type or "application/octet-stream"
-    )
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, "Image too large (max 10MB)")
+    ext, content_type = validate_upload(data, file.filename or "")
+    path = f"{APP_NAME}/users/{user_id}/{kind}/{uuid.uuid4().hex}.{ext}"
+    result = await asyncio.to_thread(put_object, path, data, content_type)
     await db.files.insert_one(
         {
             "file_id": str(uuid.uuid4()),
             "storage_path": result["path"],
             "original_filename": file.filename,
-            "content_type": file.content_type,
+            "content_type": content_type,
             "size": result.get("size"),
             "owner_id": user_id,
             "kind": kind,
@@ -212,27 +215,24 @@ async def set_availability(
     return {"available_now": True, "available_until": until.isoformat()}
 
 
+# Only these render inline in the browser; everything else is forced to
+# download so a smuggled HTML/SVG can never execute in our origin.
+_INLINE_SAFE_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf",
+}
+
+
 @router.get("/files/{path:path}")
 async def download_file(
     path: str,
-    request: Request,
-    auth: Optional[str] = Query(None),
+    requester: dict = Depends(get_current_user),
 ):
-    # Auth via cookie OR ?auth= query token (for <img src>)
-    token = request.cookies.get("session_token") or auth
-    if not token:
-        raise HTTPException(401, "Not authenticated")
-    session = await db.sessions.find_one({"session_token": token}, {"_id": 0})
-    if not session:
-        raise HTTPException(401, "Invalid session")
-
+    # Auth via httpOnly cookie (browser sends it automatically for <img src>)
+    # or Authorization header. Tokens are never accepted in the query string.
     record = await db.files.find_one({"storage_path": path}, {"_id": 0})
     if not record:
         raise HTTPException(404, "File not found")
 
-    requester = await _get_user_by_id(session["user_id"])
-    if not requester:
-        raise HTTPException(401, "User not found")
     # Owners can always view their own files. Admins can view any file.
     allowed = (
         record["owner_id"] == requester["user_id"]
@@ -255,6 +255,12 @@ async def download_file(
         raise HTTPException(403, "Forbidden")
 
     data, content_type = await asyncio.to_thread(get_object, path)
-    return FastAPIResponse(
-        content=data, media_type=record.get("content_type") or content_type
-    )
+    media_type = record.get("content_type") or content_type or "application/octet-stream"
+    headers = {"X-Content-Type-Options": "nosniff"}
+    if media_type in _INLINE_SAFE_TYPES:
+        headers["Content-Disposition"] = "inline"
+    else:
+        media_type = "application/octet-stream"
+        fname = (record.get("original_filename") or "download").replace('"', "").replace("\n", "")
+        headers["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return FastAPIResponse(content=data, media_type=media_type, headers=headers)

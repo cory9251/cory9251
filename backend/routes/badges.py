@@ -15,13 +15,12 @@ from pydantic import BaseModel
 
 from config import db, logger, APP_NAME, EMERGENT_LLM_KEY
 from auth_deps import get_current_user, require_admin
-from storage import put_object, _ext_from
+from storage import put_object, validate_upload
 
 router = APIRouter()
 
 MAX_DOC_BYTES = 10 * 1024 * 1024
 MAX_DOCS = 10
-ALLOWED_DOC_TYPES = ("image/", "application/pdf")
 
 QUIZ_SYSTEM_PROMPT = """You write multiple-choice certification test questions for skilled-trade workers on a dispatch platform (cleaning, electrical, plumbing, drywall, painting, box-truck driving, etc.).
 Return ONLY a raw JSON array — no markdown fences, no commentary. Each element must be exactly:
@@ -213,22 +212,18 @@ async def worker_upload_doc(
         raise HTTPException(400, "Pass the test first, then upload your credentials")
     if len(app.get("documents") or []) >= MAX_DOCS:
         raise HTTPException(400, f"Max {MAX_DOCS} documents per application")
-    ct = (file.content_type or "").lower()
-    if not any(ct.startswith(t) for t in ALLOWED_DOC_TYPES):
-        raise HTTPException(400, "Upload an image or PDF of your certification/portfolio")
     data = await file.read()
     if len(data) > MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 10MB)")
-
-    ext = _ext_from(file.filename or "", ct)
+    ext, ct = validate_upload(data, file.filename or "", allow_pdf=True)
     path = f"{APP_NAME}/badges/{user['user_id']}/{badge_id}/{uuid.uuid4().hex}.{ext}"
-    result = await asyncio.to_thread(put_object, path, data, ct or "application/octet-stream")
+    result = await asyncio.to_thread(put_object, path, data, ct)
     now = datetime.now(timezone.utc).isoformat()
     await db.files.insert_one({
         "file_id": str(uuid.uuid4()),
         "storage_path": result["path"],
         "original_filename": file.filename,
-        "content_type": file.content_type,
+        "content_type": ct,
         "size": result.get("size"),
         "owner_id": user["user_id"],
         "kind": "badge_doc",

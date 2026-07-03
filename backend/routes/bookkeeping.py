@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from config import db, APP_NAME, logger
 from auth_deps import require_admin
-from storage import put_object, _ext_from
+from storage import put_object, validate_upload
 
 router = APIRouter()
 
@@ -33,7 +33,6 @@ INCOME_CATEGORIES = [
     "assignment_income", "project_income", "digital_income", "referral_income", "other_income",
 ]
 
-RECEIPT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
 RECEIPT_MAX_BYTES = 10 * 1024 * 1024
 
 
@@ -252,13 +251,10 @@ async def upload_receipt(entry_id: str, file: UploadFile = File(...), admin: dic
     entry = await db.ledger_entries.find_one({"entry_id": entry_id})
     if not entry:
         raise HTTPException(404, "Entry not found")
-    ct = file.content_type or "application/octet-stream"
-    if ct not in RECEIPT_TYPES:
-        raise HTTPException(400, "Receipt must be an image (jpg/png/webp/gif) or PDF")
     data = await file.read()
     if len(data) > RECEIPT_MAX_BYTES:
         raise HTTPException(400, "Receipt too large (max 10MB)")
-    ext = _ext_from(file.filename or "", ct)
+    ext, ct = validate_upload(data, file.filename or "", allow_pdf=True)
     path = f"{APP_NAME}/receipts/{entry_id}/{uuid.uuid4().hex}.{ext}"
     result = await asyncio.to_thread(put_object, path, data, ct)
     now = datetime.now(timezone.utc).isoformat()

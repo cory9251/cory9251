@@ -31,7 +31,7 @@ from constants import (
     REQUIRED_PROFILE_FIELDS,
     GIG_TAG_VALUES,
 )
-from storage import init_storage, put_object, get_object, _ext_from
+from storage import init_storage, put_object, get_object
 from auth_deps import (
     hash_password,
     verify_password,
@@ -1330,9 +1330,17 @@ api.include_router(ai_assignments_router)
 api.include_router(badges_router)
 app.include_router(api)
 
+# CORS — explicit allowlist from env (never "*" with credentials). Regex covers
+# Emergent preview/deploy domains + the custom production domain.
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ORIGINS", "").split(",")
+    if o.strip() and o.strip() != "*"
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
+    allow_origin_regex=os.environ.get("CORS_ORIGIN_REGEX") or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
