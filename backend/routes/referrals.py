@@ -493,6 +493,35 @@ async def admin_list_referrals(
     return {"items": items, "counts": counts, "all_statuses": list(ALL_STATUSES)}
 
 
+# ----- Commission rate settings -------------------------------------------
+# NOTE: must be registered BEFORE /admin/referrals/{referral_id} or FastAPI
+# matches "settings" as a referral_id and returns 404.
+class RateUpdateIn(BaseModel):
+    commission_rate: float = Field(..., ge=0, le=1)
+
+
+@router.get("/admin/referrals/settings")
+async def get_settings(admin: dict = Depends(require_admin)):
+    rate = await _commission_rate()
+    return {"commission_rate": rate}
+
+
+@router.put("/admin/referrals/settings")
+async def update_settings(payload: RateUpdateIn, admin: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"_id": "referral_program"},
+        {
+            "$set": {
+                "commission_rate": float(payload.commission_rate),
+                "updated_at": _now_iso(),
+                "updated_by": admin["user_id"],
+            }
+        },
+        upsert=True,
+    )
+    return {"commission_rate": float(payload.commission_rate)}
+
+
 @router.get("/admin/referrals/{referral_id}")
 async def admin_get_referral(referral_id: str, admin: dict = Depends(require_admin)):
     r = await db.referral_leads.find_one({"referral_id": referral_id})
@@ -595,30 +624,3 @@ async def admin_update_referral(
         )
 
     return _serialize(fresh)
-
-
-# ----- Commission rate settings -------------------------------------------
-class RateUpdateIn(BaseModel):
-    commission_rate: float = Field(..., ge=0, le=1)
-
-
-@router.get("/admin/referrals/settings")
-async def get_settings(admin: dict = Depends(require_admin)):
-    rate = await _commission_rate()
-    return {"commission_rate": rate}
-
-
-@router.put("/admin/referrals/settings")
-async def update_settings(payload: RateUpdateIn, admin: dict = Depends(require_admin)):
-    await db.app_settings.update_one(
-        {"_id": "referral_program"},
-        {
-            "$set": {
-                "commission_rate": float(payload.commission_rate),
-                "updated_at": _now_iso(),
-                "updated_by": admin["user_id"],
-            }
-        },
-        upsert=True,
-    )
-    return {"commission_rate": float(payload.commission_rate)}

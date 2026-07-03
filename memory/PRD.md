@@ -1988,3 +1988,11 @@ Terminal off-ramps: `void`, `self_fulfilled`
 
 **Testing:** Backend curl verified sweep results (0 past-date bookable gigs; 54 past-date + `auto_completed_at` populated). Screenshots verified: worker feed shows bell with 99+ badge + open popover with real notifications; admin desktop shows sticky top-right bar with bell (93 badge); admin mobile bar shows bell next to sign-out. Lint clean.
 
+
+
+## 2026-07-03 — BUGFIX: Admin Network Referrals page showed 0 items + "Referral not found" — DONE
+**Symptom (reported on production):** Admin `/ops/referrals` showed "ALL (0)", a red "Referral not found" banner, and no worker-submitted leads, even though submissions succeeded.
+**Root cause:** In `routes/referrals.py`, `GET /admin/referrals/settings` was registered AFTER `GET /admin/referrals/{referral_id}`, so FastAPI matched the literal string "settings" as a referral_id → 404 "Referral not found". `AdminReferrals.jsx` fetches list + settings via `Promise.all`, so the settings 404 rejected the whole load and the list never rendered (data was intact in the DB the whole time).
+**Fix:** Moved the settings GET/PUT route definitions above the `{referral_id}` routes (with a comment noting the ordering constraint). No frontend change needed.
+**Verified (preview):** curl — settings returns `{"commission_rate":0.1}`, detail-by-id works, list returns all items. Screenshot — admin referrals page renders full list (149 items incl. fresh worker submission), status pills, no error banner.
+**NOTE:** Fix exists in PREVIEW only — user must REDEPLOY for production (hcobnetwork.com) to pick it up.
