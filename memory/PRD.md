@@ -2043,3 +2043,11 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Wired into VA lead creation (va.py) and contractor referral submission (referrals.py). Quote requests already had owner email.
 - Verified in preview: email code executes fully, fails only on preview's placeholder Resend key ("API key is invalid") while submissions still succeed. Will deliver in production where the real key lives.
 - REDEPLOY needed.
+
+
+## 2026-07-04 — Service Catalog (VA reference + admin-managed) — DONE
+- New backend `/app/backend/routes/services_catalog.py`: `service_catalog` collection; GET /services/catalog (any authed user, active only), admin CRUD at /admin/services/catalog (+/{service_id} PUT/DELETE). Idempotent `seed_service_catalog()` wired into server.py startup — seeds 22 services (15 physical, 7 digital) with names, pitch descriptions, and price ranges (user to fine-tune content).
+- VA portal: new "Services" tab (Tag icon, visible to pending VAs too) → `/va/services` (`VAServices.jsx`) — searchable, grouped Physical/Digital cards with price badges.
+- Ops console: "Service Catalog" under Growth menu → `/ops/services` (`AdminServicesCatalog.jsx`) — add/edit dialog, hide-from-VAs toggle (active flag), delete with confirm.
+- Verified: curl CRUD (create/update/hide/delete, inactive hidden from VA feed), screenshots of both pages (22 cards render, dialog opens).
+- REDEPLOY needed for production.

@@ -1327,6 +1327,8 @@ from routes.referrals import router as referrals_router  # noqa: E402
 api.include_router(referrals_router)
 from routes.customer_threads import router as customer_threads_router  # noqa: E402
 api.include_router(customer_threads_router)
+from routes.services_catalog import router as services_catalog_router, seed_service_catalog  # noqa: E402
+api.include_router(services_catalog_router)
 api.include_router(reports_router)
 api.include_router(va_router)
 api.include_router(pm_router)
@@ -1375,6 +1377,7 @@ async def on_startup():
     await run_migrations()
     await seed_accounts_and_templates()
     await seed_badges()
+    await seed_service_catalog()
     init_storage()
     start_background_tasks()
 

@@ -46,6 +46,7 @@ import VASubmitLead from "@/pages/va/VASubmitLead";
 import VAMyLeads from "@/pages/va/VAMyLeads";
 import VAEarnings from "@/pages/va/VAEarnings";
 import VATraining from "@/pages/va/VATraining";
+import VAServices from "@/pages/va/VAServices";
 import VAApprovedGuard from "@/components/va/VAApprovedGuard";
 import VADigitalServices from "@/pages/va/VADigitalServices";
 import AdminVADigital from "@/pages/admin/AdminVADigital";
@@ -54,6 +55,7 @@ import AdminBookkeeping from "@/pages/admin/AdminBookkeeping";
 import AdminAnnouncements from "@/pages/admin/AdminAnnouncements";
 import AdminAIAssignment from "@/pages/admin/AdminAIAssignment";
 import AdminBadges from "@/pages/admin/AdminBadges";
+import AdminServicesCatalog from "@/pages/admin/AdminServicesCatalog";
 import WorkerCertifications from "@/pages/worker/WorkerCertifications";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
@@ -161,6 +163,7 @@ function RouterShell() {
         <Route path="announcements" element={<AdminAnnouncements />} />
         <Route path="ai-assignment" element={<AdminAIAssignment />} />
         <Route path="badges" element={<AdminBadges />} />
+        <Route path="services" element={<AdminServicesCatalog />} />
         <Route path="va-program/pipeline/:leadId" element={<LeadDetail scope="admin" />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />
@@ -221,6 +224,7 @@ function RouterShell() {
         <Route path="leaderboard" element={<VALeaderboard />} />
         <Route path="templates" element={<VATemplates />} />
         <Route path="training" element={<VATraining />} />
+        <Route path="services" element={<VAServices />} />
         <Route path="messages" element={<VAApprovedGuard featureLabel="Messages"><Messages /></VAApprovedGuard>} />
       </Route>
 

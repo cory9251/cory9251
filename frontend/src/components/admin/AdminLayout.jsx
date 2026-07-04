@@ -26,6 +26,7 @@ import {
   Megaphone,
   Percent,
   Sparkle,
+  Tag,
   SealCheck,
   CaretDown,
   Coins,
@@ -72,6 +73,7 @@ const groups = [
     icon: Megaphone,
     items: [
       { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
+      { to: "/ops/services", label: "Service Catalog", icon: Tag, end: false },
       { to: "/ops/announcements", label: "Announcements", icon: Megaphone, end: false },
       { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },
     ],

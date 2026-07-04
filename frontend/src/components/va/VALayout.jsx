@@ -15,6 +15,7 @@ import {
   Lightbulb,
   BookOpenText,
   Monitor,
+  Tag,
 } from "@phosphor-icons/react";
 import { AnnouncementsPopup } from "@/components/announcements/AnnouncementsPopup";
 import { useAuth } from "@/context/AuthContext";
@@ -25,6 +26,7 @@ const tabs = [
   { to: "/va/submit", label: "Submit Lead", icon: PlusCircle, end: false, requiresApproved: true },
   { to: "/va/leads", label: "My Leads", icon: Kanban, end: false, requiresApproved: true },
   { to: "/va/digital", label: "Digital Services", icon: Monitor, end: false, requiresApproved: true },
+  { to: "/va/services", label: "Services", icon: Tag, end: false, requiresApproved: false },
   { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false, requiresApproved: true },
   { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false, requiresApproved: false },
   { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false, requiresApproved: false },
