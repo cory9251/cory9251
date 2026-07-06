@@ -2062,3 +2062,13 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Frontend: `VAJobs.jsx` (board/my-jobs tabs, claim/start/submit dialog with payout preview), `AdminVAJobs.jsx` (post/edit dialog, assign/reassign dropdown, status filter chips, approve-&-queue-payout + send-back on submitted rows). Nav: VA "Jobs" tab, Ops → VA Program → "Digital Jobs".
 - Testing: iteration_72 — 8/8 backend pytest + full E2E pass. Added DialogDescription to both dialogs (cleared Radix a11y warning). Test data cleaned from db.
 - REDEPLOY needed for production.
+
+
+## 2026-07-06 — Auto-payroll: paid commissions → Bookkeeping expenses — DONE, VERIFIED
+- User request: stop hand-logging VA/job payouts as expenses. Choice: log when commission is marked PAID (Owner Payouts), land in existing Expenses ledger under "payroll" category (no separate Payroll view).
+- `routes/bookkeeping.py`: new `log_commission_payroll_expense(commission)` — creates an `expense`/`payroll` ledger entry (amount, date=paid_at, description "VA commission — {va} · {subject}" or "Digital job payout — …", vendor=va_name, source="commission_payout", source_commission_id, payout_method, payout_reference, created_by_name="Auto (payroll)"). Idempotent via `source_commission_id` (never double-logs). Covers VA lead commissions AND digital-job payouts (same pipeline).
+- `routes/owner.py owner_mark_paid`: calls the helper after status→paid.
+- Backfill: `backfill_paid_commission_payroll()` runs on server startup (idempotent) — logged 21 pre-existing paid commissions in preview.
+- Verified via curl: fixed-price job → full pipeline → mark-paid creates the payroll expense (method/ref filled); double mark-paid blocked (no dup); ledger meta shows only 1 entry per commission. Screenshot: Bookkeeping Overview shows $525 Payroll / 21 entries / 100% expenses.
+- Backend-only (no new UI; entries render in existing Expenses ledger). Test artifacts cleaned.
+- REDEPLOY needed for production (backfill will auto-run on prod boot).

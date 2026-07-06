@@ -1380,6 +1380,10 @@ async def on_startup():
     await seed_accounts_and_templates()
     await seed_badges()
     await seed_service_catalog()
+    from routes.bookkeeping import backfill_paid_commission_payroll
+    n = await backfill_paid_commission_payroll()
+    if n:
+        logger.info(f"Backfilled {n} payroll ledger entries for paid commissions")
     init_storage()
     start_background_tasks()
 

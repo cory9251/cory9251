@@ -71,6 +71,56 @@ def _clean(doc: dict) -> dict:
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
+async def log_commission_payroll_expense(commission: dict) -> Optional[dict]:
+    """Auto-create a 'payroll' expense ledger entry when a commission is paid.
+    Idempotent — keyed on commission_id, so a re-run never double-logs.
+    Covers VA lead commissions and digital-job payouts (same pipeline)."""
+    commission_id = commission.get("commission_id")
+    if not commission_id:
+        return None
+    existing = await db.ledger_entries.find_one({"source_commission_id": commission_id})
+    if existing:
+        return _clean(existing)
+
+    amount = round(float(commission.get("amount") or 0), 2)
+    if amount <= 0:
+        return None
+
+    is_job = commission.get("kind") == "digital_job"
+    va_name = commission.get("va_name") or "VA"
+    subject = commission.get("prospect_name") or ("digital job" if is_job else "lead")
+    label = "Digital job payout" if is_job else "VA commission"
+    paid_iso = commission.get("paid_at") or datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "entry_id": f"led_{uuid.uuid4().hex[:12]}",
+        "type": "expense",
+        "amount": amount,
+        "category": "payroll",
+        "date": paid_iso[:10],
+        "description": f"{label} — {va_name} · {subject}",
+        "vendor": va_name,
+        "project_id": None,
+        "project_title": None,
+        "gig_id": None,
+        "gig_title": None,
+        "receipt_path": None,
+        "receipt_filename": None,
+        "recurring_id": None,
+        "source": "commission_payout",
+        "source_commission_id": commission_id,
+        "payout_method": commission.get("payout_method"),
+        "payout_reference": commission.get("payout_reference"),
+        "created_by": "system",
+        "created_by_name": "Auto (payroll)",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.ledger_entries.insert_one(doc)
+    return _clean(doc)
+
+
+
 class LedgerEntryIn(BaseModel):
     type: Literal["expense", "income"]
     amount: float = Field(gt=0)
@@ -142,6 +192,23 @@ def _totals(items: list) -> dict:
     income = sum(e["amount"] for e in items if e["type"] == "income")
     expenses = sum(e["amount"] for e in items if e["type"] == "expense")
     return {"income": round(income, 2), "expenses": round(expenses, 2), "net": round(income - expenses, 2)}
+
+
+async def backfill_paid_commission_payroll() -> int:
+    """One-time-safe: log payroll expenses for commissions already marked paid
+    that predate this feature. Idempotent via source_commission_id."""
+    logged = set(
+        await db.ledger_entries.distinct(
+            "source_commission_id", {"source": "commission_payout"}
+        )
+    )
+    count = 0
+    async for c in db.commissions.find({"status": "paid"}):
+        if c.get("commission_id") in logged:
+            continue
+        if await log_commission_payroll_expense(c):
+            count += 1
+    return count
 
 
 @router.get("/admin/ledger/meta")

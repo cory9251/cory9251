@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from config import db
 from notifications import _send_user_email, _public_base
+from routes.bookkeeping import log_commission_payroll_expense
 from va_commission import (
     require_owner,
     OwnerBulkApproveIn,
@@ -199,6 +200,9 @@ async def owner_mark_paid(
             "updated_at": now,
         }},
     )
+    fresh = await db.commissions.find_one({"commission_id": commission_id})
+    # Auto-log this payout as a 'payroll' expense in the bookkeeping ledger.
+    await log_commission_payroll_expense(fresh)
     # Notify VA
     await db.notifications.insert_one({
         "notification_id": f"notif_{uuid.uuid4().hex[:10]}",
