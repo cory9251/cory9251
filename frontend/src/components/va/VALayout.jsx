@@ -16,9 +16,11 @@ import {
   BookOpenText,
   Monitor,
   Tag,
+  Briefcase,
 } from "@phosphor-icons/react";
 import { AnnouncementsPopup } from "@/components/announcements/AnnouncementsPopup";
 import { useAuth } from "@/context/AuthContext";
+import NotificationBell from "@/components/NotificationBell";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const tabs = [
@@ -27,6 +29,7 @@ const tabs = [
   { to: "/va/leads", label: "My Leads", icon: Kanban, end: false, requiresApproved: true },
   { to: "/va/digital", label: "Digital Services", icon: Monitor, end: false, requiresApproved: true },
   { to: "/va/services", label: "Services", icon: Tag, end: false, requiresApproved: false },
+  { to: "/va/jobs", label: "Jobs", icon: Briefcase, end: false, requiresApproved: true },
   { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false, requiresApproved: true },
   { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false, requiresApproved: false },
   { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false, requiresApproved: false },
@@ -101,7 +104,10 @@ export default function VALayout() {
           </div>
         </nav>
         <div className="border-t border-[#E5E7EB] p-4">
-          <div className="text-xs text-[#4B5563]">Signed in as</div>
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-[#4B5563]">Signed in as</div>
+            <NotificationBell homePath="/va" />
+          </div>
           <div className="truncate text-sm font-semibold">{user?.name}</div>
           <div className="truncate text-[10px] text-[#4B5563]">{user?.email}</div>
           <button
@@ -133,14 +139,17 @@ export default function VALayout() {
               <div className="font-display text-base font-black leading-none">HCOB · VA</div>
             </div>
           </div>
-          <button
-            data-testid="va-mobile-logout"
-            onClick={onLogout}
-            aria-label="Sign out"
-            className="grid h-9 w-9 place-items-center border border-[#E5E7EB] text-[#030712] hover:bg-[#030712] hover:text-white"
-          >
-            <SignOut size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationBell homePath="/va" />
+            <button
+              data-testid="va-mobile-logout"
+              onClick={onLogout}
+              aria-label="Sign out"
+              className="grid h-9 w-9 place-items-center border border-[#E5E7EB] text-[#030712] hover:bg-[#030712] hover:text-white"
+            >
+              <SignOut size={14} />
+            </button>
+          </div>
         </header>
 
         <div

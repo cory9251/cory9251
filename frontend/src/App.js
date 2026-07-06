@@ -47,6 +47,7 @@ import VAMyLeads from "@/pages/va/VAMyLeads";
 import VAEarnings from "@/pages/va/VAEarnings";
 import VATraining from "@/pages/va/VATraining";
 import VAServices from "@/pages/va/VAServices";
+import VAJobs from "@/pages/va/VAJobs";
 import VAApprovedGuard from "@/components/va/VAApprovedGuard";
 import VADigitalServices from "@/pages/va/VADigitalServices";
 import AdminVADigital from "@/pages/admin/AdminVADigital";
@@ -56,6 +57,7 @@ import AdminAnnouncements from "@/pages/admin/AdminAnnouncements";
 import AdminAIAssignment from "@/pages/admin/AdminAIAssignment";
 import AdminBadges from "@/pages/admin/AdminBadges";
 import AdminServicesCatalog from "@/pages/admin/AdminServicesCatalog";
+import AdminVAJobs from "@/pages/admin/AdminVAJobs";
 import WorkerCertifications from "@/pages/worker/WorkerCertifications";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
@@ -158,6 +160,7 @@ function RouterShell() {
         <Route path="va-program/analytics" element={<AdminVAAnalytics />} />
         <Route path="va-program/pipeline" element={<AdminVAPipeline />} />
         <Route path="va-program/digital" element={<AdminVADigital />} />
+        <Route path="va-program/jobs" element={<AdminVAJobs />} />
         <Route path="va-program/rates" element={<AdminVARates />} />
         <Route path="bookkeeping" element={<AdminBookkeeping />} />
         <Route path="announcements" element={<AdminAnnouncements />} />
@@ -225,6 +228,7 @@ function RouterShell() {
         <Route path="templates" element={<VATemplates />} />
         <Route path="training" element={<VATraining />} />
         <Route path="services" element={<VAServices />} />
+        <Route path="jobs" element={<VAApprovedGuard featureLabel="Digital Jobs"><VAJobs /></VAApprovedGuard>} />
         <Route path="messages" element={<VAApprovedGuard featureLabel="Messages"><Messages /></VAApprovedGuard>} />
       </Route>
 

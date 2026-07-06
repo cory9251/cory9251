@@ -1329,6 +1329,8 @@ from routes.customer_threads import router as customer_threads_router  # noqa: E
 api.include_router(customer_threads_router)
 from routes.services_catalog import router as services_catalog_router, seed_service_catalog  # noqa: E402
 api.include_router(services_catalog_router)
+from routes.va_jobs import router as va_jobs_router  # noqa: E402
+api.include_router(va_jobs_router)
 api.include_router(reports_router)
 api.include_router(va_router)
 api.include_router(pm_router)

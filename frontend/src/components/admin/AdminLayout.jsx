@@ -95,6 +95,7 @@ const vaNav = [
   { to: "/ops/va-program", label: "VA Overview", icon: Handshake, end: true },
   { to: "/ops/va-program/pipeline", label: "Lead Pipeline", icon: Kanban, end: false },
   { to: "/ops/va-program/digital", label: "Digital Services", icon: Monitor, end: false },
+  { to: "/ops/va-program/jobs", label: "Digital Jobs", icon: Briefcase, end: false },
   { to: "/ops/va-program/rates", label: "Rates", icon: Percent, end: false },
   { to: "/ops/va-program/commissions", label: "Commissions", icon: CurrencyDollar, end: false, badge: "va_queue" },
   { to: "/ops/va-program/vas", label: "VA Accounts", icon: UsersThree, end: false },
