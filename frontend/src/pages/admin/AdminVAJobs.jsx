@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -99,6 +100,9 @@ function JobDialog({ open, onClose, initial, vas, onSaved }) {
           <DialogTitle className="font-display font-black">
             {editing ? "Edit job" : "Post a digital job"}
           </DialogTitle>
+          <DialogDescription>
+            Set the scope and pay, then post to the board or assign a VA directly.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>

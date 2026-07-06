@@ -2051,3 +2051,14 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Ops console: "Service Catalog" under Growth menu → `/ops/services` (`AdminServicesCatalog.jsx`) — add/edit dialog, hide-from-VAs toggle (active flag), delete with confirm.
 - Verified: curl CRUD (create/update/hide/delete, inactive hidden from VA feed), screenshots of both pages (22 cards render, dialog opens).
 - REDEPLOY needed for production.
+
+
+## 2026-07-04 — VA Digital Jobs (do-the-work, not just refer) — DONE, TESTED 8/8 + E2E
+- New backend `/app/backend/routes/va_jobs.py` — `va_jobs` collection. VA endpoints: /va/jobs/board (open), /va/jobs/mine, /va/jobs/{id}/claim|start|submit. Admin (PM/owner) endpoints: POST/GET/PUT /admin/va-jobs, /admin/va-jobs/{id}/assign|approve|reject|cancel. Wired in server.py.
+- Lifecycle: open → assigned (claim OR direct assign) → in_progress (start) → submitted (VA delivers note + hours if hourly) → approved (admin) | in_progress again (reject w/ required note) | cancelled. Pay: fixed OR hourly (payout = rate × hours), set per job.
+- UNIFIED EARNINGS: on approve, inserts a db.commissions row (kind='digital_job', service_type='digital_job', lead_id=None, status='pending_approval') so it flows through the existing PM→Owner→Paid queue AND shows on the VA's /va/earnings page. PM approve endpoint verified to handle lead_id=None.
+- Access: only APPROVED VAs (require_va_active + VAApprovedGuard on /va/jobs). Workers & pending VAs get 403.
+- Notifications: bell to admins on claim/submit + email_admins on submit; bell to VA on assign/approve/reject/cancel. NotificationBell added to VA layout (desktop sidebar footer + mobile header, homePath="/va"). Job cards link to /va/messages for admin comms.
+- Frontend: `VAJobs.jsx` (board/my-jobs tabs, claim/start/submit dialog with payout preview), `AdminVAJobs.jsx` (post/edit dialog, assign/reassign dropdown, status filter chips, approve-&-queue-payout + send-back on submitted rows). Nav: VA "Jobs" tab, Ops → VA Program → "Digital Jobs".
+- Testing: iteration_72 — 8/8 backend pytest + full E2E pass. Added DialogDescription to both dialogs (cleared Radix a11y warning). Test data cleaned from db.
+- REDEPLOY needed for production.

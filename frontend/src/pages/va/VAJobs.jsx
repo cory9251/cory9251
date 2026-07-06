@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -96,6 +97,9 @@ function SubmitDialog({ job, open, onClose, onDone }) {
           <DialogTitle className="font-display font-black">
             Submit: {job.title}
           </DialogTitle>
+          <DialogDescription>
+            Share your deliverables and (for hourly jobs) log your hours for review.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
