@@ -2088,3 +2088,10 @@ Terminal off-ramps: `void`, `self_fulfilled`
 ### Testing
 - iteration_73: 8/8 backend pytest + full admin E2E (Worker Pay flow incl. idempotency + ledger cross-check, lost→quoted→booked recovery, bell clear-all/per-row X, bookkeeping regression). Reusable test file: /app/backend/tests/test_worker_payments_and_pipeline.py. Known cosmetic: pre-existing dev-mode hydration warning on pipeline page (span-in-option from shared component, flagged since iter71).
 - REDEPLOY needed for production.
+
+
+## 2026-07-07 — BUGFIX: Worker Pay showed "Worker" instead of the real name — DONE, TESTED 5/5 + E2E (iter74)
+**Root cause:** gig_acceptances snapshot stores `worker_name` as "" when the profile name was blank at accept-time (gigs.py:1122 `user.get("name") or ""`); older rows may lack the field entirely. API used `snapshot or "Worker"`.
+**Fix:** `/api/admin/worker-payments` batch-resolves names live from db.users (priority: live user.name → snapshot → email → "Worker"); mark-paid resolves the same way and passes `worker_name=` into `log_worker_payout_expense` so the payroll ledger description + vendor also carry the real name.
+**Verified:** iteration_74 — empty-string and missing-field fixtures both hydrate to "Worker Demo" in API + /ops/worker-pay UI (Unpaid group + Paid row) + ledger entry. Idempotency intact. Test file: /app/backend/tests/test_iter74_worker_name_resolution.py. NOTE for fixtures: gig_acceptances has unique compound index (gig_id, worker_id).
+**REDEPLOY needed** — user saw this on production.
