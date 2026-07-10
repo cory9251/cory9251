@@ -62,12 +62,27 @@ async def list_worker_payments(
             {"gig_id": {"$in": gig_ids}}, {"_id": 0, "gig_id": 1, "title": 1, "date": 1}
         ).to_list(len(gig_ids) or 1)
     }
+    # Resolve names live — acceptance snapshots can be empty/missing on older rows.
+    worker_ids = list({a["worker_id"] for a in accs if a.get("worker_id")})
+    users = {
+        u["user_id"]: u
+        for u in await db.users.find(
+            {"user_id": {"$in": worker_ids}}, {"_id": 0, "user_id": 1, "name": 1, "email": 1}
+        ).to_list(len(worker_ids) or 1)
+    }
     items = []
     unpaid_total = 0.0
     paid_total = 0.0
     workers_owed = set()
     for a in accs:
         g = gigs.get(a.get("gig_id"), {})
+        u = users.get(a.get("worker_id"), {})
+        worker_name = (
+            (u.get("name") or "").strip()
+            or (a.get("worker_name") or "").strip()
+            or u.get("email")
+            or "Worker"
+        )
         amt = _amount(a)
         paid = bool(a.get("paid_at"))
         if paid:
@@ -81,7 +96,7 @@ async def list_worker_payments(
             "gig_title": g.get("title") or "—",
             "gig_date": g.get("date"),
             "worker_id": a.get("worker_id"),
-            "worker_name": a.get("worker_name") or "Worker",
+            "worker_name": worker_name,
             "hours_worked": a.get("hours_worked"),
             "paid_hours": a.get("paid_hours"),
             "amount": amt,
@@ -127,8 +142,19 @@ async def mark_worker_payments_paid(
         )
         fresh = await db.gig_acceptances.find_one({"acceptance_id": acceptance_id})
         gig = await db.gigs.find_one({"gig_id": a.get("gig_id")}, {"_id": 0, "title": 1})
+        wu = await db.users.find_one(
+            {"user_id": a.get("worker_id")}, {"_id": 0, "name": 1, "email": 1}
+        )
+        worker_name = (
+            ((wu or {}).get("name") or "").strip()
+            or (a.get("worker_name") or "").strip()
+            or (wu or {}).get("email")
+            or "Worker"
+        )
         amt = _amount(fresh)
-        await log_worker_payout_expense(fresh, (gig or {}).get("title") or "gig", amt)
+        await log_worker_payout_expense(
+            fresh, (gig or {}).get("title") or "gig", amt, worker_name=worker_name
+        )
         await db.notifications.insert_one({
             "notification_id": f"ntf_{uuid.uuid4().hex[:12]}",
             "user_id": a["worker_id"],

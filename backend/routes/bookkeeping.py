@@ -194,7 +194,9 @@ def _totals(items: list) -> dict:
     return {"income": round(income, 2), "expenses": round(expenses, 2), "net": round(income - expenses, 2)}
 
 
-async def log_worker_payout_expense(acceptance: dict, gig_title: str, amount: float) -> Optional[dict]:
+async def log_worker_payout_expense(
+    acceptance: dict, gig_title: str, amount: float, worker_name: Optional[str] = None
+) -> Optional[dict]:
     """Auto-create a 'payroll' expense when a worker shift payout is marked paid.
     Idempotent — keyed on acceptance_id."""
     acceptance_id = acceptance.get("acceptance_id")
@@ -203,7 +205,7 @@ async def log_worker_payout_expense(acceptance: dict, gig_title: str, amount: fl
     existing = await db.ledger_entries.find_one({"source_acceptance_id": acceptance_id})
     if existing:
         return _clean(existing)
-    worker_name = acceptance.get("worker_name") or "Worker"
+    worker_name = (worker_name or "").strip() or acceptance.get("worker_name") or "Worker"
     paid_iso = acceptance.get("paid_at") or datetime.now(timezone.utc).isoformat()
     now = datetime.now(timezone.utc).isoformat()
     doc = {
