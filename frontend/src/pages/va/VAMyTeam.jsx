@@ -43,11 +43,18 @@ export default function VAMyTeam() {
         My team
       </h1>
       <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
-        You earn <span className="font-bold text-[#030712]">{data.override_pct}%</span> of every
-        commission your members generate. It's added to your Earnings automatically.
+        You earn <span className="font-bold text-[#030712]">{data.override_pct}%</span> on your
+        direct members' commissions
+        {data.override_l2_pct > 0 && (
+          <>
+            {" "}and <span className="font-bold text-[#030712]">{data.override_l2_pct}%</span> on
+            their sub-team's commissions (level 2)
+          </>
+        )}
+        . It's added to your Earnings automatically.
       </p>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="border border-[#E5E7EB] bg-white p-4">
           <div className="font-mono-label text-[#4B5563]">TEAM SIZE</div>
           <div className="font-display mt-1 text-2xl font-black">{data.member_count}</div>
@@ -59,6 +66,12 @@ export default function VAMyTeam() {
         <div className="border border-[#E5E7EB] bg-white p-4">
           <div className="font-mono-label text-[#4B5563]">OVERRIDE PAID</div>
           <div className="font-display mt-1 text-2xl font-black text-emerald-700">{fmt(paid)}</div>
+        </div>
+        <div className="border border-[#E5E7EB] bg-white p-4">
+          <div className="font-mono-label text-[#4B5563]">LEVEL 2 EARNED</div>
+          <div className="font-display mt-1 text-2xl font-black text-[#4338CA]">
+            {fmt(e.level2 || 0)}
+          </div>
         </div>
       </div>
 
@@ -79,6 +92,7 @@ export default function VAMyTeam() {
                 <div className="text-sm font-semibold">{m.name || m.email}</div>
                 <div className="text-xs text-[#6B7280]">
                   {m.lead_count} lead{m.lead_count === 1 ? "" : "s"} · {m.booked_count} booked
+                  {m.sub_member_count > 0 && ` · leads ${m.sub_member_count} of their own`}
                 </div>
               </div>
             </div>

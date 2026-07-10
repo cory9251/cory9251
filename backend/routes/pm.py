@@ -23,7 +23,9 @@ from va_commission import (
     COMMISSION_RATES,
     DEFAULT_DIGITAL_COMMISSION_PCT,
     DEFAULT_TEAM_OVERRIDE_PCT,
+    DEFAULT_TEAM_OVERRIDE_L2_PCT,
     _team_override_pct,
+    _team_override_l2_pct,
     OVERRIDABLE_FLAT_SERVICES,
     OVERRIDABLE_RATE_KEYS,
     CommissionSettingsIn,
@@ -466,11 +468,13 @@ async def _commission_settings_payload() -> dict:
         "commercial_pct": cfg["commercial_pct"],
         "digital_pct": cfg["digital_pct"],
         "team_override_pct": await _team_override_pct(),
+        "team_override_l2_pct": await _team_override_l2_pct(),
         "defaults": {
             "rates": {k: v for k, v in COMMISSION_RATES.items() if k != "commercial_pct"},
             "commercial_pct": COMMISSION_RATES["commercial_pct"] * 100.0,
             "digital_pct": DEFAULT_DIGITAL_COMMISSION_PCT,
             "team_override_pct": DEFAULT_TEAM_OVERRIDE_PCT,
+            "team_override_l2_pct": DEFAULT_TEAM_OVERRIDE_L2_PCT,
         },
     }
 
@@ -505,6 +509,8 @@ async def pm_set_commission_settings(
         updates["digital_commission_pct"] = float(payload.digital_pct)
     if payload.team_override_pct is not None:
         updates["team_override_pct"] = float(payload.team_override_pct)
+    if payload.team_override_l2_pct is not None:
+        updates["team_override_l2_pct"] = float(payload.team_override_l2_pct)
     if updates:
         updates["commission_settings_updated_at"] = datetime.now(timezone.utc).isoformat()
         updates["commission_settings_updated_by"] = admin["user_id"]
@@ -569,7 +575,7 @@ async def pm_set_va_commission_overrides(
 
 
 # ---------------------------------------------------------------------------
-# VA Teams — single-level lead/downline with SPLIT override commissions.
+# VA Teams — up to TWO-level lead/downline with SPLIT override commissions.
 # Feature is opt-in per VA via the is_team_lead toggle.
 # ---------------------------------------------------------------------------
 class TeamLeadToggleIn(BaseModel):
@@ -578,6 +584,30 @@ class TeamLeadToggleIn(BaseModel):
 
 class TeamAssignIn(BaseModel):
     team_lead_id: Optional[str] = None  # None = remove from any team
+
+
+async def _upline_depth(va_id: Optional[str], _guard: int = 0) -> int:
+    """Number of leads above this VA (0 = top). Cycle-safe."""
+    if not va_id or _guard > 5:
+        return 0
+    u = await db.users.find_one({"user_id": va_id}, {"_id": 0, "team_lead_id": 1})
+    parent = (u or {}).get("team_lead_id")
+    if not parent:
+        return 0
+    return 1 + await _upline_depth(parent, _guard + 1)
+
+
+async def _is_ancestor(candidate_id: str, of_id: str, _guard: int = 0) -> bool:
+    """True if candidate_id is somewhere above of_id in the chain (cycle guard)."""
+    if not of_id or _guard > 5:
+        return False
+    u = await db.users.find_one({"user_id": of_id}, {"_id": 0, "team_lead_id": 1})
+    parent = (u or {}).get("team_lead_id")
+    if not parent:
+        return False
+    if parent == candidate_id:
+        return True
+    return await _is_ancestor(candidate_id, parent, _guard + 1)
 
 
 @router.put("/pm/vas/{va_user_id}/team-lead")
@@ -591,9 +621,6 @@ async def pm_toggle_team_lead(
     )
     if not va:
         raise HTTPException(404, "VA not found")
-    # Single level: a VA who is someone's member can't also lead a team.
-    if payload.is_team_lead and va.get("team_lead_id"):
-        raise HTTPException(400, "Remove this VA from their current team before making them a team lead")
     updates = {"is_team_lead": payload.is_team_lead, "updated_at": datetime.now(timezone.utc).isoformat()}
     await db.users.update_one({"user_id": va_user_id}, {"$set": updates})
     if not payload.is_team_lead:
@@ -618,14 +645,21 @@ async def pm_assign_team(
     if payload.team_lead_id:
         if payload.team_lead_id == va_user_id:
             raise HTTPException(400, "A VA can't be on their own team")
-        if member.get("is_team_lead"):
-            raise HTTPException(400, "A team lead can't also be a member of another team (single level only)")
         lead = await db.users.find_one(
             {"user_id": payload.team_lead_id, "role": "va"},
-            {"_id": 0, "is_team_lead": 1, "va_status": 1},
+            {"_id": 0, "user_id": 1, "is_team_lead": 1, "va_status": 1},
         )
         if not lead or not lead.get("is_team_lead"):
             raise HTTPException(400, "Target is not a team lead")
+        # No cycles: the target can't be somewhere below this VA.
+        if await _is_ancestor(va_user_id, payload.team_lead_id):
+            raise HTTPException(400, "That would create a loop in the team hierarchy")
+        # 2-level cap: the target lead may have at most one lead above them.
+        if await _upline_depth(payload.team_lead_id) >= 2:
+            raise HTTPException(400, "Teams are capped at two levels — this lead is already at the bottom of a 2-level chain")
+        # And this VA's own downline must not push the chain past 2 levels.
+        if await _upline_depth(payload.team_lead_id) >= 1 and await db.users.count_documents({"team_lead_id": va_user_id}) > 0:
+            raise HTTPException(400, "Teams are capped at two levels — this VA already leads a team, so they can't sit below another lead")
     await db.users.update_one(
         {"user_id": va_user_id},
         {"$set": {"team_lead_id": payload.team_lead_id, "updated_at": datetime.now(timezone.utc).isoformat()}},
@@ -655,28 +689,38 @@ async def pm_list_teams(admin: dict = Depends(require_program_manager_or_owner))
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1, "is_team_lead": 1, "team_lead_id": 1},
     ).sort("name", 1).to_list(1000)
     members_by_lead: dict = {}
+    by_id = {v["user_id"]: v for v in all_vas}
     for v in all_vas:
         if v.get("team_lead_id"):
             members_by_lead.setdefault(v["team_lead_id"], []).append(v)
     teams = []
     for l in leads:
         earn = await _override_earnings(l["user_id"])
+        members = members_by_lead.get(l["user_id"], [])
+        # Tag which members are themselves sub-leads (2-level chains).
+        members = [
+            {**m, "sub_member_count": len(members_by_lead.get(m["user_id"], []))}
+            for m in members
+        ]
+        parent = by_id.get(l.get("team_lead_id")) if l.get("team_lead_id") else None
         teams.append({
             **l,
-            "members": members_by_lead.get(l["user_id"], []),
-            "member_count": len(members_by_lead.get(l["user_id"], [])),
+            "members": members,
+            "member_count": len(members),
+            "reports_to": {"user_id": parent["user_id"], "name": parent.get("name")} if parent else None,
             "override_earnings": earn,
         })
-    # VAs eligible to be added as members: approved, not a lead, not already on a team.
+    # Eligible to be added as members: approved, not already on a team, and not
+    # the top of a chain that would exceed 2 levels (server re-validates on assign).
     assignable = [
         v for v in all_vas
-        if not v.get("is_team_lead") and not v.get("team_lead_id")
-        and (v.get("va_status") or "") == "approved"
+        if not v.get("team_lead_id") and (v.get("va_status") or "") == "approved"
     ]
     return {
         "teams": teams,
         "assignable_vas": assignable,
         "team_override_pct": await _team_override_pct(),
+        "team_override_l2_pct": await _team_override_l2_pct(),
     }
 
 

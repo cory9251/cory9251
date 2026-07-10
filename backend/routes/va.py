@@ -20,6 +20,7 @@ from va_commission import (
     DIGITAL_SERVICE_TYPES,
     _get_digital_commission_pct,
     _team_override_pct,
+    _team_override_l2_pct,
     LeadFollowupIn,
     LeadContactIn,
     LeadCommentIn,
@@ -854,7 +855,8 @@ async def va_team(user: dict = Depends(require_va_active)):
         {"role": "va", "team_lead_id": lead_id},
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1},
     ).sort("name", 1).to_list(200)
-    # Per-member: leads, booked, and override the team lead has earned from them.
+    # Per-member: leads, booked, sub-team size, and override the lead earned from
+    # this member's OWN closings (level-1) + from that member's downline (level-2).
     out_members = []
     for m in members:
         mid = m["user_id"]
@@ -862,9 +864,10 @@ async def va_team(user: dict = Depends(require_va_active)):
         booked = await db.va_leads.count_documents(
             {"va_user_id": mid, "stage": {"$in": ["booked", "completed", "paid"]}}
         )
-        earned = 0.0
+        sub_count = await db.users.count_documents({"role": "va", "team_lead_id": mid})
+        earned = 0.0  # L1: from this member's own closings
         async for c in db.commissions.find(
-            {"va_user_id": lead_id, "kind": "team_override", "source_va_user_id": mid}
+            {"va_user_id": lead_id, "kind": "team_override", "level": 1, "source_va_user_id": mid}
         ):
             if c.get("status") != "rejected":
                 earned += float(c.get("amount") or 0)
@@ -872,20 +875,33 @@ async def va_team(user: dict = Depends(require_va_active)):
             **m,
             "lead_count": leads_count,
             "booked_count": booked,
+            "sub_member_count": sub_count,
             "override_earned": round(earned, 2),
         })
     by_status: dict = {}
-    async for row in db.commissions.aggregate([
-        {"$match": {"va_user_id": lead_id, "kind": "team_override"}},
-        {"$group": {"_id": "$status", "total": {"$sum": "$amount"}}},
-    ]):
-        by_status[row["_id"]] = round(row["total"], 2)
-    total = round(sum(v for k, v in by_status.items() if k != "rejected"), 2)
+    l1_total = 0.0
+    l2_total = 0.0
+    async for c in db.commissions.find({"va_user_id": lead_id, "kind": "team_override"}):
+        st = c.get("status")
+        amt = float(c.get("amount") or 0)
+        by_status[st] = round(by_status.get(st, 0.0) + amt, 2)
+        if st != "rejected":
+            if (c.get("level") or 1) == 2:
+                l2_total += amt
+            else:
+                l1_total += amt
+    total = round(l1_total + l2_total, 2)
     return {
         "members": out_members,
         "member_count": len(out_members),
         "override_pct": await _team_override_pct(),
-        "override_earnings": {"by_status": by_status, "total": total},
+        "override_l2_pct": await _team_override_l2_pct(),
+        "override_earnings": {
+            "by_status": by_status,
+            "total": total,
+            "level1": round(l1_total, 2),
+            "level2": round(l2_total, 2),
+        },
     }
 
 

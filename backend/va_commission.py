@@ -120,6 +120,7 @@ CLEANER_REFERRAL_CAP = 100.0
 DUPLICATE_REOPEN_DAYS = 90  # leads completed/lost > 90 days old don't block dupes
 DEFAULT_DIGITAL_COMMISSION_PCT = 10.0  # % of project value; admin-editable via app_settings
 DEFAULT_TEAM_OVERRIDE_PCT = 10.0  # % of a downline member's commission the team lead earns (SPLIT)
+DEFAULT_TEAM_OVERRIDE_L2_PCT = 5.0  # L2: % the lead's own lead earns on a grandchild commission (SPLIT)
 
 OVERRIDABLE_FLAT_SERVICES = [k for k in COMMISSION_RATES if k != "commercial_pct"]
 OVERRIDABLE_RATE_KEYS = set(OVERRIDABLE_FLAT_SERVICES) | {"commercial_pct", "digital_pct"}
@@ -287,6 +288,7 @@ class CommissionSettingsIn(BaseModel):
     commercial_pct: Optional[float] = Field(default=None, ge=0, le=100)
     digital_pct: Optional[float] = Field(default=None, ge=0, le=100)
     team_override_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    team_override_l2_pct: Optional[float] = Field(default=None, ge=0, le=100)
 
 
 class VACommissionOverridesIn(BaseModel):
@@ -529,67 +531,63 @@ async def _team_override_pct() -> float:
     return min(100.0, max(0.0, pct))
 
 
-async def _apply_team_override(lead: dict, gross_amount: float, target_status: str) -> tuple:
-    """Single-level SPLIT override. If the lead-owning VA reports to an active
-    team lead, the lead lead earns `team_override_pct`% of the member's
-    commission, DEDUCTED from the member's payout (net = gross - override).
-    Creates/updates the team lead's `team_override` commission (idempotent by
-    lead_id+kind). Returns (member_net_amount, override_info|None)."""
-    member_id = lead.get("va_user_id")
-    if not member_id or gross_amount <= 0:
-        return gross_amount, None
-    member = await db.users.find_one({"user_id": member_id}, {"_id": 0, "team_lead_id": 1})
-    team_lead_id = (member or {}).get("team_lead_id")
-    if not team_lead_id or team_lead_id == member_id:
-        return gross_amount, None
-    lead_user = await db.users.find_one(
-        {"user_id": team_lead_id},
-        {"_id": 0, "user_id": 1, "name": 1, "is_team_lead": 1, "va_status": 1},
+async def _team_override_l2_pct() -> float:
+    s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "team_override_l2_pct": 1})
+    try:
+        pct = float((s or {}).get("team_override_l2_pct"))
+    except (TypeError, ValueError):
+        return DEFAULT_TEAM_OVERRIDE_L2_PCT
+    return min(100.0, max(0.0, pct))
+
+
+async def _eligible_lead(va_id: Optional[str]) -> Optional[dict]:
+    """Return the VA doc if they can receive overrides (active team lead)."""
+    if not va_id:
+        return None
+    u = await db.users.find_one(
+        {"user_id": va_id},
+        {"_id": 0, "user_id": 1, "name": 1, "is_team_lead": 1, "va_status": 1, "team_lead_id": 1},
     )
-    if not lead_user or not lead_user.get("is_team_lead") or (lead_user.get("va_status") or "") != "approved":
-        return gross_amount, None
-    pct = await _team_override_pct()
+    if not u or not u.get("is_team_lead") or (u.get("va_status") or "") != "approved":
+        return None
+    return u
 
-    existing = await db.commissions.find_one({"lead_id": lead["lead_id"], "kind": "team_override"})
-    # If the override was already frozen (approved/paid), keep its amount and
-    # net the member against it so the books stay consistent.
+
+async def _upsert_override(lead: dict, recipient: dict, level: int, gross: float, pct: float, member_id: str, target_status: str) -> float:
+    """Create/refresh the `team_override` commission for one upline recipient at
+    a given level. Idempotent by (lead_id, kind, level). Frozen once approved/paid
+    — returns the frozen amount so the closer's split stays consistent. Returns
+    the amount deducted from the closer for this level."""
+    existing = await db.commissions.find_one(
+        {"lead_id": lead["lead_id"], "kind": "team_override", "level": level}
+    )
     if existing and existing.get("status") in ("approved", "paid", "owner_approved"):
-        override_amount = round(float(existing.get("amount") or 0), 2)
-        return round(gross_amount - override_amount, 2), {
-            "team_lead_id": team_lead_id,
-            "override_amount": override_amount,
-            "override_rate": float(existing.get("override_rate") or pct),
-        }
-
-    if pct <= 0:
-        # No override configured — remove any stale record, member keeps all.
+        return round(float(existing.get("amount") or 0), 2)
+    if pct <= 0 or not recipient:
         if existing:
             await db.commissions.delete_one({"commission_id": existing["commission_id"]})
-        return gross_amount, None
-
-    override_amount = round(gross_amount * pct / 100.0, 2)
-    member_net = round(gross_amount - override_amount, 2)
+        return 0.0
+    amount = round(gross * pct / 100.0, 2)
     now = datetime.now(timezone.utc).isoformat()
     base = {
         "lead_id": lead["lead_id"],
         "kind": "team_override",
-        "va_user_id": team_lead_id,
-        "va_name": lead_user.get("name"),
+        "level": level,
+        "va_user_id": recipient["user_id"],
+        "va_name": recipient.get("name"),
         "prospect_name": lead.get("prospect_name"),
         "service_type": lead.get("service_type"),
-        "amount": override_amount,
+        "amount": amount,
         "override_rate": pct,
         "source_va_user_id": member_id,
         "source_va_name": lead.get("va_name"),
         "status": target_status,
-        "calc_notes": f"Team override — {pct:.1f}% of {lead.get('va_name') or 'member'}'s commission (${gross_amount:.2f})",
+        "calc_notes": f"Team override L{level} — {pct:.1f}% of {lead.get('va_name') or 'member'}'s commission (${gross:.2f})",
         "job_value": lead.get("job_value"),
         "updated_at": now,
     }
     if existing:
-        await db.commissions.update_one(
-            {"commission_id": existing["commission_id"]}, {"$set": base}
-        )
+        await db.commissions.update_one({"commission_id": existing["commission_id"]}, {"$set": base})
     else:
         await db.commissions.insert_one({
             "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
@@ -605,7 +603,43 @@ async def _apply_team_override(lead: dict, gross_amount: float, target_status: s
             "payout_method": None,
             "created_at": now,
         })
-    return member_net, {"team_lead_id": team_lead_id, "override_amount": override_amount, "override_rate": pct}
+    return amount
+
+
+async def _apply_team_override(lead: dict, gross_amount: float, target_status: str) -> tuple:
+    """Up to TWO levels of SPLIT override, both deducted from the closing VA.
+    L1 → the closer's direct team lead; L2 → that lead's own team lead.
+    Returns (member_net_amount, override_info|None)."""
+    member_id = lead.get("va_user_id")
+    if not member_id or gross_amount <= 0:
+        return gross_amount, None
+    member = await db.users.find_one({"user_id": member_id}, {"_id": 0, "team_lead_id": 1})
+    l1 = await _eligible_lead((member or {}).get("team_lead_id"))
+    if not l1 or l1["user_id"] == member_id:
+        # No upline — clean up any stale overrides and pay the closer in full.
+        await db.commissions.delete_many({"lead_id": lead["lead_id"], "kind": "team_override"})
+        return gross_amount, None
+
+    l1_pct = await _team_override_pct()
+    l1_amount = await _upsert_override(lead, l1, 1, gross_amount, l1_pct, member_id, target_status)
+
+    # Level 2 — the direct lead's own lead (hard cap at 2 levels).
+    l2 = await _eligible_lead(l1.get("team_lead_id"))
+    if l2 and l2["user_id"] not in (member_id, l1["user_id"]):
+        l2_pct = await _team_override_l2_pct()
+        l2_amount = await _upsert_override(lead, l2, 2, gross_amount, l2_pct, member_id, target_status)
+    else:
+        l2_amount = 0.0
+        stale = await db.commissions.find_one({"lead_id": lead["lead_id"], "kind": "team_override", "level": 2})
+        if stale and stale.get("status") not in ("approved", "paid", "owner_approved"):
+            await db.commissions.delete_one({"commission_id": stale["commission_id"]})
+
+    member_net = round(gross_amount - l1_amount - l2_amount, 2)
+    return member_net, {
+        "team_lead_id": l1["user_id"],
+        "override_amount": round(l1_amount + l2_amount, 2),
+        "override_rate": l1_pct,
+    }
 
 
 async def _resolve_commission_config(va_user_id: Optional[str]) -> dict:

@@ -53,6 +53,7 @@ export default function AdminVATeams() {
   const [data, setData] = useState(null);
   const [allVas, setAllVas] = useState([]);
   const [pct, setPct] = useState("");
+  const [l2pct, setL2pct] = useState("");
   const [savingPct, setSavingPct] = useState(false);
 
   const load = async () => {
@@ -63,6 +64,7 @@ export default function AdminVATeams() {
       ]);
       setData(teamsRes.data);
       setPct(String(teamsRes.data.team_override_pct));
+      setL2pct(String(teamsRes.data.team_override_l2_pct ?? 5));
       setAllVas((vasRes.data.items || []).filter((v) => v.role === "va"));
     } catch (e) {
       toast.error(getErr(e));
@@ -75,11 +77,13 @@ export default function AdminVATeams() {
 
   const savePct = async () => {
     const v = parseFloat(pct);
-    if (!Number.isFinite(v) || v < 0 || v > 100) return toast.error("Rate must be 0–100");
+    const v2 = parseFloat(l2pct);
+    if (!Number.isFinite(v) || v < 0 || v > 100) return toast.error("Level-1 rate must be 0–100");
+    if (!Number.isFinite(v2) || v2 < 0 || v2 > 100) return toast.error("Level-2 rate must be 0–100");
     setSavingPct(true);
     try {
-      await api.put("/pm/commission-settings", { team_override_pct: v });
-      toast.success("Override rate saved");
+      await api.put("/pm/commission-settings", { team_override_pct: v, team_override_l2_pct: v2 });
+      toast.success("Override rates saved");
       load();
     } catch (e) {
       toast.error(getErr(e));
@@ -129,15 +133,17 @@ export default function AdminVATeams() {
         VA teams &amp; overrides
       </h1>
       <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
-        Turn a VA into a team lead, then add members. When a member's lead pays
-        out, the lead earns a % override — split from the member's commission.
+        Turn a VA into a team lead, then add members — including other leads to
+        build a 2-level chain. When a member's lead pays out, their direct lead
+        earns the level-1 override and that lead's own lead earns level-2 —
+        both split from the closing VA's commission.
       </p>
 
-      {/* Override rate */}
-      <div className="mt-6 flex flex-wrap items-end gap-3 border border-[#030712] bg-[#F0F4FF] p-4">
+      {/* Override rates */}
+      <div className="mt-6 flex flex-wrap items-end gap-4 border border-[#030712] bg-[#F0F4FF] p-4">
         <div>
           <label className="font-mono-label flex items-center gap-1 text-[#4B5563]">
-            <Percent size={12} /> TEAM OVERRIDE RATE
+            <Percent size={12} /> LEVEL 1 (DIRECT LEAD)
           </label>
           <div className="mt-1 flex items-center gap-1">
             <Input
@@ -147,7 +153,24 @@ export default function AdminVATeams() {
               max="100"
               value={pct}
               onChange={(e) => setPct(e.target.value)}
-              className="h-9 w-24"
+              className="h-9 w-20"
+            />
+            <span className="text-sm font-bold">%</span>
+          </div>
+        </div>
+        <div>
+          <label className="font-mono-label flex items-center gap-1 text-[#4B5563]">
+            <Percent size={12} /> LEVEL 2 (LEAD'S LEAD)
+          </label>
+          <div className="mt-1 flex items-center gap-1">
+            <Input
+              data-testid="override-l2-pct-input"
+              type="number"
+              min="0"
+              max="100"
+              value={l2pct}
+              onChange={(e) => setL2pct(e.target.value)}
+              className="h-9 w-20"
             />
             <span className="text-sm font-bold">%</span>
           </div>
@@ -158,11 +181,11 @@ export default function AdminVATeams() {
           disabled={savingPct}
           className="bg-[#0044FF] text-white hover:bg-[#0033CC]"
         >
-          <FloppyDisk size={15} className="mr-1" /> Save rate
+          <FloppyDisk size={15} className="mr-1" /> Save rates
         </Button>
-        <p className="ml-auto max-w-xs text-xs text-[#4B5563]">
-          Deducted from the member's commission. e.g. at 10%, a $50 member
-          commission = $45 member + $5 lead.
+        <p className="ml-auto max-w-[16rem] text-xs text-[#4B5563]">
+          Both come out of the closer. e.g. L1 10% + L2 5% → a $100 commission =
+          $85 closer + $10 direct lead + $5 top lead.
         </p>
       </div>
 
@@ -206,6 +229,11 @@ export default function AdminVATeams() {
               <div className="flex items-center gap-2">
                 <Crown size={16} weight="fill" className="text-amber-500" />
                 <span className="font-display text-sm font-black">{t.name}</span>
+                {t.reports_to && (
+                  <span className="rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[10px] font-bold text-[#4338CA]">
+                    ↑ under {t.reports_to.name}
+                  </span>
+                )}
                 <span className="text-xs text-[#6B7280]">
                   · {t.member_count} member{t.member_count === 1 ? "" : "s"} · override earned{" "}
                   <span className="font-bold text-emerald-700">{fmt(t.override_earnings.total)}</span>
@@ -230,6 +258,11 @@ export default function AdminVATeams() {
                   <span className="text-sm font-semibold">
                     {m.name || m.email}
                     <span className="ml-2 text-xs font-normal text-[#9CA3AF]">{m.va_status}</span>
+                    {m.sub_member_count > 0 && (
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+                        sub-lead · {m.sub_member_count}
+                      </span>
+                    )}
                   </span>
                   <button
                     type="button"

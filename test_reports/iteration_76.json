@@ -1,0 +1,51 @@
+{
+  "summary": "Iter76 — VA Commission Teams 2-Level: 13/14 iter76 backend tests PASS (settings L1+L2, chain build, exact 2-level math $10→$8.50+$1.00+$0.50, lost-rejects-all-3, single-level regression, solo VA, depth cap 400, cycle 400, dual role, /va/team level1+level2 shape, assignable includes leads). Frontend Admin /ops/va-program/teams verified — both rate inputs render, save works, L2 copy present, non-lead VA sees /va/team 403 error. ONE real backend bug found: /api/pm/teams response has reports_to:null on every team card because leads query omits team_lead_id from projection → 'sub-lead ↑ under {name}' badge cannot render. Iter75 regression: 2 tests fail as expected due to intentional dual-role change (member can also be promoted to lead now).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/pm/teams",
+        "issue": "reports_to is ALWAYS null on team cards. The `leads` cursor projection in routes/pm.py:685 does not include 'team_lead_id', so l.get('team_lead_id') is always None → parent lookup always None → reports_to always None. Fix: add 'team_lead_id': 1 to projection dict on line 685. Sub-lead '↑ under {name}' badge in AdminVATeams.jsx line 234 will never render until fixed."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin Teams — sub-lead 'under {name}' badge",
+        "issue": "Badge on sub-lead's team card never appears because backend returns reports_to:null (see backend bug above). Once backend projection is fixed, badge should work.",
+        "affected_selectors": ["team-card-{user_id}"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter76_va_teams_2level.py",
+    "/app/test_reports/pytest/iter76_results.xml",
+    "/app/backend/tests/test_iter75_va_teams.py"
+  ],
+  "action_items": [
+    "FIX: Add 'team_lead_id': 1 to the leads projection in /app/backend/routes/pm.py line 685 so /api/pm/teams returns reports_to correctly (unblocks sub-lead ↑badge in AdminVATeams.jsx).",
+    "OPTIONAL: Update /app/backend/tests/test_iter75_va_teams.py — 2 tests now fail because dual-role is intentionally allowed: (1) TestTeamLeadToggle.test_toggle_already_in_team_returns_400 (member can now also be promoted to lead) and (2) TestTeamAssignment.test_assign_to_non_lead_400 (side effect: MEMBER becomes a lead in the prior test, so this assertion no longer holds). Consider updating these to reflect new behavior."
+  ],
+  "critical_code_review_comments": [
+    "routes/pm.py:685 — leads projection MISSING team_lead_id → reports_to broken (see bug above). Highest-priority fix.",
+    "va_commission.py _apply_team_override — clean idempotency, frozen-safe upsert keyed by (lead_id,kind,level). L1+L2 math verified exact: 10% + 5% both from closer.",
+    "pm.py _upline_depth / _is_ancestor — both have recursion _guard=5 which is fine for 2-level cap but slightly over-permissive; not a real issue.",
+    "AdminVATeams.jsx line 234 renders '↑ under {t.reports_to.name}' — uses optional chain via && guard, so no crash when null; simply invisible."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter76_va_teams_2level.py (new)"
+  ],
+  "success_rate": {
+    "backend": "13/14 iter76 tests pass (92.8%); iter75 11/13 pass (84.6%, 2 failures are expected due to new dual-role behavior)",
+    "frontend": "100% of exercised flows pass — admin teams page renders both L1+L2 inputs, save works, /va/team 403 works"
+  },
+  "test_credentials": "Used per credentials in review request. All pass.",
+  "seed_data_creation": "Seeded lead_TEAMTEST_* junk_removal $10 leads on user_cc4c33406839, then moved booked→paid to exercise math. ALL cleaned up in module teardown (leads deleted, commissions deleted, is_team_lead/team_lead_id reset to False/None on user_7f11e268d4b9, user_0e4a17b36f7b, user_cc4c33406839, user_963e6aede023). Verified clean state post-run.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The one failing iter76 test (TestVaTeamEndpointTop.test_top_sees_l1_l2_and_sub_member) documents the reports_to backend projection bug. Once /app/backend/routes/pm.py line 685 projection includes team_lead_id, this test should pass and the sub-lead badge in the UI will render. Re-run: `pytest /app/backend/tests/test_iter76_va_teams_2level.py -v`. Iter75 dual-role failures are intentional behavior changes — update or remove those two assertions.",
+  "rca of the issue": "GET /api/pm/teams query on line 683-686 of routes/pm.py restricts the 'leads' projection to {user_id, name, email, va_status}. The code on line 705 then reads l.get('team_lead_id') to build reports_to — but that key is not in the projection, so it's always None. Fix is one line: add 'team_lead_id': 1 to the projection dict. Impact: sub-lead '↑ under {name}' badge in AdminVATeams.jsx never renders even when the chain exists in DB."
+}
