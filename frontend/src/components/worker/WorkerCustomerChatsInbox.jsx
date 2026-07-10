@@ -11,7 +11,9 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
-import { ChatCircleDots, CaretRight, UsersThree } from "@phosphor-icons/react";
+import { ChatCircleDots, CaretRight, UsersThree, X } from "@phosphor-icons/react";
+
+const HIDDEN_AT_KEY = "hcob_chats_inbox_hidden_at";
 
 function _shortTime(iso) {
   if (!iso) return "";
@@ -31,6 +33,9 @@ function _shortTime(iso) {
 export default function WorkerCustomerChatsInbox() {
   const [threads, setThreads] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [hiddenAt, setHiddenAt] = useState(
+    () => localStorage.getItem(HIDDEN_AT_KEY) || ""
+  );
   const nav = useNavigate();
 
   async function load() {
@@ -51,6 +56,18 @@ export default function WorkerCustomerChatsInbox() {
   }, []);
 
   if (!loaded || threads.length === 0) return null;
+  // Closed inbox stays closed until a chat gets NEW activity.
+  if (
+    hiddenAt &&
+    !threads.some((t) => (t.last_message_at || t.created_at || "") > hiddenAt)
+  )
+    return null;
+
+  const hideInbox = () => {
+    const now = new Date().toISOString();
+    localStorage.setItem(HIDDEN_AT_KEY, now);
+    setHiddenAt(now);
+  };
 
   const open = (t) => {
     if (t.scope_type === "project" && t.project_id) {
@@ -71,6 +88,15 @@ export default function WorkerCustomerChatsInbox() {
           <span className="ml-auto text-[10px] font-mono uppercase tracking-widest text-[#6B7280]">
             {threads.length} live
           </span>
+          <button
+            type="button"
+            aria-label="Close customer chats"
+            data-testid="chats-inbox-close"
+            onClick={hideInbox}
+            className="grid h-6 w-6 shrink-0 place-items-center text-[#9CA3AF] hover:text-[#030712]"
+          >
+            <X size={14} />
+          </button>
         </div>
         <ul className="mt-3 space-y-2">
           {threads.slice(0, 5).map((t) => {

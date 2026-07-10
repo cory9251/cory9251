@@ -234,6 +234,20 @@ async def mark_read(notification_id: str, user: dict = Depends(get_current_user)
     return {"ok": True}
 
 
+@api.delete("/notifications/{notification_id}")
+async def delete_notification(notification_id: str, user: dict = Depends(get_current_user)):
+    await db.notifications.delete_one(
+        {"notification_id": notification_id, "user_id": user["user_id"]}
+    )
+    return {"ok": True}
+
+
+@api.post("/notifications/clear")
+async def clear_notifications(user: dict = Depends(get_current_user)):
+    result = await db.notifications.delete_many({"user_id": user["user_id"]})
+    return {"ok": True, "deleted": result.deleted_count}
+
+
 # ---- Admin endpoints -------------------------------------------------------
 # ---- Admin endpoints -------------------------------------------------------
 # All /admin/workers/* (list/match/get/profile/verify-id/id-upload/approve/
@@ -1331,6 +1345,8 @@ from routes.services_catalog import router as services_catalog_router, seed_serv
 api.include_router(services_catalog_router)
 from routes.va_jobs import router as va_jobs_router  # noqa: E402
 api.include_router(va_jobs_router)
+from routes.worker_payments import router as worker_payments_router  # noqa: E402
+api.include_router(worker_payments_router)
 api.include_router(reports_router)
 api.include_router(va_router)
 api.include_router(pm_router)

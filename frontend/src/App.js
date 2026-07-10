@@ -58,6 +58,7 @@ import AdminAIAssignment from "@/pages/admin/AdminAIAssignment";
 import AdminBadges from "@/pages/admin/AdminBadges";
 import AdminServicesCatalog from "@/pages/admin/AdminServicesCatalog";
 import AdminVAJobs from "@/pages/admin/AdminVAJobs";
+import AdminWorkerPay from "@/pages/admin/AdminWorkerPay";
 import WorkerCertifications from "@/pages/worker/WorkerCertifications";
 import WorkerProjectPage from "@/pages/worker/WorkerProjectPage";
 import Messages from "@/pages/Messages";
@@ -163,6 +164,7 @@ function RouterShell() {
         <Route path="va-program/jobs" element={<AdminVAJobs />} />
         <Route path="va-program/rates" element={<AdminVARates />} />
         <Route path="bookkeeping" element={<AdminBookkeeping />} />
+        <Route path="worker-pay" element={<AdminWorkerPay />} />
         <Route path="announcements" element={<AdminAnnouncements />} />
         <Route path="ai-assignment" element={<AdminAIAssignment />} />
         <Route path="badges" element={<AdminBadges />} />

@@ -194,6 +194,46 @@ def _totals(items: list) -> dict:
     return {"income": round(income, 2), "expenses": round(expenses, 2), "net": round(income - expenses, 2)}
 
 
+async def log_worker_payout_expense(acceptance: dict, gig_title: str, amount: float) -> Optional[dict]:
+    """Auto-create a 'payroll' expense when a worker shift payout is marked paid.
+    Idempotent — keyed on acceptance_id."""
+    acceptance_id = acceptance.get("acceptance_id")
+    if not acceptance_id or amount <= 0:
+        return None
+    existing = await db.ledger_entries.find_one({"source_acceptance_id": acceptance_id})
+    if existing:
+        return _clean(existing)
+    worker_name = acceptance.get("worker_name") or "Worker"
+    paid_iso = acceptance.get("paid_at") or datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "entry_id": f"led_{uuid.uuid4().hex[:12]}",
+        "type": "expense",
+        "amount": round(float(amount), 2),
+        "category": "payroll",
+        "date": paid_iso[:10],
+        "description": f"Worker payout — {worker_name} · {gig_title}",
+        "vendor": worker_name,
+        "project_id": None,
+        "project_title": None,
+        "gig_id": acceptance.get("gig_id"),
+        "gig_title": gig_title,
+        "receipt_path": None,
+        "receipt_filename": None,
+        "recurring_id": None,
+        "source": "worker_payout",
+        "source_acceptance_id": acceptance_id,
+        "payout_method": acceptance.get("payout_method"),
+        "payout_reference": acceptance.get("payout_reference"),
+        "created_by": "system",
+        "created_by_name": "Auto (payroll)",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.ledger_entries.insert_one(doc)
+    return _clean(doc)
+
+
 async def backfill_paid_commission_payroll() -> int:
     """One-time-safe: log payroll expenses for commissions already marked paid
     that predate this feature. Idempotent via source_commission_id."""

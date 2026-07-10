@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell } from "@phosphor-icons/react";
+import { Bell, X } from "@phosphor-icons/react";
 import { api } from "@/lib/api";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
@@ -87,6 +87,24 @@ export default function NotificationBell({ variant = "light", homePath = "/" }) 
     );
   };
 
+  const clearAll = async () => {
+    setItems([]);
+    try {
+      await api.post("/notifications/clear");
+    } catch {
+      /* next poll reconciles */
+    }
+  };
+
+  const removeOne = async (n) => {
+    setItems((prev) => prev.filter((x) => x.notification_id !== n.notification_id));
+    try {
+      await api.delete(`/notifications/${n.notification_id}`);
+    } catch {
+      /* next poll reconciles */
+    }
+  };
+
   const openNotification = (n) => {
     markRead(n);
     setOpen(false);
@@ -142,16 +160,28 @@ export default function NotificationBell({ variant = "light", homePath = "/" }) 
       >
         <div className="flex items-center justify-between border-b border-[#E5E7EB] px-4 py-3">
           <div className="font-display text-sm font-black">Notifications</div>
-          {unreadCount > 0 && (
-            <button
-              type="button"
-              data-testid="notification-mark-all-read"
-              onClick={markAllRead}
-              className="text-xs text-[#0044FF] hover:underline"
-            >
-              Mark all read
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                data-testid="notification-mark-all-read"
+                onClick={markAllRead}
+                className="text-xs text-[#0044FF] hover:underline"
+              >
+                Mark all read
+              </button>
+            )}
+            {items.length > 0 && (
+              <button
+                type="button"
+                data-testid="notification-clear-all"
+                onClick={clearAll}
+                className="text-xs text-[#EF4444] hover:underline"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
         </div>
         <div className="max-h-[420px] overflow-y-auto">
           {items.length === 0 ? (
@@ -164,12 +194,12 @@ export default function NotificationBell({ variant = "light", homePath = "/" }) 
           ) : (
             <ul className="divide-y divide-[#F3F4F6]">
               {items.slice(0, 15).map((n) => (
-                <li key={n.notification_id}>
+                <li key={n.notification_id} className="flex items-stretch">
                   <button
                     type="button"
                     onClick={() => openNotification(n)}
                     data-testid={`notification-item-${n.notification_id}`}
-                    className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[#F9FAFB] ${
+                    className={`flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[#F9FAFB] ${
                       !n.read ? "bg-[#F0F4FF]/40" : ""
                     }`}
                   >
@@ -191,6 +221,15 @@ export default function NotificationBell({ variant = "light", homePath = "/" }) 
                         {shortTime(n.created_at)}
                       </div>
                     </div>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Remove notification"
+                    data-testid={`notification-remove-${n.notification_id}`}
+                    onClick={() => removeOne(n)}
+                    className="shrink-0 px-2 text-[#9CA3AF] hover:text-[#EF4444]"
+                  >
+                    <X size={13} />
                   </button>
                 </li>
               ))}

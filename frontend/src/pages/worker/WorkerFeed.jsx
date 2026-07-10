@@ -17,6 +17,7 @@ import {
   CaretRight,
   FolderSimple,
   SealCheck,
+  X,
 } from "@phosphor-icons/react";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
@@ -30,6 +31,9 @@ const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 export default function WorkerFeed() {
   const [gigs, setGigs] = useState([]);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [hideCertsCta, setHideCertsCta] = useState(
+    () => localStorage.getItem("hcob_certs_cta_hidden") === "1"
+  );
   const nav = useNavigate();
   const { user } = useAuth();
   const status = user?.worker_status || "approved";
@@ -116,23 +120,40 @@ export default function WorkerFeed() {
           find my chats" gap workers were running into. */}
       <WorkerCustomerChatsInbox />
 
-      {/* Certifications entry point — specialty jobs are gated behind badges */}
-      <button
-        data-testid="feed-certifications-cta"
-        onClick={() => nav("/crew/certifications")}
-        className="mt-4 flex w-full items-center gap-3 rounded-2xl border border-[#0044FF]/20 bg-[#F0F4FF] p-4 text-left hover:bg-[#E0E9FF]"
-      >
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0044FF] text-white">
-          <SealCheck size={20} weight="fill" />
+      {/* Certifications entry point — specialty jobs are gated behind badges.
+          Closable (X) — also reachable from Profile and gig detail pages. */}
+      {!hideCertsCta && (
+        <div className="relative mt-4">
+          <button
+            data-testid="feed-certifications-cta"
+            onClick={() => nav("/crew/certifications")}
+            className="flex w-full items-center gap-3 rounded-2xl border border-[#0044FF]/20 bg-[#F0F4FF] p-4 pr-10 text-left hover:bg-[#E0E9FF]"
+          >
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0044FF] text-white">
+              <SealCheck size={20} weight="fill" />
+            </div>
+            <div className="flex-1">
+              <div className="font-display text-sm font-bold text-[#1D4ED8]">Get certified — unlock specialty jobs</div>
+              <div className="mt-0.5 text-xs text-[#1D4ED8]/80">
+                Electrician, plumber, box truck & more. Pass the test, upload proof, get first access.
+              </div>
+            </div>
+            <CaretRight size={18} className="shrink-0 text-[#1D4ED8]" />
+          </button>
+          <button
+            type="button"
+            aria-label="Dismiss certifications banner"
+            data-testid="certs-cta-close"
+            onClick={() => {
+              localStorage.setItem("hcob_certs_cta_hidden", "1");
+              setHideCertsCta(true);
+            }}
+            className="absolute right-2 top-2 grid h-6 w-6 place-items-center text-[#1D4ED8]/50 hover:text-[#1D4ED8]"
+          >
+            <X size={14} />
+          </button>
         </div>
-        <div className="flex-1">
-          <div className="font-display text-sm font-bold text-[#1D4ED8]">Get certified — unlock specialty jobs</div>
-          <div className="mt-0.5 text-xs text-[#1D4ED8]/80">
-            Electrician, plumber, box truck & more. Pass the test, upload proof, get first access.
-          </div>
-        </div>
-        <CaretRight size={18} className="shrink-0 text-[#1D4ED8]" />
-      </button>
+      )}
 
       {showBanner && (
         <button

@@ -24,8 +24,9 @@ const STAGE_TRANSITIONS = {
   quoted: ["booked", "lost"],
   booked: ["completed", "lost"],
   completed: ["paid", "lost"],
-  paid: [],
-  lost: [],
+  paid: ["lost"],
+  // Lost is recoverable — pull a dead lead back into any stage.
+  lost: ["new_lead", "contacted", "quoted", "booked", "completed", "paid"],
 };
 
 function StageBadge({ stage }) {

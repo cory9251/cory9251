@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Megaphone, CaretDown, CaretUp, Check } from "@phosphor-icons/react";
+import { Megaphone, CaretDown, CaretUp, Check, X } from "@phosphor-icons/react";
+
+const HIDDEN_AT_KEY = "hcob_announcements_hidden_at";
 
 export const AnnouncementsBoard = () => {
   const [items, setItems] = useState([]);
   const [expanded, setExpanded] = useState(null);
+  const [hiddenAt, setHiddenAt] = useState(
+    () => localStorage.getItem(HIDDEN_AT_KEY) || ""
+  );
 
   const load = () => {
     api.get("/announcements").then((r) => setItems(r.data.items || [])).catch(() => {});
@@ -24,7 +29,15 @@ export const AnnouncementsBoard = () => {
     }
   };
 
+  const hideBoard = () => {
+    const now = new Date().toISOString();
+    localStorage.setItem(HIDDEN_AT_KEY, now);
+    setHiddenAt(now);
+  };
+
   if (items.length === 0) return null;
+  // Closed board stays closed until something NEW is posted.
+  if (hiddenAt && !items.some((a) => (a.created_at || "") > hiddenAt)) return null;
   const unread = items.filter((a) => !a.dismissed).length;
 
   return (
@@ -37,6 +50,15 @@ export const AnnouncementsBoard = () => {
             {unread} new
           </span>
         )}
+        <button
+          type="button"
+          aria-label="Close announcements"
+          data-testid="announcements-board-close"
+          onClick={hideBoard}
+          className="ml-auto grid h-6 w-6 place-items-center text-[#9CA3AF] hover:text-[#030712]"
+        >
+          <X size={14} />
+        </button>
       </div>
       <div className="divide-y divide-[#F3F4F6]">
         {items.map((a) => {

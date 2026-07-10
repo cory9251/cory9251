@@ -20,6 +20,7 @@ import {
   Buildings,
   Kanban,
   Receipt,
+  HandCoins,
   ChatCircleDots,
   Monitor,
   Calculator,
@@ -84,6 +85,7 @@ const groups = [
     icon: Coins,
     items: [
       { to: "/ops/bookkeeping", label: "Bookkeeping", icon: Calculator, end: false },
+      { to: "/ops/worker-pay", label: "Worker Pay", icon: HandCoins, end: false },
       // { to: "/ops/payouts", ... } appended conditionally for owners
     ],
   },
