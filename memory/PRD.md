@@ -2072,3 +2072,19 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Verified via curl: fixed-price job → full pipeline → mark-paid creates the payroll expense (method/ref filled); double mark-paid blocked (no dup); ledger meta shows only 1 entry per commission. Screenshot: Bookkeeping Overview shows $525 Payroll / 21 entries / 100% expenses.
 - Backend-only (no new UI; entries render in existing Expenses ledger). Test artifacts cleaned.
 - REDEPLOY needed for production (backfill will auto-run on prod boot).
+
+
+## 2026-07-06 — Worker Pay Tracker + auto-expenses + lost-lead recovery + dismissible feed cards — DONE, TESTED 8/8 + E2E
+### Dismissible notifications (worker feed) — earlier this session
+- Backend: DELETE /api/notifications/{id} (own only), POST /api/notifications/clear (all own). Verified isolation between users.
+- NotificationBell: "Clear all" (red) + per-row X remove. Verified E2E in iteration_73.
+- Feed cards closable with X (localStorage): certs CTA (`hcob_certs_cta_hidden`, permanent — still reachable via Profile/gig pages), AnnouncementsBoard (`hcob_announcements_hidden_at`, reappears on NEW announcement), WorkerCustomerChatsInbox (`hcob_chats_inbox_hidden_at`, reappears on new chat activity).
+### Worker Pay Tracker (new)
+- New `/app/backend/routes/worker_payments.py`: GET /admin/worker-payments (approved timesheets w/ paid/unpaid + summary totals), POST /admin/worker-payments/mark-paid {acceptance_ids[], payout_method?, payout_reference?} — bulk-capable; stamps paid_at/paid_by/method/ref on gig_acceptances; notifies worker ("You've been paid $X"); auto-logs 'payroll' expense via new `log_worker_payout_expense` in bookkeeping.py (idempotent via source_acceptance_id, source="worker_payout"). Skips already-paid & not-approved (returned in `skipped`).
+- New admin page `/ops/worker-pay` (`AdminWorkerPay.jsx`, Finance → "Worker Pay", HandCoins icon): summary cards (owed now / unpaid shifts / workers owed / paid all-time), Unpaid tab grouped by worker w/ "Pay all $X" + per-row Mark paid (Dialog w/ optional method+reference), Paid tab flat history.
+- BOTH VA payouts (commission mark-paid, done 07-06) and worker payouts now auto-log to Expenses ledger under 'payroll'.
+### Lost-lead recovery
+- `AdminVAPipeline.jsx` STAGE_TRANSITIONS.lost: [] → all 6 stages (backend /pm/leads/{id}/stage was always permissive; commission lifecycle revives 'rejected' commission to 'calculating' on booked — verified).
+### Testing
+- iteration_73: 8/8 backend pytest + full admin E2E (Worker Pay flow incl. idempotency + ledger cross-check, lost→quoted→booked recovery, bell clear-all/per-row X, bookkeeping regression). Reusable test file: /app/backend/tests/test_worker_payments_and_pipeline.py. Known cosmetic: pre-existing dev-mode hydration warning on pipeline page (span-in-option from shared component, flagged since iter71).
+- REDEPLOY needed for production.
