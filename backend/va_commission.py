@@ -119,6 +119,7 @@ CLEANER_REFERRAL_TIERS = {1: 20.0, 5: 30.0, 10: 50.0}
 CLEANER_REFERRAL_CAP = 100.0
 DUPLICATE_REOPEN_DAYS = 90  # leads completed/lost > 90 days old don't block dupes
 DEFAULT_DIGITAL_COMMISSION_PCT = 10.0  # % of project value; admin-editable via app_settings
+DEFAULT_TEAM_OVERRIDE_PCT = 10.0  # % of a downline member's commission the team lead earns (SPLIT)
 
 OVERRIDABLE_FLAT_SERVICES = [k for k in COMMISSION_RATES if k != "commercial_pct"]
 OVERRIDABLE_RATE_KEYS = set(OVERRIDABLE_FLAT_SERVICES) | {"commercial_pct", "digital_pct"}
@@ -285,6 +286,7 @@ class CommissionSettingsIn(BaseModel):
     rates: Optional[dict] = None  # {service: flat $ amount}
     commercial_pct: Optional[float] = Field(default=None, ge=0, le=100)
     digital_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    team_override_pct: Optional[float] = Field(default=None, ge=0, le=100)
 
 
 class VACommissionOverridesIn(BaseModel):
@@ -518,6 +520,94 @@ async def _get_digital_commission_pct() -> float:
     return min(100.0, max(0.0, pct))
 
 
+async def _team_override_pct() -> float:
+    s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "team_override_pct": 1})
+    try:
+        pct = float((s or {}).get("team_override_pct"))
+    except (TypeError, ValueError):
+        return DEFAULT_TEAM_OVERRIDE_PCT
+    return min(100.0, max(0.0, pct))
+
+
+async def _apply_team_override(lead: dict, gross_amount: float, target_status: str) -> tuple:
+    """Single-level SPLIT override. If the lead-owning VA reports to an active
+    team lead, the lead lead earns `team_override_pct`% of the member's
+    commission, DEDUCTED from the member's payout (net = gross - override).
+    Creates/updates the team lead's `team_override` commission (idempotent by
+    lead_id+kind). Returns (member_net_amount, override_info|None)."""
+    member_id = lead.get("va_user_id")
+    if not member_id or gross_amount <= 0:
+        return gross_amount, None
+    member = await db.users.find_one({"user_id": member_id}, {"_id": 0, "team_lead_id": 1})
+    team_lead_id = (member or {}).get("team_lead_id")
+    if not team_lead_id or team_lead_id == member_id:
+        return gross_amount, None
+    lead_user = await db.users.find_one(
+        {"user_id": team_lead_id},
+        {"_id": 0, "user_id": 1, "name": 1, "is_team_lead": 1, "va_status": 1},
+    )
+    if not lead_user or not lead_user.get("is_team_lead") or (lead_user.get("va_status") or "") != "approved":
+        return gross_amount, None
+    pct = await _team_override_pct()
+
+    existing = await db.commissions.find_one({"lead_id": lead["lead_id"], "kind": "team_override"})
+    # If the override was already frozen (approved/paid), keep its amount and
+    # net the member against it so the books stay consistent.
+    if existing and existing.get("status") in ("approved", "paid", "owner_approved"):
+        override_amount = round(float(existing.get("amount") or 0), 2)
+        return round(gross_amount - override_amount, 2), {
+            "team_lead_id": team_lead_id,
+            "override_amount": override_amount,
+            "override_rate": float(existing.get("override_rate") or pct),
+        }
+
+    if pct <= 0:
+        # No override configured — remove any stale record, member keeps all.
+        if existing:
+            await db.commissions.delete_one({"commission_id": existing["commission_id"]})
+        return gross_amount, None
+
+    override_amount = round(gross_amount * pct / 100.0, 2)
+    member_net = round(gross_amount - override_amount, 2)
+    now = datetime.now(timezone.utc).isoformat()
+    base = {
+        "lead_id": lead["lead_id"],
+        "kind": "team_override",
+        "va_user_id": team_lead_id,
+        "va_name": lead_user.get("name"),
+        "prospect_name": lead.get("prospect_name"),
+        "service_type": lead.get("service_type"),
+        "amount": override_amount,
+        "override_rate": pct,
+        "source_va_user_id": member_id,
+        "source_va_name": lead.get("va_name"),
+        "status": target_status,
+        "calc_notes": f"Team override — {pct:.1f}% of {lead.get('va_name') or 'member'}'s commission (${gross_amount:.2f})",
+        "job_value": lead.get("job_value"),
+        "updated_at": now,
+    }
+    if existing:
+        await db.commissions.update_one(
+            {"commission_id": existing["commission_id"]}, {"$set": base}
+        )
+    else:
+        await db.commissions.insert_one({
+            "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+            **base,
+            "visit_number": None,
+            "client_phone_norm": None,
+            "client_email_norm": None,
+            "pm_action_at": None,
+            "pm_action_note": None,
+            "owner_action_at": None,
+            "paid_at": None,
+            "payout_reference": None,
+            "payout_method": None,
+            "created_at": now,
+        })
+    return member_net, {"team_lead_id": team_lead_id, "override_amount": override_amount, "override_rate": pct}
+
+
 async def _resolve_commission_config(va_user_id: Optional[str]) -> dict:
     """Effective rates: hardcoded defaults ← app_settings globals ← per-VA overrides."""
     s = await db.app_settings.find_one(
@@ -621,9 +711,18 @@ async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculat
     """Create or update a commission record for this lead. Phase 1 lifecycle:
     Booked → status=calculating (record created so VA sees progress)
     Paid → status=pending_approval (surfaces in PM queue, auto-calc amount)"""
-    existing = await db.commissions.find_one({"lead_id": lead["lead_id"]})
+    existing = await db.commissions.find_one(
+        {"lead_id": lead["lead_id"], "kind": {"$ne": "team_override"}}
+    )
     calc = await _calc_commission_for_lead(lead, lead.get("job_value"))
     now = datetime.now(timezone.utc).isoformat()
+    # Team override (single-level, SPLIT): net the member, spin up the lead's cut.
+    member_amount, override_info = await _apply_team_override(lead, calc["amount"], target_status)
+    override_fields = {
+        "team_lead_id": (override_info or {}).get("team_lead_id"),
+        "override_amount": (override_info or {}).get("override_amount", 0.0),
+        "override_rate": (override_info or {}).get("override_rate"),
+    }
     if existing:
         # Recompute amount if entering pending_approval. Once approved/paid, freeze.
         if existing.get("status") in ("approved", "paid", "owner_approved"):
@@ -631,7 +730,7 @@ async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculat
         await db.commissions.update_one(
             {"commission_id": existing["commission_id"]},
             {"$set": {
-                "amount": calc["amount"],
+                "amount": member_amount,
                 "kind": calc["kind"],
                 "visit_number": calc["visit_number"],
                 "calc_notes": calc["notes"],
@@ -640,6 +739,7 @@ async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculat
                 "client_phone_norm": lead.get("prospect_phone_norm"),
                 "client_email_norm": lead.get("prospect_email_norm"),
                 "job_value": lead.get("job_value"),
+                **override_fields,
             }},
         )
         fresh = await db.commissions.find_one({"commission_id": existing["commission_id"]})
@@ -654,7 +754,7 @@ async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculat
         "service_type": lead.get("service_type"),
         "client_phone_norm": lead.get("prospect_phone_norm"),
         "client_email_norm": lead.get("prospect_email_norm"),
-        "amount": calc["amount"],
+        "amount": member_amount,
         "kind": calc["kind"],
         "visit_number": calc["visit_number"],
         "calc_notes": calc["notes"],
@@ -668,6 +768,7 @@ async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculat
         "job_value": lead.get("job_value"),
         "created_at": now,
         "updated_at": now,
+        **override_fields,
     }
     await db.commissions.insert_one(doc)
     return {k: v for k, v in doc.items() if k != "_id"}

@@ -48,10 +48,12 @@ import VAEarnings from "@/pages/va/VAEarnings";
 import VATraining from "@/pages/va/VATraining";
 import VAServices from "@/pages/va/VAServices";
 import VAJobs from "@/pages/va/VAJobs";
+import VAMyTeam from "@/pages/va/VAMyTeam";
 import VAApprovedGuard from "@/components/va/VAApprovedGuard";
 import VADigitalServices from "@/pages/va/VADigitalServices";
 import AdminVADigital from "@/pages/admin/AdminVADigital";
 import AdminVARates from "@/pages/admin/AdminVARates";
+import AdminVATeams from "@/pages/admin/AdminVATeams";
 import AdminBookkeeping from "@/pages/admin/AdminBookkeeping";
 import AdminAnnouncements from "@/pages/admin/AdminAnnouncements";
 import AdminAIAssignment from "@/pages/admin/AdminAIAssignment";
@@ -163,6 +165,7 @@ function RouterShell() {
         <Route path="va-program/digital" element={<AdminVADigital />} />
         <Route path="va-program/jobs" element={<AdminVAJobs />} />
         <Route path="va-program/rates" element={<AdminVARates />} />
+        <Route path="va-program/teams" element={<AdminVATeams />} />
         <Route path="bookkeeping" element={<AdminBookkeeping />} />
         <Route path="worker-pay" element={<AdminWorkerPay />} />
         <Route path="announcements" element={<AdminAnnouncements />} />
@@ -231,6 +234,7 @@ function RouterShell() {
         <Route path="training" element={<VATraining />} />
         <Route path="services" element={<VAServices />} />
         <Route path="jobs" element={<VAApprovedGuard featureLabel="Digital Jobs"><VAJobs /></VAApprovedGuard>} />
+        <Route path="team" element={<VAApprovedGuard featureLabel="My Team"><VAMyTeam /></VAApprovedGuard>} />
         <Route path="messages" element={<VAApprovedGuard featureLabel="Messages"><Messages /></VAApprovedGuard>} />
       </Route>
 

@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from config import db
 from auth_deps import _get_user_by_id, hash_password
@@ -21,6 +22,8 @@ from va_commission import (
     AssignVAIn,
     COMMISSION_RATES,
     DEFAULT_DIGITAL_COMMISSION_PCT,
+    DEFAULT_TEAM_OVERRIDE_PCT,
+    _team_override_pct,
     OVERRIDABLE_FLAT_SERVICES,
     OVERRIDABLE_RATE_KEYS,
     CommissionSettingsIn,
@@ -113,7 +116,9 @@ async def pm_get_lead(
     cur = db.va_lead_activity.find({"lead_id": lead_id}).sort("created_at", -1).limit(200)
     async for a in cur:
         activity.append({k: v for k, v in a.items() if k != "_id"})
-    commission = await db.commissions.find_one({"lead_id": lead_id})
+    commission = await db.commissions.find_one(
+        {"lead_id": lead_id, "kind": {"$ne": "team_override"}}
+    )
     return {
         "lead": _serialize_lead(lead),
         "activity": activity,
@@ -173,19 +178,23 @@ async def pm_update_lead_stage(
             "read": False,
         })
     elif payload.stage in ("completed",):
-        existing = await db.commissions.find_one({"lead_id": lead_id})
+        existing = await db.commissions.find_one(
+            {"lead_id": lead_id, "kind": {"$ne": "team_override"}}
+        )
         if existing and existing.get("status") in ("calculating",):
             await db.commissions.update_one(
                 {"commission_id": existing["commission_id"]},
                 {"$set": {"status": "calculating", "updated_at": now}},
             )
     elif payload.stage == "lost":
-        existing = await db.commissions.find_one({"lead_id": lead_id})
-        if existing and existing.get("status") in ("calculating", "pending_approval"):
-            await db.commissions.update_one(
-                {"commission_id": existing["commission_id"]},
-                {"$set": {"status": "rejected", "calc_notes": "Lead marked lost", "updated_at": now}},
-            )
+        # Reject the member commission AND any team-override tied to this lead.
+        await db.commissions.update_many(
+            {
+                "lead_id": lead_id,
+                "status": {"$in": ["calculating", "pending_approval"]},
+            },
+            {"$set": {"status": "rejected", "calc_notes": "Lead marked lost", "updated_at": now}},
+        )
 
     # CRM: notify the VA on every stage move ('paid' already sends its own)
     if fresh.get("va_user_id") and payload.stage != "paid" and payload.stage != lead.get("stage"):
@@ -456,10 +465,12 @@ async def _commission_settings_payload() -> dict:
         "rates": cfg["rates"],
         "commercial_pct": cfg["commercial_pct"],
         "digital_pct": cfg["digital_pct"],
+        "team_override_pct": await _team_override_pct(),
         "defaults": {
             "rates": {k: v for k, v in COMMISSION_RATES.items() if k != "commercial_pct"},
             "commercial_pct": COMMISSION_RATES["commercial_pct"] * 100.0,
             "digital_pct": DEFAULT_DIGITAL_COMMISSION_PCT,
+            "team_override_pct": DEFAULT_TEAM_OVERRIDE_PCT,
         },
     }
 
@@ -492,6 +503,8 @@ async def pm_set_commission_settings(
         updates["commercial_pct"] = float(payload.commercial_pct)
     if payload.digital_pct is not None:
         updates["digital_commission_pct"] = float(payload.digital_pct)
+    if payload.team_override_pct is not None:
+        updates["team_override_pct"] = float(payload.team_override_pct)
     if updates:
         updates["commission_settings_updated_at"] = datetime.now(timezone.utc).isoformat()
         updates["commission_settings_updated_by"] = admin["user_id"]
@@ -552,6 +565,118 @@ async def pm_set_va_commission_overrides(
         "va_user_id": va_user_id,
         "overrides": clean,
         "effective": {"rates": cfg["rates"], "commercial_pct": cfg["commercial_pct"], "digital_pct": cfg["digital_pct"]},
+    }
+
+
+# ---------------------------------------------------------------------------
+# VA Teams — single-level lead/downline with SPLIT override commissions.
+# Feature is opt-in per VA via the is_team_lead toggle.
+# ---------------------------------------------------------------------------
+class TeamLeadToggleIn(BaseModel):
+    is_team_lead: bool
+
+
+class TeamAssignIn(BaseModel):
+    team_lead_id: Optional[str] = None  # None = remove from any team
+
+
+@router.put("/pm/vas/{va_user_id}/team-lead")
+async def pm_toggle_team_lead(
+    va_user_id: str,
+    payload: TeamLeadToggleIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    va = await db.users.find_one(
+        {"user_id": va_user_id, "role": "va"}, {"_id": 0, "user_id": 1, "team_lead_id": 1}
+    )
+    if not va:
+        raise HTTPException(404, "VA not found")
+    # Single level: a VA who is someone's member can't also lead a team.
+    if payload.is_team_lead and va.get("team_lead_id"):
+        raise HTTPException(400, "Remove this VA from their current team before making them a team lead")
+    updates = {"is_team_lead": payload.is_team_lead, "updated_at": datetime.now(timezone.utc).isoformat()}
+    await db.users.update_one({"user_id": va_user_id}, {"$set": updates})
+    if not payload.is_team_lead:
+        # Detach any members that reported to this (now former) lead.
+        await db.users.update_many(
+            {"team_lead_id": va_user_id}, {"$set": {"team_lead_id": None}}
+        )
+    return {"ok": True, "is_team_lead": payload.is_team_lead}
+
+
+@router.put("/pm/vas/{va_user_id}/team")
+async def pm_assign_team(
+    va_user_id: str,
+    payload: TeamAssignIn,
+    admin: dict = Depends(require_program_manager_or_owner),
+):
+    member = await db.users.find_one(
+        {"user_id": va_user_id, "role": "va"}, {"_id": 0, "user_id": 1, "is_team_lead": 1}
+    )
+    if not member:
+        raise HTTPException(404, "VA not found")
+    if payload.team_lead_id:
+        if payload.team_lead_id == va_user_id:
+            raise HTTPException(400, "A VA can't be on their own team")
+        if member.get("is_team_lead"):
+            raise HTTPException(400, "A team lead can't also be a member of another team (single level only)")
+        lead = await db.users.find_one(
+            {"user_id": payload.team_lead_id, "role": "va"},
+            {"_id": 0, "is_team_lead": 1, "va_status": 1},
+        )
+        if not lead or not lead.get("is_team_lead"):
+            raise HTTPException(400, "Target is not a team lead")
+    await db.users.update_one(
+        {"user_id": va_user_id},
+        {"$set": {"team_lead_id": payload.team_lead_id, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "team_lead_id": payload.team_lead_id}
+
+
+async def _override_earnings(team_lead_id: str) -> dict:
+    by_status: dict = {}
+    async for row in db.commissions.aggregate([
+        {"$match": {"va_user_id": team_lead_id, "kind": "team_override"}},
+        {"$group": {"_id": "$status", "total": {"$sum": "$amount"}}},
+    ]):
+        by_status[row["_id"]] = round(row["total"], 2)
+    total = round(sum(v for k, v in by_status.items() if k != "rejected"), 2)
+    return {"by_status": by_status, "total": total}
+
+
+@router.get("/pm/teams")
+async def pm_list_teams(admin: dict = Depends(require_program_manager_or_owner)):
+    leads = await db.users.find(
+        {"role": "va", "is_team_lead": True},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1},
+    ).sort("name", 1).to_list(200)
+    all_vas = await db.users.find(
+        {"role": "va"},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1, "is_team_lead": 1, "team_lead_id": 1},
+    ).sort("name", 1).to_list(1000)
+    members_by_lead: dict = {}
+    for v in all_vas:
+        if v.get("team_lead_id"):
+            members_by_lead.setdefault(v["team_lead_id"], []).append(v)
+    teams = []
+    for l in leads:
+        earn = await _override_earnings(l["user_id"])
+        teams.append({
+            **l,
+            "members": members_by_lead.get(l["user_id"], []),
+            "member_count": len(members_by_lead.get(l["user_id"], [])),
+            "override_earnings": earn,
+        })
+    # VAs eligible to be added as members: approved, not a lead, not already on a team.
+    assignable = [
+        v for v in all_vas
+        if not v.get("is_team_lead") and not v.get("team_lead_id")
+        and (v.get("va_status") or "") == "approved"
+    ]
+    return {
+        "teams": teams,
+        "assignable_vas": assignable,
+        "team_override_pct": await _team_override_pct(),
     }
 
 

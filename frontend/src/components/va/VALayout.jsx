@@ -17,6 +17,7 @@ import {
   Monitor,
   Tag,
   Briefcase,
+  UsersThree,
 } from "@phosphor-icons/react";
 import { AnnouncementsPopup } from "@/components/announcements/AnnouncementsPopup";
 import { useAuth } from "@/context/AuthContext";
@@ -31,6 +32,7 @@ const tabs = [
   { to: "/va/services", label: "Services", icon: Tag, end: false, requiresApproved: false },
   { to: "/va/jobs", label: "Jobs", icon: Briefcase, end: false, requiresApproved: true },
   { to: "/va/earnings", label: "Earnings", icon: CurrencyDollar, end: false, requiresApproved: true },
+  { to: "/va/team", label: "My Team", icon: UsersThree, end: false, requiresApproved: true, requiresTeamLead: true },
   { to: "/va/leaderboard", label: "Leaderboard", icon: Trophy, end: false, requiresApproved: false },
   { to: "/va/templates", label: "Templates", icon: Lightbulb, end: false, requiresApproved: false },
   { to: "/va/training", label: "Training", icon: BookOpenText, end: false, requiresApproved: false },
@@ -56,8 +58,12 @@ export default function VALayout() {
   const pending = user?.va_status === "pending";
   const suspended = user?.va_status === "suspended";
   const approved = user?.va_status === "approved";
+  const isTeamLead = Boolean(user?.is_team_lead);
   // While pending/suspended, only show tabs that don't require approval.
-  const visibleTabs = approved ? tabs : tabs.filter((t) => !t.requiresApproved);
+  // "My Team" only shows for VAs the admin has flagged as team leads.
+  const visibleTabs = (approved ? tabs : tabs.filter((t) => !t.requiresApproved)).filter(
+    (t) => !t.requiresTeamLead || isTeamLead
+  );
 
   return (
     <div className="flex min-h-screen flex-col bg-[#F8F7F4] md:flex-row" data-testid="va-layout">

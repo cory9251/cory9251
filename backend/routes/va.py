@@ -19,6 +19,7 @@ from notifications import notify_admins, email_admins, _public_base
 from va_commission import (
     DIGITAL_SERVICE_TYPES,
     _get_digital_commission_pct,
+    _team_override_pct,
     LeadFollowupIn,
     LeadContactIn,
     LeadCommentIn,
@@ -512,7 +513,9 @@ async def va_get_lead(lead_id: str, user: dict = Depends(require_va_active)):
     cur = db.va_lead_activity.find({"lead_id": lead_id}).sort("created_at", -1).limit(200)
     async for a in cur:
         activity.append({k: v for k, v in a.items() if k != "_id"})
-    commission = await db.commissions.find_one({"lead_id": lead_id})
+    commission = await db.commissions.find_one(
+        {"lead_id": lead_id, "kind": {"$ne": "team_override"}}
+    )
     return {
         "lead": _serialize_lead(lead),
         "activity": activity,
@@ -838,6 +841,51 @@ async def va_earnings(
             "this_month": round(totals_month, 2),
             "all_time": round(totals_all, 2),
         },
+    }
+
+
+@router.get("/va/team")
+async def va_team(user: dict = Depends(require_va_active)):
+    """Team lead's downline + override earnings. 403 if not a team lead."""
+    if not user.get("is_team_lead"):
+        raise HTTPException(403, "Team features are not enabled on your account")
+    lead_id = user["user_id"]
+    members = await db.users.find(
+        {"role": "va", "team_lead_id": lead_id},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1},
+    ).sort("name", 1).to_list(200)
+    # Per-member: leads, booked, and override the team lead has earned from them.
+    out_members = []
+    for m in members:
+        mid = m["user_id"]
+        leads_count = await db.va_leads.count_documents({"va_user_id": mid})
+        booked = await db.va_leads.count_documents(
+            {"va_user_id": mid, "stage": {"$in": ["booked", "completed", "paid"]}}
+        )
+        earned = 0.0
+        async for c in db.commissions.find(
+            {"va_user_id": lead_id, "kind": "team_override", "source_va_user_id": mid}
+        ):
+            if c.get("status") != "rejected":
+                earned += float(c.get("amount") or 0)
+        out_members.append({
+            **m,
+            "lead_count": leads_count,
+            "booked_count": booked,
+            "override_earned": round(earned, 2),
+        })
+    by_status: dict = {}
+    async for row in db.commissions.aggregate([
+        {"$match": {"va_user_id": lead_id, "kind": "team_override"}},
+        {"$group": {"_id": "$status", "total": {"$sum": "$amount"}}},
+    ]):
+        by_status[row["_id"]] = round(row["total"], 2)
+    total = round(sum(v for k, v in by_status.items() if k != "rejected"), 2)
+    return {
+        "members": out_members,
+        "member_count": len(out_members),
+        "override_pct": await _team_override_pct(),
+        "override_earnings": {"by_status": by_status, "total": total},
     }
 
 
