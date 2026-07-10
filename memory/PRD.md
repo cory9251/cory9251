@@ -2095,3 +2095,15 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Fix:** `/api/admin/worker-payments` batch-resolves names live from db.users (priority: live user.name → snapshot → email → "Worker"); mark-paid resolves the same way and passes `worker_name=` into `log_worker_payout_expense` so the payroll ledger description + vendor also carry the real name.
 **Verified:** iteration_74 — empty-string and missing-field fixtures both hydrate to "Worker Demo" in API + /ops/worker-pay UI (Unpaid group + Paid row) + ledger entry. Idempotency intact. Test file: /app/backend/tests/test_iter74_worker_name_resolution.py. NOTE for fixtures: gig_acceptances has unique compound index (gig_id, worker_id).
 **REDEPLOY needed** — user saw this on production.
+
+
+## 2026-07-08 — VA Commission Teams (single-level overrides, opt-in toggle) — DONE, TESTED 13/13 + E2E (iter75)
+**Model (user choices):** single-level (direct members only) · override = % of member's commission · SPLIT (deducted from member's payout, not additive) · one global admin-editable rate (`app_settings.global.team_override_pct`, default 10%) · admin-managed membership · per-VA `is_team_lead` toggle (feature hidden unless enabled).
+**Backend:**
+- `va_commission.py`: `_team_override_pct()`, `_apply_team_override()` (computes override from gross, nets the member, upserts the lead's `kind="team_override"` commission idempotently by lead_id+kind; frozen overrides respected on recompute; rate=0 deletes stale override). `_ensure_commission_for_lead` member lookup now `kind != team_override` (CRITICAL fix — plain lead_id lookup grabbed the override record). Member commission stores team_lead_id/override_amount/override_rate.
+- `pm.py`: PUT /pm/vas/{id}/team-lead (toggle; demote detaches members), PUT /pm/vas/{id}/team (assign/unassign w/ single-level guards: no self, lead can't be member, member can't become lead), GET /pm/teams (leads + members + override earnings + assignable VAs + rate). Commission-settings GET/PUT extended with team_override_pct. Stage→lost now `update_many` rejects member AND override; lead-detail lookups exclude team_override (also va.py).
+- `va.py`: GET /va/team (403 unless is_team_lead) — members w/ lead_count/booked_count/override_earned + earnings by status.
+- Overrides ride the normal pipeline (pending_approval → PM → Owner → Paid → auto payroll expense). users schema: +is_team_lead, +team_lead_id.
+**Frontend:** `AdminVATeams.jsx` (/ops/va-program/teams, VA Program → "Teams"): rate editor, promote via dropdown, team cards w/ add/remove member + demote. `VAMyTeam.jsx` (/va/team): stats cards + member list; "My Team" nav tab gated by requiresTeamLead (VALayout). NOTE: VA must re-login after toggle for nav to update (auth context).
+**Testing:** iteration_75 — 13/13 pytest (`tests/test_iter75_va_teams.py`, self-cleaning) + full admin/VA UI E2E. Testing agent fixed a missing `import AdminVATeams` in App.js (route was registered w/o import → app-wide ReferenceError; import edits can silently drop — VERIFY grep after batch edits). $10 junk_removal → $9 member + $1 lead verified; lost rejects both; solo VAs unaffected.
+**REDEPLOY needed.**
