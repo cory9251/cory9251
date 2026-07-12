@@ -98,7 +98,7 @@ export default function VATraining() {
           <StreamCard
             icon={UsersThree}
             label="Team Lead Path"
-            body="Reach Senior tier + 8 paid jobs/month for 3 months, and you can lead a 3-5 person team. Earn 15% of every pool your team closes — no cap."
+            body="Reach Senior tier + strong monthly production, and you can lead a small team of your own. Team leads earn additional commission on top of their own work — mentor, coach, and get rewarded for it."
           />
         </div>
       </Section>
@@ -145,29 +145,68 @@ export default function VATraining() {
         </div>
       </Section>
 
-      {/* ---- Fixed Pool Model --------------------------------------------- */}
+      {/* ---- Fixed Pool Model (simplified) -------------------------------- */}
       <Section
         icon={Coins}
-        title="How you get paid — the Fixed Pool Model"
-        subtitle="Every closed job creates one pool. That pool splits three ways. Always. Every time."
+        title="How you get paid"
+        subtitle="Every closed job creates a commission — the more you close, the more you earn."
         testid="section-pool"
       >
-        <p className="text-sm text-[#374151]">
-          When a job closes and the client pays, HCOB calculates a single{" "}
-          <strong>commission pool</strong> = <em>base</em> × <em>category rate at your tier</em>.
-          That pool is then split:
+        <p className="text-sm text-[#374151] leading-relaxed">
+          When a job closes and the client pays, HCOB calculates your commission using two things:
+          the <strong>category</strong> of the job and your current <strong>agent tier</strong>. The
+          exact percentages are laid out in the rate table below — see them any time on your{" "}
+          <Link to="/va" className="font-bold text-[#0044FF] underline decoration-dotted">Dashboard</Link>
+          {" "}and{" "}
+          <Link to="/va/earnings" className="font-bold text-[#0044FF] underline decoration-dotted">Earnings page</Link>.
         </p>
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <PoolShareCard pct="75%" label="Producing Agent" note="You — the one who submitted the lead." accent="border-[#10B981] bg-[#F0FDF4]" />
-          <PoolShareCard pct="15%" label="Team Lead" note="Your direct upline (if you're on a team). Retained by Company if you're solo." accent="border-[#0044FF] bg-[#EFF6FF]" />
-          <PoolShareCard pct="10%" label="Operations" note="Paid to the Program Manager (Mechie). Never comes out of your 75%." accent="border-[#030712] bg-[#F9FAFB]" />
-        </div>
         <div className="mt-4 border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs text-[#4B5563]">
           <strong className="text-[#030712]">Pool base:</strong>{" "}
           <span className="font-mono">Categories A–D and F</span> use <em>job profit</em>.{" "}
           <span className="font-mono">Categories E and G</span> use <em>monthly collected revenue</em>{" "}
           (paid every month the account or retainer is active).
         </div>
+      </Section>
+
+      {/* ---- Your Team Lead (mentorship framing) -------------------------- */}
+      <Section
+        icon={UsersThree}
+        title="Your team lead — your mentor on the network"
+        subtitle="Nobody wins alone. Your upline is here to help you level up."
+        accent="border-[#0044FF] bg-[#EFF6FF]"
+        testid="section-team-lead"
+      >
+        <p className="text-sm text-[#374151] leading-relaxed">
+          Every VP on the HCOB Network is placed under a team lead — a senior teammate who is
+          personally committed to seeing you succeed. Your team lead is <strong>not a boss</strong>.
+          They&apos;re a mentor, a strategist, and your go-to when things get hard.
+        </p>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 text-sm">
+          <div className="border border-[#E5E7EB] bg-white p-3">
+            <div className="font-mono-label text-[#0044FF]">WHAT YOUR TEAM LEAD DOES</div>
+            <ul className="mt-1 list-disc pl-5 space-y-1">
+              <li>Keeps you motivated when the pipeline feels slow</li>
+              <li>Reviews your outreach and helps you sharpen your pitch</li>
+              <li>Guides you through category decisions so you don&apos;t miscategorize</li>
+              <li>Shares what&apos;s working for them — templates, scripts, DM openers</li>
+              <li>Aligns you with the network so you grow faster</li>
+            </ul>
+          </div>
+          <div className="border border-[#E5E7EB] bg-white p-3">
+            <div className="font-mono-label text-[#10B981]">WHAT YOU GAIN</div>
+            <ul className="mt-1 list-disc pl-5 space-y-1">
+              <li>A powerful, transferable skill — lead generation &amp; digital sales</li>
+              <li>Real-time coaching from someone already earning on the network</li>
+              <li>Faster tier progression (Agent → Senior → Elite)</li>
+              <li>A support system that celebrates your wins</li>
+              <li>A clear path toward becoming a team lead yourself</li>
+            </ul>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-[#4B5563] italic">
+          This is not just a gig — it&apos;s an opportunity to learn a skill you can use for the
+          rest of your career, with a mentor at your disposal from day one.
+        </p>
       </Section>
 
       {/* ---- Agent tiers -------------------------------------------------- */}
@@ -439,7 +478,7 @@ export default function VATraining() {
           />
           <FAQ
             q="Can I refer other VPs to the network?"
-            a="Yes — via the VP Recruiting landing page. Team Lead track (Senior tier + production requirements) unlocks a 15% override on every pool your recruits close."
+            a="Yes — via the VP Recruiting landing page. Once you hit Senior tier and maintain steady production, you can unlock the Team Lead track, mentor your own recruits, and earn additional commission on the work they close."
           />
           <FAQ
             q="I'm not sure if my lead is Category A, B, or C. What do I do?"
@@ -518,16 +557,6 @@ function FieldTip({ n, label, tip }) {
         <div className="font-bold text-sm">{label}</div>
         <p className="mt-0.5 text-xs text-[#4B5563] leading-relaxed">{tip}</p>
       </div>
-    </div>
-  );
-}
-
-function PoolShareCard({ pct, label, note, accent }) {
-  return (
-    <div className={`border ${accent || "border-[#E5E7EB]"} p-4`}>
-      <div className="font-display text-3xl font-black">{pct}</div>
-      <div className="mt-1 font-mono-label">{label}</div>
-      <div className="mt-1 text-xs text-[#4B5563]">{note}</div>
     </div>
   );
 }
