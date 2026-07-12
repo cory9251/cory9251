@@ -35,6 +35,7 @@ import LeadDetail from "@/pages/LeadDetail";
 import AdminVACommissions from "@/pages/admin/AdminVACommissions";
 import AdminVAs from "@/pages/admin/AdminVAs";
 import AdminVADetail from "@/pages/admin/AdminVADetail";
+import AdminVPApplications from "@/pages/admin/AdminVPApplications";
 import AdminTemplates from "@/pages/admin/AdminTemplates";
 import AdminCommercialAccounts from "@/pages/admin/AdminCommercialAccounts";
 import AdminOwnerPayouts from "@/pages/admin/AdminOwnerPayouts";
@@ -119,6 +120,8 @@ function RouterShell() {
       <Route path="/vas" element={<VAsLanding />} />
       <Route path="/earn" element={<VAsLanding />} />
       <Route path="/work-with-us" element={<VAsLanding />} />
+      <Route path="/virtual-professionals" element={<VAsLanding />} />
+      <Route path="/join" element={<VAsLanding />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
 
@@ -176,6 +179,7 @@ function RouterShell() {
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
         <Route path="va-program/vas" element={<AdminVAs />} />
         <Route path="va-program/vas/:vaUserId" element={<AdminVADetail />} />
+        <Route path="va-program/applications" element={<AdminVPApplications />} />
         <Route path="va-program/templates" element={<AdminTemplates />} />
         <Route path="va-program/commercial" element={<AdminCommercialAccounts />} />
         <Route path="payouts" element={<AdminOwnerPayouts />} />

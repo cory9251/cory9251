@@ -1356,6 +1356,8 @@ api.include_router(bookkeeping_router)
 api.include_router(announcements_router)
 api.include_router(ai_assignments_router)
 api.include_router(badges_router)
+from routes.vp_applications import router as vp_applications_router  # noqa: E402
+api.include_router(vp_applications_router)
 app.include_router(api)
 
 # CORS — explicit allowlist from env (never "*" with credentials). Regex covers

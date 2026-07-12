@@ -31,6 +31,7 @@ import {
   SealCheck,
   CaretDown,
   Coins,
+  UserPlus,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -95,6 +96,7 @@ const settingsItem = { to: "/ops/settings", label: "Settings", icon: Gear, end: 
 
 const vaNav = [
   { to: "/ops/va-program", label: "VA Overview", icon: Handshake, end: true },
+  { to: "/ops/va-program/applications", label: "Applications", icon: UserPlus, end: false },
   { to: "/ops/va-program/pipeline", label: "Lead Pipeline", icon: Kanban, end: false },
   { to: "/ops/va-program/digital", label: "Digital Services", icon: Monitor, end: false },
   { to: "/ops/va-program/jobs", label: "Digital Jobs", icon: Briefcase, end: false },

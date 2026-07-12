@@ -5,168 +5,172 @@ import {
   ArrowRight,
   CurrencyDollar,
   Briefcase,
-  Phone,
   CheckCircle,
-  Sparkle,
-  Trophy,
-  ChatTeardropDots,
   HandCoins,
-  Receipt,
-  Confetti,
-  ShieldCheck,
-  Clock,
   Megaphone,
-  ArrowUpRight,
-  Star,
-  Users,
+  UsersThree,
+  PaintBrush,
+  PenNib,
+  Code,
+  Storefront,
+  ShareNetwork,
+  Keyboard,
+  Cube,
+  ClipboardText,
+  ChartLineUp,
+  Stack,
+  Repeat,
+  Lifebuoy,
+  TrendUp,
 } from "@phosphor-icons/react";
+import { VPApplicationForm } from "@/components/VPApplicationForm";
 
-const PHONE_DISPLAY = "(410) 870-9347";
-const PHONE_HREF = "tel:+14108709347";
+const scrollToApply = (e) => {
+  e.preventDefault();
+  document.getElementById("apply")?.scrollIntoView({ behavior: "smooth" });
+};
+
+const ApplyButton = ({ testId, dark }) => (
+  <a
+    href="#apply"
+    onClick={scrollToApply}
+    data-testid={testId}
+    className={`inline-flex h-14 items-center gap-2 px-7 text-base font-bold ${
+      dark
+        ? "bg-white text-[#030712] hover:bg-[#E5E7EB]"
+        : "bg-[#0044FF] text-white hover:bg-[#0036cc]"
+    }`}
+  >
+    Apply to the Network <ArrowRight size={16} weight="bold" />
+  </a>
+);
+
+const STREAMS = [
+  {
+    icon: CurrencyDollar,
+    kicker: "Commission Agent",
+    title: "Earn Commissions",
+    body: "Generate leads for our 13 property service lines and full virtual services catalog. Every job you bring in pays you a percentage of the profit — and recurring clients pay you on every visit, for as long as they stay. No caps. No limits.",
+  },
+  {
+    icon: Briefcase,
+    kicker: "Virtual Gig Work",
+    title: "Get Paid for Your Skills",
+    body: "Our clients need virtual work done — graphic design, website builds, SEO, data entry, social media management, admin support, and more. When work comes in that matches your skills, we route it to you. You do the work, you get paid.",
+  },
+  {
+    icon: UsersThree,
+    kicker: "Team Lead Path",
+    title: "Build a Team",
+    body: "Prove yourself as an agent and step up to Team Lead. Build a team of 3 to 5 agents and earn an override on everything your team produces — on top of your own production.",
+  },
+];
 
 const STEPS = [
   {
     n: "01",
-    icon: Megaphone,
-    title: "Spot a lead",
-    body:
-      "Anywhere you network — Facebook groups, Marketplace, Craigslist, neighbors, your DMs. When someone needs a clean, you have a job to refer.",
+    title: "Apply",
+    body: "Fill out the application below. Tell us your skills and what kind of work you want.",
   },
   {
     n: "02",
-    icon: ChatTeardropDots,
-    title: "Submit it in your dashboard",
-    body:
-      "One form locks the lead to you with a timestamp. Ownership is yours forever — nobody else can claim it.",
+    title: "Onboard",
+    body: "Get your welcome package, platform access, scripts, and training. Most professionals are active within days.",
   },
   {
     n: "03",
-    icon: Briefcase,
-    title: "Ops takes it from here",
-    body:
-      "Our team contacts the client, schedules the job, and handles every detail. You watch the pipeline move: Contacted → Quoted → Booked → Completed → Paid.",
+    title: "Choose Your Streams",
+    body: "Start as an agent, take on virtual gigs, or run both from day one.",
   },
   {
     n: "04",
-    icon: HandCoins,
-    title: "Get paid",
-    body:
-      "Once the client pays HCOB, your commission auto-calculates and goes into our weekly review queue. Approved commissions are paid by Venmo, Zelle, Check, or ACH.",
+    title: "Earn",
+    body: "Every completed job pays through our platform. Track your pipeline, commissions, and gig payments in one place.",
   },
 ];
 
-const RATES = [
+const SERVICES = [
+  { icon: PaintBrush, label: "Graphic Design" },
+  { icon: PenNib, label: "Logo & Brand Design" },
+  { icon: Code, label: "Website Development" },
+  { icon: ChartLineUp, label: "SEO" },
+  { icon: Storefront, label: "Google Business Listings" },
+  { icon: ShareNetwork, label: "Social Media Management" },
+  { icon: Keyboard, label: "Data Entry" },
+  { icon: Cube, label: "Digital Product Creation" },
+  { icon: ClipboardText, label: "Admin Support" },
+  { icon: Megaphone, label: "Marketing Support" },
+];
+
+const WHY = [
   {
-    icon: Sparkle,
-    label: "Routine cleaning",
-    amount: "$10",
-    note: "Per one-time routine clean",
+    icon: Stack,
+    title: "Multiple streams",
+    body: "Most gigs give you one way to earn. We give you three: commissions, gig work, and team overrides.",
   },
   {
-    icon: Briefcase,
-    label: "Deep · Move-Out · Specialty",
-    amount: "$25",
-    note: "Flat per booked job",
-    highlight: true,
+    icon: Repeat,
+    title: "Recurring income potential",
+    body: "Our lifetime tail model means the clients you bring in can keep paying you for years, not weeks.",
   },
   {
-    icon: Receipt,
-    label: "Recurring routine",
-    amount: "$15 → $25 → $10",
-    note: "Visit 1 · Visit 2 · Visits 3-6 (each)",
+    icon: Lifebuoy,
+    title: "Real support",
+    body: "Scripts, training, a dedicated operations manager, and a platform that tracks every lead and every dollar. You're never guessing.",
   },
   {
-    icon: Trophy,
-    label: "Commercial accounts",
-    amount: "5%",
-    note: "Of monthly revenue, every month it's active",
-    highlight: true,
+    icon: TrendUp,
+    title: "A real growth path",
+    body: "Agent to Senior to Elite to Team Lead. Your rates and your role grow with your results.",
   },
 ];
 
-const REASONS = [
-  {
-    icon: ShieldCheck,
-    title: "Timestamp ownership lock",
-    body:
-      "The moment you submit, the lead is yours. No \"someone else got there first\" — the database protects your work.",
-  },
-  {
-    icon: Clock,
-    title: "Weekly payouts",
-    body:
-      "Every Friday the Owner signs off on the week's approved commissions. You get paid early the following week by your preferred method.",
-  },
-  {
-    icon: CheckCircle,
-    title: "Transparent pipeline",
-    body:
-      "Watch every stage of every lead in real time. No black box — you always know where your money stands.",
-  },
-  {
-    icon: Confetti,
-    title: "Real leads, real payouts",
-    body:
-      "Commercial accounts earn you 5% every single month they stay with HCOB. Stack recurring clients, build a residual income.",
-  },
+const REQUIREMENTS = [
+  "Self-starters who can manage their own schedule and hit activity targets without hand-holding.",
+  "Strong written English communication — you'll be messaging prospects and clients daily.",
+  "Reliable internet connection and a computer or smartphone you can work from.",
+  "Available a minimum of 4 hours per day, Monday through Friday. Work more whenever you want.",
+  "For gig work: demonstrable skill in at least one virtual service area (portfolio or work samples requested during onboarding).",
+  "Integrity. We enforce ethical outreach standards strictly — spammers and shortcut-takers don't last here.",
 ];
 
 const FAQ = [
   {
-    q: "How much can I actually make?",
-    a: "Depends on you. One booked deep clean = $25. Land a recurring weekly client and earn $15+$25+$10×4 across their first 6 visits. Bring in a small office (say, $1,200/mo cleaning contract) and that's $60/month for as long as the account stays active.",
+    q: "Is this a salaried job?",
+    a: "No. Agent work is 100% commission-based and gig work is paid per project. Your earnings depend on your activity and results. That also means there is no ceiling.",
   },
   {
-    q: "When do I get paid?",
-    a: "Commissions are reviewed every week by your Program Manager. Once the Owner signs off (typically Fridays), approved payouts are released by Venmo, Zelle, Check, or ACH — your choice — by the start of the next week.",
+    q: "Do I have to sell, or can I just do virtual gig work?",
+    a: "Your choice. Some professionals only take gigs, some only run commissions, most do both. More streams, more earning potential.",
   },
   {
-    q: "What if two VAs submit the same lead?",
-    a: "Whoever submits first wins — the timestamp ownership lock is enforced at the database level. Duplicate submissions are blocked automatically and the original VA keeps the lead.",
-  },
-  {
-    q: "What happens if the client doesn't pay?",
-    a: "No payment from the client = no commission. We're a 100% performance-based program. But once HCOB collects, you get paid — period.",
-  },
-  {
-    q: "Can I submit my own house as a lead?",
-    a: "No. Self-referrals are blocked automatically (we match against your registered home address). VAs are here to bring in new clients, not double-dip.",
+    q: "When and how do I get paid?",
+    a: "Payouts run on a regular weekly or bi-weekly cycle through electronic payment. Every commission and gig payment is tracked in the platform where you can see it at all times.",
   },
   {
     q: "Do I need experience?",
-    a: "Just two things: a phone, and the willingness to ask people if they need cleaning. We provide the dashboard, the pipeline tooling, and Ops handles everything else.",
+    a: "For agent work, no — we provide scripts, training, and support. For gig work, yes — you'll need to show samples of your skill during onboarding.",
+  },
+  {
+    q: "Where do I need to be located?",
+    a: "Anywhere. This is fully remote. You'll need availability overlapping with US Eastern Time business hours.",
+  },
+  {
+    q: "What happens after I apply?",
+    a: "Our operations team reviews applications and reaches out to qualified candidates to schedule an onboarding conversation, usually within a few business days.",
   },
 ];
-
-function Stat({ label, value, accent }) {
-  return (
-    <div
-      className={`flex flex-col gap-1 border ${
-        accent ? "border-[#0044FF]" : "border-[#E5E7EB]"
-      } p-4`}
-    >
-      <span className="font-mono-label">{label}</span>
-      <span
-        className={`font-display text-2xl font-black ${
-          accent ? "text-[#0044FF]" : "text-[#030712]"
-        }`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
 
 export default function VAsLanding() {
   useEffect(() => {
     const prevTitle = document.title;
-    document.title = "Become a VA — Earn with HCOB Network";
+    document.title = "Virtual Professional Opportunities — HCOB Network";
     const desc = document.querySelector('meta[name="description"]');
     const prevDesc = desc?.getAttribute("content") || "";
     if (desc) {
       desc.setAttribute(
         "content",
-        "Join HCOB's VA crew. Submit cleaning leads from anywhere, watch your pipeline, and earn weekly payouts. Real leads. Real money. Baltimore, MD."
+        "Virtual Professional Opportunities — HCOB Network. Commission agent roles and paid virtual gig work. Remote and flexible. Apply today."
       );
     }
     return () => {
@@ -176,11 +180,11 @@ export default function VAsLanding() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white text-[#030712]" data-testid="vas-landing">
+    <div className="min-h-screen bg-white text-[#030712]" data-testid="vp-landing">
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-[#E5E7EB] bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-6">
-          <div className="flex items-center gap-2" data-testid="vas-brand-lockup">
+          <div className="flex items-center gap-2" data-testid="vp-brand-lockup">
             <div className="grid h-8 w-8 place-items-center bg-[#030712] text-white">
               <Lightning weight="fill" size={18} />
             </div>
@@ -189,7 +193,7 @@ export default function VAsLanding() {
                 HCOB Network
               </div>
               <div className="font-mono-label text-[9px] hidden sm:block">
-                VA Commission Program · Baltimore, MD
+                Virtual Professional Network
               </div>
             </div>
           </div>
@@ -201,130 +205,88 @@ export default function VAsLanding() {
             >
               Sign in
             </Link>
-            <Link
+            <a
               data-testid="header-apply-cta"
-              to="/register?as=va"
+              href="#apply"
+              onClick={scrollToApply}
               className="inline-flex items-center gap-2 bg-[#0044FF] px-4 py-2 text-sm font-bold text-white hover:bg-[#0036cc]"
             >
-              <span className="hidden sm:inline">Apply now</span>
+              <span className="hidden sm:inline">Apply to the Network</span>
               <span className="sm:hidden">Apply</span>
               <ArrowRight size={14} weight="bold" />
-            </Link>
+            </a>
           </div>
         </div>
       </header>
 
-      {/* Hero */}
+      {/* 1 — Hero */}
       <section className="border-b border-[#E5E7EB]">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 lg:grid-cols-12">
-          <div className="lg:col-span-7 lg:border-r border-[#E5E7EB] px-5 py-14 md:px-8 lg:px-10 lg:py-24">
-            <div className="font-mono-label mb-6 flex items-center gap-2">
-              <span className="inline-block h-2 w-2 rounded-full bg-[#22C55E]" />
-              VA Commission Program · Now accepting
-            </div>
-            <h1
-              data-testid="vas-hero-title"
-              className="font-display text-[44px] sm:text-6xl lg:text-7xl font-black leading-[0.95] tracking-tighter"
-            >
-              Join HCOB&apos;s
-              <br />
-              <span className="text-[#0044FF]">VA crew.</span>
-              <br />
-              Real leads, real payouts,
-              <br />
-              every week.
-            </h1>
-            <p className="mt-6 max-w-xl text-base sm:text-lg text-[#4B5563] leading-relaxed">
-              You bring the lead. We handle the rest — scheduling, cleaning, billing, customer
-              support. When HCOB gets paid, <strong className="text-[#030712]">you get paid</strong>.
-              No experience required. No upfront cost. No upselling.
-            </p>
-
-            <div className="mt-9 flex flex-wrap items-center gap-3">
-              <Link
-                data-testid="hero-apply-cta"
-                to="/register?as=va"
-                className="inline-flex h-14 items-center gap-2 bg-[#0044FF] px-6 text-base font-bold text-white hover:bg-[#0036cc]"
-              >
-                <CurrencyDollar size={20} weight="fill" /> Apply to become a VA
-              </Link>
-              <a
-                data-testid="hero-call-cta"
-                href={PHONE_HREF}
-                className="inline-flex h-14 items-center gap-2 border border-[#030712] bg-white px-6 text-base font-semibold text-[#030712] hover:bg-[#F3F4F6]"
-              >
-                <Phone size={18} weight="fill" /> {PHONE_DISPLAY}
-              </a>
-            </div>
-
-            <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Stat label="Per deep clean" value="$25" />
-              <Stat label="Commercial account" value="5% / mo" accent />
-              <Stat label="Payouts" value="Weekly" />
-            </div>
+        <div className="mx-auto max-w-7xl px-5 py-16 md:px-8 lg:px-10 lg:py-28">
+          <div className="font-mono-label mb-6 flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-[#22C55E]" />
+            Virtual Professionals · Now accepting applications
           </div>
-
-          {/* Hero side card */}
-          <aside className="lg:col-span-5 px-5 py-10 md:px-8 lg:px-10 lg:py-24 bg-[#F9FAFB]">
-            <div className="border border-[#030712] bg-white p-6 md:p-7">
-              <div className="font-mono-label text-[10px] text-[#4B5563]">
-                Who this is for
-              </div>
-              <div className="mt-2 font-display text-2xl font-black leading-tight">
-                You network. We do the work.
-              </div>
-              <ul className="mt-5 space-y-3 text-sm leading-relaxed text-[#4B5563]">
-                {[
-                  "Active on Facebook groups, Marketplace, Craigslist, or just well-connected in Baltimore",
-                  "Already get asked \"do you know a cleaner?\" — and want to monetize that",
-                  "Looking for flexible side income with zero physical labor",
-                  "Comfortable on your phone, can fill out a form",
-                ].map((b) => (
-                  <li key={b} className="flex items-start gap-2">
-                    <CheckCircle
-                      size={18}
-                      weight="fill"
-                      className="mt-0.5 shrink-0 text-[#0044FF]"
-                    />
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-7 border-t border-[#E5E7EB] pt-5">
-                <div className="font-mono-label text-[10px]">
-                  Approval flow
-                </div>
-                <div className="mt-2 text-sm text-[#4B5563]">
-                  Apply → Program Manager reviews →{" "}
-                  <strong className="text-[#030712]">activated within 1 business day</strong>.
-                </div>
-              </div>
-            </div>
-          </aside>
+          <h1
+            data-testid="vp-hero-title"
+            className="max-w-4xl font-display text-[44px] sm:text-6xl lg:text-7xl font-black leading-[0.95] tracking-tighter"
+          >
+            One Network.
+            <br />
+            <span className="text-[#0044FF]">Multiple Ways to Earn.</span>
+          </h1>
+          <p className="mt-6 max-w-2xl text-base sm:text-lg text-[#4B5563] leading-relaxed">
+            Join the HCOB Network as a Virtual Professional — earn commissions bringing in
+            business, get paid for virtual work we bring to you, or do both. Remote. Flexible.
+            Uncapped. Built for people who want more than one income stream.
+          </p>
+          <div className="mt-9">
+            <ApplyButton testId="hero-apply-cta" />
+          </div>
         </div>
       </section>
 
-      {/* How it works */}
+      {/* 2 — The Three Streams */}
       <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
         <div className="mx-auto max-w-7xl">
-          <div className="font-mono-label mb-3">How it works</div>
+          <div className="font-mono-label mb-3">Three income streams</div>
           <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
-            Four steps. Zero physical labor.
+            Sell. Fulfill. Or do both.
+          </h2>
+          <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
+            {STREAMS.map((s) => (
+              <div
+                key={s.title}
+                data-testid={`stream-${s.kicker.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+                className="flex flex-col border border-[#E5E7EB] bg-white p-7 hover:border-[#030712] transition-colors"
+              >
+                <div className="grid h-12 w-12 place-items-center bg-[#0044FF] text-white">
+                  <s.icon size={24} weight="duotone" />
+                </div>
+                <div className="mt-4 font-mono-label text-[10px] text-[#0044FF]">{s.kicker}</div>
+                <div className="mt-1 font-display text-2xl font-black leading-tight">{s.title}</div>
+                <div className="mt-3 text-sm text-[#4B5563] leading-relaxed">{s.body}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 3 — How It Works */}
+      <section className="border-b border-[#E5E7EB] bg-[#F9FAFB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
+        <div className="mx-auto max-w-7xl">
+          <div className="font-mono-label mb-3">The process</div>
+          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
+            How It Works
           </h2>
           <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((s) => (
               <div
                 key={s.n}
                 data-testid={`step-${s.n}`}
-                className="flex flex-col border border-[#E5E7EB] bg-white p-6 hover:border-[#030712] transition-colors"
+                className="border border-[#E5E7EB] bg-white p-6"
               >
-                <div className="font-mono-label text-[10px] text-[#9CA3AF]">{s.n}</div>
-                <div className="mt-3 grid h-12 w-12 place-items-center bg-[#0044FF] text-white">
-                  <s.icon size={24} weight="duotone" />
-                </div>
-                <div className="mt-4 font-display text-xl font-black leading-tight">
-                  {s.title}
-                </div>
+                <div className="font-display text-4xl font-black text-[#0044FF]">{s.n}</div>
+                <div className="mt-3 font-mono-label text-[10px] uppercase">{s.title}</div>
                 <div className="mt-2 text-sm text-[#4B5563] leading-relaxed">{s.body}</div>
               </div>
             ))}
@@ -332,143 +294,99 @@ export default function VAsLanding() {
         </div>
       </section>
 
-      {/* Rate table */}
-      <section
-        id="rates"
-        className="border-b border-[#E5E7EB] bg-[#030712] px-5 py-16 md:px-8 lg:px-10 lg:py-24 text-white"
-      >
+      {/* 4 — Earning Opportunities */}
+      <section className="border-b border-[#E5E7EB] bg-[#030712] px-5 py-16 md:px-8 lg:px-10 lg:py-24 text-white">
         <div className="mx-auto max-w-7xl">
-          <div className="font-mono-label mb-3 text-white/70">Commission rates</div>
+          <div className="font-mono-label mb-3 text-white/70">Earning opportunities</div>
           <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
-            Transparent payouts.
-            <br />
-            <span className="text-[#0044FF]">No fine print.</span>
+            Real Earning Opportunities
           </h2>
-          <p className="mt-4 max-w-2xl text-white/70">
-            Auto-calculated the moment a job is marked Paid. Reviewed by your Program Manager,
-            signed off by the Owner, paid out weekly.
-          </p>
+          <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="border border-white/15 bg-white/5 p-7" data-testid="earning-commissions">
+              <div className="flex items-center gap-3">
+                <div className="grid h-11 w-11 place-items-center bg-[#0044FF] text-white">
+                  <HandCoins size={22} weight="duotone" />
+                </div>
+                <div className="font-display text-xl font-black">Commission earnings</div>
+              </div>
+              <p className="mt-4 text-sm text-white/80 leading-relaxed">
+                <strong className="text-white">Commission on every job you originate</strong> — paid
+                as a percentage of job profit, with higher rates as you level up from Agent to
+                Senior to Elite.
+              </p>
+              <p className="mt-3 text-sm text-white/80 leading-relaxed">
+                <strong className="text-white">Recurring clients pay you again and again.</strong>{" "}
+                Land a biweekly cleaning client or an Airbnb host and you earn on every single
+                visit — including a lifetime rate that never expires while the account stays
+                active.
+              </p>
+              <p className="mt-3 text-sm text-white/80 leading-relaxed">
+                <strong className="text-white">Commercial and retainer accounts pay monthly.</strong>{" "}
+                Office contracts, SEO packages, and marketing retainers pay you a share of revenue
+                every month the client stays.
+              </p>
+            </div>
+            <div className="border border-white/15 bg-white/5 p-7" data-testid="earning-gigs">
+              <div className="flex items-center gap-3">
+                <div className="grid h-11 w-11 place-items-center bg-[#0044FF] text-white">
+                  <Briefcase size={22} weight="duotone" />
+                </div>
+                <div className="font-display text-xl font-black">Gig work earnings</div>
+              </div>
+              <p className="mt-4 text-sm text-white/80 leading-relaxed">
+                <strong className="text-white">Virtual gig work pays per project.</strong> Design
+                work, website builds, data entry, and admin tasks are paid per completed job at
+                rates agreed before you start.
+              </p>
+              <div className="mt-5 border-l-2 border-[#0044FF] bg-white/5 p-4 text-xs text-white/70">
+                Earnings are commission and project-based and depend entirely on your activity and
+                results. No income level is guaranteed.
+              </div>
+            </div>
+          </div>
+          <div className="mt-10">
+            <ApplyButton testId="earnings-apply-cta" />
+          </div>
+        </div>
+      </section>
 
-          <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
-            {RATES.map((r) => (
+      {/* 5 — The Virtual Services Catalog */}
+      <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
+        <div className="mx-auto max-w-7xl">
+          <div className="font-mono-label mb-3">Services catalog</div>
+          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
+            Virtual Work We Route to Our Network
+          </h2>
+          <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {SERVICES.map((s) => (
               <div
-                key={r.label}
-                data-testid={`rate-${r.label.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
-                className={`flex items-center justify-between gap-4 border p-5 ${
-                  r.highlight
-                    ? "border-[#0044FF] bg-[#0044FF]/10"
-                    : "border-white/15 bg-white/5"
-                }`}
+                key={s.label}
+                data-testid={`service-${s.label.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+                className="flex flex-col items-start gap-3 border border-[#E5E7EB] bg-white p-5 hover:border-[#0044FF] transition-colors"
               >
-                <div className="flex items-center gap-4">
-                  <div className="grid h-12 w-12 place-items-center bg-white/10">
-                    <r.icon size={22} weight="duotone" />
-                  </div>
-                  <div>
-                    <div className="font-semibold">{r.label}</div>
-                    <div className="text-xs text-white/60">{r.note}</div>
-                  </div>
+                <div className="grid h-10 w-10 place-items-center bg-[#F3F4F6] text-[#0044FF]">
+                  <s.icon size={20} weight="duotone" />
                 </div>
-                <div className="font-display text-2xl sm:text-3xl font-black tracking-tight">
-                  {r.amount}
-                </div>
+                <div className="text-sm font-bold leading-tight">{s.label}</div>
               </div>
             ))}
           </div>
-
-          <div className="mt-6 border-l-2 border-[#0044FF] bg-white/5 p-4 text-sm text-white/80">
-            <strong className="text-white">Stack recurring clients.</strong> Bring in a weekly
-            recurring cleaning client and earn across multiple visits. Land a commercial account
-            and earn 5% every month it stays with HCOB.
-          </div>
-        </div>
-      </section>
-
-      {/* Payout schedule */}
-      <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-16">
-          <div>
-            <div className="font-mono-label mb-3">Payout schedule</div>
-            <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
-              You get paid weekly.
-              <br />
-              <span className="text-[#0044FF]">Predictable. Documented. On time.</span>
-            </h2>
-            <p className="mt-5 text-base text-[#4B5563] leading-relaxed">
-              Every commission flows through the same audit trail — auto-calculated, Program
-              Manager-reviewed, Owner-signed. Once you&apos;re in the payable queue, payout lands
-              in your account by the following week.
-            </p>
-            <Link
-              to="/register?as=va"
-              data-testid="payout-cta"
-              className="mt-8 inline-flex items-center gap-2 bg-[#030712] px-5 py-3 text-sm font-bold text-white hover:bg-[#1f2937]"
-            >
-              Start submitting leads <ArrowUpRight size={14} weight="bold" />
-            </Link>
-          </div>
-          <ol className="space-y-4">
-            {[
-              {
-                day: "Day 0",
-                title: "You submit a lead",
-                body: "Locked to you with a timestamp the second you hit submit.",
-              },
-              {
-                day: "Day 1-N",
-                title: "Ops works the lead",
-                body: "Contact, quote, schedule, clean, invoice. You see every stage in real time.",
-              },
-              {
-                day: "Client pays HCOB",
-                title: "Commission auto-calculates",
-                body: "Status becomes \"Pending Approval\" in your dashboard the moment payment lands.",
-              },
-              {
-                day: "Friday",
-                title: "Program Manager reviews",
-                body: "Mechie audits every commission for accuracy and program compliance.",
-              },
-              {
-                day: "Friday → Monday",
-                title: "Owner signs off",
-                body: "Bulk approvals are processed per VA per week — your batch is signed and queued for payout.",
-              },
-              {
-                day: "Following week",
-                title: "Money hits your account",
-                body: "Choose Venmo, Zelle, Check, or ACH. Reference + method logged on every payment.",
-              },
-            ].map((step) => (
-              <li
-                key={step.title}
-                className="border border-[#E5E7EB] bg-white p-5"
-                data-testid={`payout-step-${step.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
-              >
-                <div className="font-mono-label text-[10px] text-[#0044FF]">{step.day}</div>
-                <div className="mt-1 font-display text-lg font-black leading-tight">
-                  {step.title}
-                </div>
-                <div className="mt-1 text-sm text-[#4B5563]">{step.body}</div>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      {/* Why HCOB */}
-      <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24 bg-[#F9FAFB]">
-        <div className="mx-auto max-w-7xl">
-          <div className="font-mono-label mb-3">Why HCOB Network</div>
-          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
-            The crew is the product.
-          </h2>
-          <p className="mt-4 max-w-2xl text-[#4B5563]">
-            We built the dashboard, the pipeline tooling, and the safeguards so you can focus on
-            one thing: bringing in leads.
+          <p className="mt-8 text-lg font-semibold">
+            Have a skill on this list?{" "}
+            <span className="text-[#0044FF]">You&apos;re exactly who we&apos;re looking for.</span>
           </p>
+        </div>
+      </section>
+
+      {/* 6 — Why the HCOB Network */}
+      <section className="border-b border-[#E5E7EB] bg-[#F9FAFB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
+        <div className="mx-auto max-w-7xl">
+          <div className="font-mono-label mb-3">Why us</div>
+          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
+            Why Professionals Join the HCOB Network
+          </h2>
           <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2">
-            {REASONS.map((r) => (
+            {WHY.map((r) => (
               <div
                 key={r.title}
                 data-testid={`why-${r.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
@@ -478,83 +396,70 @@ export default function VAsLanding() {
                   <r.icon size={22} weight="duotone" />
                 </div>
                 <div>
-                  <div className="font-display text-lg font-black">{r.title}</div>
+                  <div className="font-display text-lg font-black uppercase tracking-wide">
+                    {r.title}
+                  </div>
                   <div className="mt-1 text-sm text-[#4B5563] leading-relaxed">{r.body}</div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* Earnings examples */}
-      <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
-        <div className="mx-auto max-w-7xl">
-          <div className="font-mono-label mb-3">Earnings examples</div>
-          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
-            What a typical month looks like.
-          </h2>
-          <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-            {[
-              {
-                tag: "Casual",
-                title: "1 deep clean / week",
-                amount: "$100",
-                detail: "4 deep cleans × $25 commission",
-              },
-              {
-                tag: "Active",
-                title: "Mixed pipeline",
-                amount: "$300+",
-                detail: "2 move-outs + 4 deep cleans + 2 recurring routine",
-                accent: true,
-              },
-              {
-                tag: "Power VA",
-                title: "Commercial + recurring",
-                amount: "$800+",
-                detail: "1 small commercial account ($1k/mo × 5%) + 6 deep cleans + recurring stack",
-              },
-            ].map((e) => (
-              <div
-                key={e.title}
-                data-testid={`earning-${e.tag.toLowerCase()}`}
-                className={`border bg-white p-6 ${
-                  e.accent ? "border-[#0044FF] border-2" : "border-[#E5E7EB]"
-                }`}
-              >
-                <div
-                  className={`font-mono-label text-[10px] ${
-                    e.accent ? "text-[#0044FF]" : "text-[#4B5563]"
-                  }`}
-                >
-                  {e.tag}
-                </div>
-                <div className="mt-2 font-display text-xl font-black">{e.title}</div>
-                <div
-                  className={`mt-4 font-display text-5xl font-black tracking-tight ${
-                    e.accent ? "text-[#0044FF]" : "text-[#030712]"
-                  }`}
-                >
-                  {e.amount}
-                </div>
-                <div className="mt-2 text-xs text-[#4B5563]">{e.detail}</div>
-              </div>
-            ))}
+          <div className="mt-10">
+            <ApplyButton testId="why-apply-cta" />
           </div>
-          <p className="mt-6 max-w-2xl text-xs text-[#4B5563]">
-            Examples are illustrative. Actual earnings depend on the leads you submit and the
-            outcomes Ops drives. No guarantees — but no caps either.
-          </p>
         </div>
       </section>
 
-      {/* FAQ */}
-      <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24 bg-[#F9FAFB]">
+      {/* 7 — Who We're Looking For */}
+      <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
+        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 lg:grid-cols-12">
+          <div className="lg:col-span-5">
+            <div className="font-mono-label mb-3">Requirements</div>
+            <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
+              Who We&apos;re Looking For
+            </h2>
+            <p className="mt-4 text-[#4B5563]">
+              We keep the network strong by being selective. If this sounds like you, apply below.
+            </p>
+          </div>
+          <ul className="lg:col-span-7 space-y-3">
+            {REQUIREMENTS.map((r, i) => (
+              <li
+                key={i}
+                data-testid={`requirement-${i}`}
+                className="flex items-start gap-3 border border-[#E5E7EB] bg-white p-4"
+              >
+                <CheckCircle size={20} weight="fill" className="mt-0.5 shrink-0 text-[#0044FF]" />
+                <span className="text-sm text-[#4B5563] leading-relaxed">{r}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* 8 — Application Form */}
+      <section id="apply" className="border-b border-[#E5E7EB] bg-[#F9FAFB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
+        <div className="mx-auto max-w-3xl">
+          <div className="font-mono-label mb-3">Apply now</div>
+          <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
+            Apply to the Network
+          </h2>
+          <p className="mt-4 text-[#4B5563]">
+            Takes about 3 minutes. Tell us your skills and what kind of work you want — our
+            operations team routes you to the right streams from day one.
+          </p>
+          <div className="mt-10 border border-[#E5E7EB] bg-white p-6 md:p-8">
+            <VPApplicationForm />
+          </div>
+        </div>
+      </section>
+
+      {/* 9 — FAQ */}
+      <section className="border-b border-[#E5E7EB] px-5 py-16 md:px-8 lg:px-10 lg:py-24">
         <div className="mx-auto max-w-4xl">
           <div className="font-mono-label mb-3">FAQ</div>
           <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight">
-            Real questions, real answers.
+            Frequently Asked Questions
           </h2>
           <div className="mt-10 space-y-3">
             {FAQ.map((item, i) => (
@@ -579,33 +484,21 @@ export default function VAsLanding() {
       </section>
 
       {/* Final CTA */}
-      <section className="px-5 py-20 md:px-8 lg:px-10 lg:py-32 bg-[#030712] text-white">
+      <section className="px-5 py-20 md:px-8 lg:px-10 lg:py-28 bg-[#030712] text-white">
         <div className="mx-auto max-w-4xl text-center">
-          <div className="font-mono-label mb-4 text-white/70">Ready?</div>
           <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl font-black tracking-tighter leading-[0.95]">
-            Stop telling people about HCOB
+            One network.
             <br />
-            for free.{" "}
-            <span className="text-[#0044FF]">Get paid for it.</span>
+            <span className="text-[#0044FF]">Multiple ways to earn.</span>
           </h2>
-          <p className="mx-auto mt-6 max-w-xl text-white/70">
-            Apply in under a minute. Get reviewed within 1 business day. Submit your first lead
-            today.
-          </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              data-testid="footer-apply-cta"
-              to="/register?as=va"
-              className="inline-flex h-14 items-center gap-2 bg-[#0044FF] px-7 text-base font-bold text-white hover:bg-[#0036cc]"
-            >
-              <CurrencyDollar size={20} weight="fill" /> Apply now
-            </Link>
+            <ApplyButton testId="footer-apply-cta" />
             <Link
               data-testid="footer-signin-cta"
               to="/login"
               className="inline-flex h-14 items-center gap-2 border border-white/30 bg-transparent px-7 text-base font-semibold text-white hover:bg-white/10"
             >
-              Already a VA? Sign in
+              Already in the network? Sign in
             </Link>
           </div>
         </div>
@@ -618,12 +511,18 @@ export default function VAsLanding() {
             <div className="grid h-7 w-7 place-items-center bg-[#030712] text-white">
               <Lightning weight="fill" size={14} />
             </div>
-            <div className="font-display text-sm font-black">HCOB Network · VA Commission</div>
+            <div className="font-display text-sm font-black">
+              HCOB Network · Virtual Professionals
+            </div>
           </div>
           <div className="flex items-center gap-4 text-xs text-[#4B5563]">
-            <a href={PHONE_HREF} className="hover:text-[#030712]">
-              {PHONE_DISPLAY}
-            </a>
+            <Link to="/privacy" className="hover:text-[#030712]">
+              Privacy
+            </Link>
+            <span className="text-[#9CA3AF]">·</span>
+            <Link to="/terms" className="hover:text-[#030712]">
+              Terms
+            </Link>
             <span className="text-[#9CA3AF]">·</span>
             <span>© HCOB Network · Baltimore, MD</span>
           </div>
