@@ -84,46 +84,49 @@ LeadSource = Literal[
     "other",
 ]
 
-# Commission rate buckets. New service types map to existing buckets so we
-# don't have to rewrite commission logic — each non-commercial residential
-# service falls into "routine" ($10 baseline) or "deep" ($25 premium) bucket.
-COMMISSION_RATES = {
-    "routine": 10.0,
-    "deep": 25.0,
-    "moveout": 25.0,
-    "apartment_turnover": 25.0,
-    "carpet": 25.0,
-    "junk_removal": 10.0,
-    "estate_cleanout": 25.0,
-    "pressure_washing": 10.0,
-    "landscaping": 10.0,
-    "handyman": 10.0,
-    "painting": 25.0,
-    "maintenance_bundle": 25.0,
-    "specialty": 25.0,
-    "specialty_medical": 25.0,
-    "specialty_funeral": 25.0,
-    "specialty_construction": 25.0,
-    "commercial_pct": 0.05,
+# ---------------------------------------------------------------------------
+# Fixed Pool Model v2.0 (HCOB_Commission_Structure_v2 — supersedes all prior
+# schedules). Every job generates exactly ONE commission pool (base × category
+# rate), split 75/15/10 between producing agent / team lead / operations
+# manager. The Company never pays beyond the pool.
+# ---------------------------------------------------------------------------
+BASE_CATEGORY = {
+    "routine": "A",
+    "deep": "B", "moveout": "B", "apartment_turnover": "B", "estate_cleanout": "B",
+    "specialty": "B", "specialty_construction": "B",
+    "handyman": "C", "painting": "C", "junk_removal": "C", "pressure_washing": "C",
+    "carpet": "C", "landscaping": "C", "maintenance_bundle": "C",
+    "commercial": "E", "specialty_medical": "E", "specialty_funeral": "E",
 }
-RECURRING_TIERS = {
-    1: 15.0,
-    2: 25.0,
-    3: 10.0,
-    4: 10.0,
-    5: 10.0,
-    6: 10.0,
+CATEGORY_LABELS = {
+    "A": "Standard Cleaning",
+    "B": "Premium Cleans",
+    "C": "Trades & Projects",
+    "D": "Recurring Accounts",
+    "E": "Commercial Accounts",
+    "F": "Virtual Projects",
+    "G": "Virtual Retainers",
 }
-RECURRING_LIFETIME_CAP = 100.0
+DEFAULT_POOL_RATES = {
+    "A": {"agent": 10.0, "senior": 12.5, "elite": 15.0},
+    "B": {"agent": 12.0, "senior": 15.0, "elite": 18.0},
+    "C": {"agent": 12.0, "senior": 15.0, "elite": 18.0},
+    "D": {"early": 15.0, "mid": 10.0, "lifetime": 5.0},  # visits 1-3 / 4-12 / 13+
+    "E": {"pct": 5.0},  # % of monthly collected revenue, lifetime of account
+    "F": {"agent": 12.0, "senior": 15.0, "elite": 18.0},
+    "G": {"pct": 5.0},  # % of monthly retainer revenue, lifetime of retainer
+}
+POOL_SPLIT = {"agent": 75.0, "lead": 15.0, "ops": 10.0}  # fixed per doc §1 — not editable
+TIER_THRESHOLDS = {"senior": 25, "elite": 60}  # cumulative closed + paid jobs
+TEAM_LEAD_MIN_MONTHLY_JOBS = 8
+TAIL_BREAK_DAYS = 90  # recurring tail ends permanently after 90 days inactive
+TIERED_CATEGORIES = ("A", "B", "C", "F")  # pool base = job profit, tier-rated
+REVENUE_CATEGORIES = ("E", "G")  # pool base = monthly collected revenue
+
 CLEANER_REFERRAL_TIERS = {1: 20.0, 5: 30.0, 10: 50.0}
 CLEANER_REFERRAL_CAP = 100.0
 DUPLICATE_REOPEN_DAYS = 90  # leads completed/lost > 90 days old don't block dupes
-DEFAULT_DIGITAL_COMMISSION_PCT = 10.0  # % of project value; admin-editable via app_settings
-DEFAULT_TEAM_OVERRIDE_PCT = 10.0  # % of a downline member's commission the team lead earns (SPLIT)
-DEFAULT_TEAM_OVERRIDE_L2_PCT = 5.0  # L2: % the lead's own lead earns on a grandchild commission (SPLIT)
-
-OVERRIDABLE_FLAT_SERVICES = [k for k in COMMISSION_RATES if k != "commercial_pct"]
-OVERRIDABLE_RATE_KEYS = set(OVERRIDABLE_FLAT_SERVICES) | {"commercial_pct", "digital_pct"}
+DEFAULT_DIGITAL_COMMISSION_PCT = 10.0  # legacy display for VA digital pages
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +146,7 @@ class LeadIn(BaseModel):
     service_type: LeadServiceType
     property_size: Optional[LeadPropertySize] = None  # required for non-digital (route-enforced)
     estimated_budget: Optional[float] = Field(default=None, ge=0)  # digital leads
+    is_recurring: bool = False  # Category D (property) / G (digital retainer)
     preferred_datetime: Optional[str] = None  # ISO 8601 date or datetime
     source: LeadSource
     notes: Optional[str] = Field(default=None, max_length=2000)
@@ -150,7 +154,8 @@ class LeadIn(BaseModel):
 
 class LeadStageIn(BaseModel):
     stage: LeadStage
-    job_value: Optional[float] = None  # required when stage='paid' for commercial calc
+    job_value: Optional[float] = None  # collected revenue — pool base for Cat E/G
+    job_profit: Optional[float] = None  # job profit — pool base for Cat A-D/F
     note: Optional[str] = None
 
 
@@ -167,7 +172,9 @@ class LeadEditIn(BaseModel):
     source: Optional[LeadSource] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
     estimated_budget: Optional[float] = Field(default=None, ge=0)
+    is_recurring: Optional[bool] = None
     job_value: Optional[float] = None  # admin only — enforced in route
+    job_profit: Optional[float] = None  # admin only — enforced in route
     # Reassign owner — admin only — enforced in route
     va_user_id: Optional[str] = None
     # Free-text reason saved to activity log
@@ -283,16 +290,8 @@ class AssignVAIn(BaseModel):
     va_user_id: Optional[str] = None  # None/'' clears the delivery assignment
 
 
-class CommissionSettingsIn(BaseModel):
-    rates: Optional[dict] = None  # {service: flat $ amount}
-    commercial_pct: Optional[float] = Field(default=None, ge=0, le=100)
-    digital_pct: Optional[float] = Field(default=None, ge=0, le=100)
-    team_override_pct: Optional[float] = Field(default=None, ge=0, le=100)
-    team_override_l2_pct: Optional[float] = Field(default=None, ge=0, le=100)
-
-
-class VACommissionOverridesIn(BaseModel):
-    overrides: dict = Field(default_factory=dict)  # full replace; omit keys to clear
+class PoolRatesIn(BaseModel):
+    pool_rates: dict  # {category: {tier_or_phase_or_pct: float}}
 
 
 class LeadFollowupIn(BaseModel):
@@ -448,8 +447,12 @@ async def _log_violation(
     })
 
 
-async def _find_duplicate_lead(phone_norm: str, email_norm: str) -> Optional[dict]:
-    """Return the conflicting active lead, or None if dupe window allows resubmit."""
+async def _find_duplicate_lead(
+    phone_norm: str, email_norm: str, va_user_id: Optional[str] = None
+) -> Optional[dict]:
+    """Return the conflicting active lead, or None if dupe window allows resubmit.
+    A completed/paid lead owned by the SAME VA never blocks — that's a repeat
+    visit on their own client (Cat D recurring tail)."""
     q: dict = {"$or": []}
     if phone_norm:
         q["$or"].append({"prospect_phone_norm": phone_norm})
@@ -461,6 +464,8 @@ async def _find_duplicate_lead(phone_norm: str, email_norm: str) -> Optional[dic
     cutoff = datetime.now(timezone.utc) - timedelta(days=DUPLICATE_REOPEN_DAYS)
     async for d in cur:
         stage = d.get("stage")
+        if stage in ("completed", "paid") and va_user_id and d.get("va_user_id") == va_user_id:
+            continue  # own client, job done — repeat visit is allowed
         if stage in ("completed", "lost", "paid"):
             ts_str = d.get("stage_changed_at") or d.get("created_at") or ""
             try:
@@ -476,43 +481,8 @@ async def _find_duplicate_lead(phone_norm: str, email_norm: str) -> Optional[dic
 
 
 # ---------------------------------------------------------------------------
-# Commission calculation
+# Commission calculation — Fixed Pool Model v2.0
 # ---------------------------------------------------------------------------
-async def _next_recurring_visit_count(va_user_id: str, phone_norm: str, email_norm: str) -> int:
-    """Count completed/paid recurring jobs for the same client+VA — returns next visit number."""
-    q = {
-        "va_user_id": va_user_id,
-        "stage": {"$in": ["completed", "paid"]},
-        "service_type": "routine",
-    }
-    or_clauses = []
-    if phone_norm:
-        or_clauses.append({"prospect_phone_norm": phone_norm})
-    if email_norm:
-        or_clauses.append({"prospect_email_norm": email_norm})
-    if or_clauses:
-        q["$or"] = or_clauses
-    count = await db.va_leads.count_documents(q)
-    return count + 1
-
-
-async def _va_lifetime_recurring_total(va_user_id: str, phone_norm: str, email_norm: str) -> float:
-    """Lifetime commission paid out / pending for this VA+client recurring chain."""
-    q: dict = {"va_user_id": va_user_id, "kind": "recurring"}
-    or_clauses = []
-    if phone_norm:
-        or_clauses.append({"client_phone_norm": phone_norm})
-    if email_norm:
-        or_clauses.append({"client_email_norm": email_norm})
-    if or_clauses:
-        q["$or"] = or_clauses
-    total = 0.0
-    async for c in db.commissions.find(q):
-        if c.get("status") != "rejected":
-            total += float(c.get("amount") or 0)
-    return total
-
-
 async def _get_digital_commission_pct() -> float:
     s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "digital_commission_pct": 1})
     try:
@@ -522,68 +492,235 @@ async def _get_digital_commission_pct() -> float:
     return min(100.0, max(0.0, pct))
 
 
-async def _team_override_pct() -> float:
-    s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "team_override_pct": 1})
+def _resolve_category(service_type: Optional[str], is_recurring: bool) -> Optional[str]:
+    """Map a lead onto the seven-category service catalog (doc §4)."""
+    if service_type in ("commercial", "specialty_medical", "specialty_funeral"):
+        return "E"
+    if service_type in DIGITAL_SERVICE_TYPES:
+        return "G" if is_recurring else "F"
+    if is_recurring:
+        return "D"
+    return BASE_CATEGORY.get(service_type)
+
+
+async def _get_pool_rates() -> dict:
+    """Effective pool rates: hardcoded doc defaults ← app_settings.pool_rates."""
+    s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "pool_rates": 1})
+    saved = (s or {}).get("pool_rates") or {}
+    rates: dict = {}
+    for cat, defaults in DEFAULT_POOL_RATES.items():
+        merged = dict(defaults)
+        for k, v in (saved.get(cat) or {}).items():
+            if k in merged:
+                try:
+                    merged[k] = min(100.0, max(0.0, float(v)))
+                except (TypeError, ValueError):
+                    pass
+        rates[cat] = merged
+    return rates
+
+
+def _tier_for_count(paid_jobs: int) -> str:
+    if paid_jobs >= TIER_THRESHOLDS["elite"]:
+        return "elite"
+    if paid_jobs >= TIER_THRESHOLDS["senior"]:
+        return "senior"
+    return "agent"
+
+
+async def _va_tier(va_user_id: Optional[str]) -> dict:
+    """Agent tier from cumulative closed + paid jobs. Never moves backward
+    (count is cumulative). Existing pre-v2 paid leads count as credit (§10)."""
+    n = 0
+    if va_user_id:
+        n = await db.va_leads.count_documents({
+            "va_user_id": va_user_id, "stage": "paid", "deleted_at": {"$in": [None, ""]},
+        })
+    tier = _tier_for_count(n)
+    next_tier, to_next = None, 0
+    if tier == "agent":
+        next_tier, to_next = "senior", TIER_THRESHOLDS["senior"] - n
+    elif tier == "senior":
+        next_tier, to_next = "elite", TIER_THRESHOLDS["elite"] - n
+    return {"tier": tier, "paid_jobs": n, "next_tier": next_tier, "jobs_to_next": max(0, to_next)}
+
+
+async def _recurring_visit_number(
+    va_user_id: str, phone_norm: str, email_norm: str, exclude_lead_id: Optional[str]
+) -> int:
+    """Visit # in this client's recurring tail (Cat D). Legacy 'routine' leads
+    count toward the chain so existing recurring clients convert at their
+    current visit count (§10). A gap > TAIL_BREAK_DAYS ends the old tail
+    permanently — the chain restarts at visit 1 (§6)."""
+    or_client = []
+    if phone_norm:
+        or_client.append({"prospect_phone_norm": phone_norm})
+    if email_norm:
+        or_client.append({"prospect_email_norm": email_norm})
+    if not or_client:
+        return 1
+    q = {
+        "va_user_id": va_user_id,
+        "stage": {"$in": ["completed", "paid"]},
+        "lead_id": {"$ne": exclude_lead_id},
+        "deleted_at": {"$in": [None, ""]},
+        "$and": [
+            {"$or": [{"is_recurring": True}, {"service_type": "routine"}]},
+            {"$or": or_client},
+        ],
+    }
+    stamps = []
+    async for d in db.va_leads.find(q, {"_id": 0, "stage_changed_at": 1, "created_at": 1}):
+        stamps.append(d.get("stage_changed_at") or d.get("created_at") or "")
+    if not stamps:
+        return 1
     try:
-        pct = float((s or {}).get("team_override_pct"))
-    except (TypeError, ValueError):
-        return DEFAULT_TEAM_OVERRIDE_PCT
-    return min(100.0, max(0.0, pct))
+        ts = datetime.fromisoformat(max(stamps))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - ts > timedelta(days=TAIL_BREAK_DAYS):
+            return 1
+    except Exception:
+        pass
+    return len(stamps) + 1
 
 
-async def _team_override_l2_pct() -> float:
-    s = await db.app_settings.find_one({"_id": "global"}, {"_id": 0, "team_override_l2_pct": 1})
-    try:
-        pct = float((s or {}).get("team_override_l2_pct"))
-    except (TypeError, ValueError):
-        return DEFAULT_TEAM_OVERRIDE_L2_PCT
-    return min(100.0, max(0.0, pct))
+async def _paid_jobs_between(va_user_id: str, start_iso: str, end_iso: str) -> int:
+    return await db.va_leads.count_documents({
+        "va_user_id": va_user_id,
+        "stage": "paid",
+        "deleted_at": {"$in": [None, ""]},
+        "stage_changed_at": {"$gte": start_iso, "$lt": end_iso},
+    })
 
 
-async def _eligible_lead(va_id: Optional[str]) -> Optional[dict]:
-    """Return the VA doc if they can receive overrides (active team lead)."""
-    if not va_id:
-        return None
-    u = await db.users.find_one(
-        {"user_id": va_id},
-        {"_id": 0, "user_id": 1, "name": 1, "is_team_lead": 1, "va_status": 1, "team_lead_id": 1},
+async def _team_lead_status(lead_user: Optional[dict]) -> dict:
+    """Auto qualification check per doc §7: approved + is_team_lead + Senior
+    tier + personal production ≥ 8 paid jobs/month. Below minimum for two
+    consecutive months → override pauses (retained by Company) until
+    production resumes. Newly promoted leads get a grace window."""
+    out = {
+        "eligible": False, "reason": None, "tier": None, "production": None,
+        "min_monthly": TEAM_LEAD_MIN_MONTHLY_JOBS, "grace": False,
+    }
+    if not lead_user or not lead_user.get("is_team_lead"):
+        out["reason"] = "not_team_lead"
+        return out
+    if (lead_user.get("va_status") or "") != "approved":
+        out["reason"] = "not_approved"
+        return out
+    t = await _va_tier(lead_user["user_id"])
+    out["tier"] = t
+    if t["tier"] == "agent":
+        out["reason"] = "below_senior_tier"
+        return out
+    today = datetime.now(timezone.utc).date()
+    cur_start = today.replace(day=1)
+    m1_start = (cur_start - timedelta(days=1)).replace(day=1)
+    m2_start = (m1_start - timedelta(days=1)).replace(day=1)
+    uid = lead_user["user_id"]
+    cur = await _paid_jobs_between(uid, cur_start.isoformat(), (today + timedelta(days=1)).isoformat())
+    m1 = await _paid_jobs_between(uid, m1_start.isoformat(), cur_start.isoformat())
+    m2 = await _paid_jobs_between(uid, m2_start.isoformat(), m1_start.isoformat())
+    out["production"] = {"current_month": cur, "last_month": m1, "prev_month": m2}
+    since = lead_user.get("team_lead_since") or ""
+    out["grace"] = not since or since >= m2_start.isoformat()
+    minj = TEAM_LEAD_MIN_MONTHLY_JOBS
+    if m1 < minj and m2 < minj and cur < minj and not out["grace"]:
+        out["reason"] = "production_paused"
+        return out
+    out["eligible"] = True
+    return out
+
+
+async def _ops_manager_user() -> Optional[dict]:
+    """The Operations Manager receives 10% of every pool (doc §1)."""
+    return await db.users.find_one(
+        {"role": "admin", "is_program_manager": True},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1},
     )
-    if not u or not u.get("is_team_lead") or (u.get("va_status") or "") != "approved":
-        return None
-    return u
 
 
-async def _upsert_override(lead: dict, recipient: dict, level: int, gross: float, pct: float, member_id: str, target_status: str) -> float:
-    """Create/refresh the `team_override` commission for one upline recipient at
-    a given level. Idempotent by (lead_id, kind, level). Frozen once approved/paid
-    — returns the frozen amount so the closer's split stays consistent. Returns
-    the amount deducted from the closer for this level."""
-    existing = await db.commissions.find_one(
-        {"lead_id": lead["lead_id"], "kind": "team_override", "level": level}
-    )
-    if existing and existing.get("status") in ("approved", "paid", "owner_approved"):
+async def _calc_pool_for_lead(lead: dict) -> dict:
+    """commission_pool = base × category_rate(tier). Base is job profit for
+    Cat A-D/F, monthly collected revenue for Cat E/G."""
+    svc = lead.get("service_type")
+    cat = _resolve_category(svc, bool(lead.get("is_recurring")))
+    va = lead.get("va_user_id")
+    tier_info = await _va_tier(va)
+    tier = tier_info["tier"]
+    visit, phase = None, None
+    if cat in TIERED_CATEGORIES:
+        rates = await _get_pool_rates()
+        rate = float(rates[cat][tier])
+        base = float(lead.get("job_profit") or 0)
+        detail = f"{tier} tier"
+    elif cat == "D":
+        rates = await _get_pool_rates()
+        visit = await _recurring_visit_number(
+            va, lead.get("prospect_phone_norm") or "", lead.get("prospect_email_norm") or "",
+            lead.get("lead_id"),
+        )
+        phase = "early" if visit <= 3 else ("mid" if visit <= 12 else "lifetime")
+        rate = float(rates["D"][phase])
+        base = float(lead.get("job_profit") or 0)
+        detail = f"visit {visit} · {phase} tail"
+    elif cat in REVENUE_CATEGORIES:
+        rates = await _get_pool_rates()
+        rate = float(rates[cat]["pct"])
+        base = float(lead.get("job_value") or lead.get("job_profit") or 0)
+        detail = "monthly collected revenue"
+    else:
+        return {"category": None, "tier": tier, "rate": 0.0, "base": 0.0, "pool": 0.0,
+                "visit_number": None, "phase": None,
+                "notes": "Service type unknown — manual review needed"}
+    pool = round(base * rate / 100.0, 2)
+    base_label = "revenue" if cat in REVENUE_CATEGORIES else "job profit"
+    notes = (f"Cat {cat} ({CATEGORY_LABELS[cat]}) — pool {rate:g}% of ${base:.2f} "
+             f"{base_label} = ${pool:.2f} ({detail})")
+    return {"category": cat, "tier": tier, "rate": rate, "base": base, "pool": pool,
+            "visit_number": visit, "phase": phase, "notes": notes}
+
+
+_FROZEN_STATUSES = ("approved", "paid", "owner_approved")
+
+
+async def _upsert_pool_side(
+    lead: dict, *, kind: str, recipient: Optional[dict], amount: float,
+    calc: dict, target_status: str, note: str,
+) -> float:
+    """Idempotent upsert of the team_override / ops_share record for one lead.
+    Frozen (approved/paid) records are never touched. Returns the live amount."""
+    q: dict = {"lead_id": lead["lead_id"], "kind": kind}
+    if kind == "team_override":
+        q["level"] = 1
+    existing = await db.commissions.find_one(q)
+    if existing and existing.get("status") in _FROZEN_STATUSES:
         return round(float(existing.get("amount") or 0), 2)
-    if pct <= 0 or not recipient:
+    if amount <= 0 or not recipient:
         if existing:
             await db.commissions.delete_one({"commission_id": existing["commission_id"]})
         return 0.0
-    amount = round(gross * pct / 100.0, 2)
     now = datetime.now(timezone.utc).isoformat()
     base = {
         "lead_id": lead["lead_id"],
-        "kind": "team_override",
-        "level": level,
+        "kind": kind,
+        "level": 1 if kind == "team_override" else None,
+        "engine": "pool_v2",
         "va_user_id": recipient["user_id"],
         "va_name": recipient.get("name"),
         "prospect_name": lead.get("prospect_name"),
         "service_type": lead.get("service_type"),
+        "category": calc["category"],
+        "pool_amount": calc["pool"],
+        "pool_rate": calc["rate"],
         "amount": amount,
-        "override_rate": pct,
-        "source_va_user_id": member_id,
+        "source_va_user_id": lead.get("va_user_id"),
         "source_va_name": lead.get("va_name"),
         "status": target_status,
-        "calc_notes": f"Team override L{level} — {pct:.1f}% of {lead.get('va_name') or 'member'}'s commission (${gross:.2f})",
+        "calc_notes": note,
         "job_value": lead.get("job_value"),
+        "job_profit": lead.get("job_profit"),
         "updated_at": now,
     }
     if existing:
@@ -592,7 +729,7 @@ async def _upsert_override(lead: dict, recipient: dict, level: int, gross: float
         await db.commissions.insert_one({
             "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
             **base,
-            "visit_number": None,
+            "visit_number": calc.get("visit_number"),
             "client_phone_norm": None,
             "client_email_norm": None,
             "pm_action_at": None,
@@ -606,203 +743,120 @@ async def _upsert_override(lead: dict, recipient: dict, level: int, gross: float
     return amount
 
 
-async def _apply_team_override(lead: dict, gross_amount: float, target_status: str) -> tuple:
-    """Up to TWO levels of SPLIT override, both deducted from the closing VA.
-    L1 → the closer's direct team lead; L2 → that lead's own team lead.
-    Returns (member_net_amount, override_info|None)."""
-    member_id = lead.get("va_user_id")
-    if not member_id or gross_amount <= 0:
-        return gross_amount, None
-    member = await db.users.find_one({"user_id": member_id}, {"_id": 0, "team_lead_id": 1})
-    l1 = await _eligible_lead((member or {}).get("team_lead_id"))
-    if not l1 or l1["user_id"] == member_id:
-        # No upline — clean up any stale overrides and pay the closer in full.
-        await db.commissions.delete_many({"lead_id": lead["lead_id"], "kind": "team_override"})
-        return gross_amount, None
-
-    l1_pct = await _team_override_pct()
-    l1_amount = await _upsert_override(lead, l1, 1, gross_amount, l1_pct, member_id, target_status)
-
-    # Level 2 — the direct lead's own lead (hard cap at 2 levels).
-    l2 = await _eligible_lead(l1.get("team_lead_id"))
-    if l2 and l2["user_id"] not in (member_id, l1["user_id"]):
-        l2_pct = await _team_override_l2_pct()
-        l2_amount = await _upsert_override(lead, l2, 2, gross_amount, l2_pct, member_id, target_status)
-    else:
-        l2_amount = 0.0
-        stale = await db.commissions.find_one({"lead_id": lead["lead_id"], "kind": "team_override", "level": 2})
-        if stale and stale.get("status") not in ("approved", "paid", "owner_approved"):
-            await db.commissions.delete_one({"commission_id": stale["commission_id"]})
-
-    member_net = round(gross_amount - l1_amount - l2_amount, 2)
-    return member_net, {
-        "team_lead_id": l1["user_id"],
-        "override_amount": round(l1_amount + l2_amount, 2),
-        "override_rate": l1_pct,
-    }
-
-
-async def _resolve_commission_config(va_user_id: Optional[str]) -> dict:
-    """Effective rates: hardcoded defaults ← app_settings globals ← per-VA overrides."""
-    s = await db.app_settings.find_one(
-        {"_id": "global"},
-        {"_id": 0, "commission_rates": 1, "commercial_pct": 1, "digital_commission_pct": 1},
-    ) or {}
-    rates = {k: float(v) for k, v in COMMISSION_RATES.items() if k != "commercial_pct"}
-    for k, v in (s.get("commission_rates") or {}).items():
-        if k in rates:
-            try:
-                rates[k] = float(v)
-            except (TypeError, ValueError):
-                pass
-    try:
-        commercial_pct = float(s.get("commercial_pct"))
-    except (TypeError, ValueError):
-        commercial_pct = COMMISSION_RATES["commercial_pct"] * 100.0
-    digital_pct = await _get_digital_commission_pct()
-
-    overrides: dict = {}
-    if va_user_id:
-        u = await db.users.find_one({"user_id": va_user_id}, {"_id": 0, "commission_overrides": 1})
-        overrides = (u or {}).get("commission_overrides") or {}
-    for k, v in overrides.items():
-        try:
-            fv = float(v)
-        except (TypeError, ValueError):
-            continue
-        if k == "commercial_pct":
-            commercial_pct = fv
-        elif k == "digital_pct":
-            digital_pct = fv
-        elif k in rates:
-            rates[k] = fv
-    return {"rates": rates, "commercial_pct": commercial_pct, "digital_pct": digital_pct, "overrides": overrides}
-
-
-async def _calc_commission_for_lead(lead: dict, job_value: Optional[float] = None) -> dict:
-    """Compute commission for a lead based on its service type."""
-    svc = lead.get("service_type")
-    phone = lead.get("prospect_phone_norm") or ""
-    email = lead.get("prospect_email_norm") or ""
-    va = lead.get("va_user_id")
-    cfg = await _resolve_commission_config(va)
-
-    if svc in DIGITAL_SERVICE_TYPES:
-        pct = cfg["digital_pct"]
-        rev = float(job_value or lead.get("job_value") or 0)
-        amount = round(rev * pct / 100.0, 2)
-        return {
-            "amount": amount,
-            "kind": "digital_pct",
-            "visit_number": None,
-            "notes": f"{pct:g}% of ${rev:.2f} project value ({str(svc).replace('_', ' ')})",
-        }
-
-    if svc in ("commercial", "specialty_medical", "specialty_funeral", "specialty_construction", "maintenance_bundle"):
-        # All commercial-like services pay the 5% revenue cut. Specialty
-        # sub-types (medical/funeral/construction) and maintenance bundles
-        # are by nature commercial deals.
-        rev = float(job_value or lead.get("job_value") or 0)
-        pct = cfg["commercial_pct"]
-        amount = round(rev * pct / 100.0, 2)
-        return {
-            "amount": amount,
-            "kind": "commercial_one_time",
-            "visit_number": None,
-            "notes": f"{pct:g}% of ${rev:.2f} job value ({svc})",
-        }
-
-    if svc == "routine":
-        visit = await _next_recurring_visit_count(va, phone, email)
-        if visit >= 7:
-            return {"amount": 0.0, "kind": "recurring", "visit_number": visit,
-                    "notes": "Visit 7+ — recurring cap reached ($0)"}
-        per_visit = RECURRING_TIERS.get(visit, 0.0)
-        if visit == 1:
-            current_paid = await _va_lifetime_recurring_total(va, phone, email)
-            remaining = max(0.0, RECURRING_LIFETIME_CAP - current_paid)
-            amount = min(per_visit, remaining)
-            return {"amount": amount, "kind": "recurring", "visit_number": visit,
-                    "notes": f"Recurring visit {visit} (${per_visit:.0f})"}
-        current_paid = await _va_lifetime_recurring_total(va, phone, email)
-        remaining = max(0.0, RECURRING_LIFETIME_CAP - current_paid)
-        amount = min(per_visit, remaining)
-        return {"amount": amount, "kind": "recurring", "visit_number": visit,
-                "notes": f"Recurring visit {visit} (${per_visit:.0f}) · ${current_paid:.0f}/$100 lifetime cap"}
-
-    # Flat one-time payouts. Bucketed at either $10 or $25 per the
-    # COMMISSION_RATES table at the top of this file.
-    if svc in cfg["rates"]:
-        amt = cfg["rates"][svc]
-        return {"amount": amt, "kind": "one_time", "visit_number": None,
-                "notes": f"{svc.replace('_', ' ').title()} flat ${amt:.0f}"}
-
-    return {"amount": 0.0, "kind": "unknown", "visit_number": None,
-            "notes": "Service type unknown — manual review needed"}
-
-
 async def _ensure_commission_for_lead(lead: dict, target_status: str = "calculating") -> Optional[dict]:
-    """Create or update a commission record for this lead. Phase 1 lifecycle:
-    Booked → status=calculating (record created so VA sees progress)
-    Paid → status=pending_approval (surfaces in PM queue, auto-calc amount)"""
+    """Create/refresh the pool split (agent 75% / lead 15% / ops 10%) for a
+    lead. Booked → calculating; Paid → pending_approval. Frozen records never
+    change. Legacy (pre-pool) commissions already past 'calculating' are
+    honored at prior rates (transition rule §10)."""
     existing = await db.commissions.find_one(
-        {"lead_id": lead["lead_id"], "kind": {"$ne": "team_override"}}
+        {"lead_id": lead["lead_id"], "kind": {"$nin": ["team_override", "ops_share"]}}
     )
-    calc = await _calc_commission_for_lead(lead, lead.get("job_value"))
-    now = datetime.now(timezone.utc).isoformat()
-    # Team override (single-level, SPLIT): net the member, spin up the lead's cut.
-    member_amount, override_info = await _apply_team_override(lead, calc["amount"], target_status)
-    override_fields = {
-        "team_lead_id": (override_info or {}).get("team_lead_id"),
-        "override_amount": (override_info or {}).get("override_amount", 0.0),
-        "override_rate": (override_info or {}).get("override_rate"),
-    }
-    if existing:
-        # Recompute amount if entering pending_approval. Once approved/paid, freeze.
-        if existing.get("status") in ("approved", "paid", "owner_approved"):
-            return {k: v for k, v in existing.items() if k != "_id"}
-        await db.commissions.update_one(
-            {"commission_id": existing["commission_id"]},
-            {"$set": {
-                "amount": member_amount,
-                "kind": calc["kind"],
-                "visit_number": calc["visit_number"],
-                "calc_notes": calc["notes"],
-                "status": target_status,
-                "updated_at": now,
-                "client_phone_norm": lead.get("prospect_phone_norm"),
-                "client_email_norm": lead.get("prospect_email_norm"),
-                "job_value": lead.get("job_value"),
-                **override_fields,
-            }},
-        )
-        fresh = await db.commissions.find_one({"commission_id": existing["commission_id"]})
-        return {k: v for k, v in fresh.items() if k != "_id"} if fresh else None
+    if existing and existing.get("status") in _FROZEN_STATUSES:
+        return {k: v for k, v in existing.items() if k != "_id"}
+    if (
+        existing
+        and existing.get("engine") != "pool_v2"
+        and existing.get("status") not in (None, "calculating", "rejected")
+    ):
+        # Earned under the prior structure but not yet paid — honored as-is.
+        return {k: v for k, v in existing.items() if k != "_id"}
 
-    doc = {
-        "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
-        "lead_id": lead["lead_id"],
+    calc = await _calc_pool_for_lead(lead)
+    pool = calc["pool"]
+    now = datetime.now(timezone.utc).isoformat()
+    agent_amount = round(pool * POOL_SPLIT["agent"] / 100.0, 2)
+
+    # --- Team Lead 15% — only if the closer's lead passes auto-qualification.
+    lead_user, lead_status = None, None
+    member = await db.users.find_one(
+        {"user_id": lead.get("va_user_id")}, {"_id": 0, "team_lead_id": 1}
+    )
+    tl_id = (member or {}).get("team_lead_id")
+    if tl_id and tl_id != lead.get("va_user_id"):
+        lead_user = await db.users.find_one(
+            {"user_id": tl_id},
+            {"_id": 0, "user_id": 1, "name": 1, "is_team_lead": 1, "va_status": 1, "team_lead_since": 1},
+        )
+        lead_status = await _team_lead_status(lead_user)
+    lead_eligible = bool(lead_status and lead_status["eligible"])
+    lead_amount = round(pool * POOL_SPLIT["lead"] / 100.0, 2) if lead_eligible else 0.0
+
+    ops_user = await _ops_manager_user()
+    ops_amount = round(pool * POOL_SPLIT["ops"] / 100.0, 2) if ops_user else 0.0
+
+    # VERIFICATION RULE (§9): agent + lead + ops can never exceed the pool.
+    if agent_amount + lead_amount + ops_amount > pool:
+        agent_amount = max(0.0, round(pool - lead_amount - ops_amount, 2))
+
+    lead_amount = await _upsert_pool_side(
+        lead, kind="team_override", recipient=lead_user if lead_eligible else None,
+        amount=lead_amount, calc=calc, target_status=target_status,
+        note=(f"Team Lead {POOL_SPLIT['lead']:g}% of ${pool:.2f} pool — "
+              f"{lead.get('va_name') or 'member'}'s job"),
+    )
+    ops_amount = await _upsert_pool_side(
+        lead, kind="ops_share", recipient=ops_user, amount=ops_amount,
+        calc=calc, target_status=target_status,
+        note=(f"Operations {POOL_SPLIT['ops']:g}% of ${pool:.2f} pool — "
+              f"{lead.get('va_name') or 'agent'}'s job"),
+    )
+
+    retained = 0.0
+    lead_share_reason = None
+    if not lead_eligible:
+        lead_share_reason = (lead_status or {}).get("reason") if lead_status else "no_team_lead"
+        if pool > 0:
+            retained = round(pool * POOL_SPLIT["lead"] / 100.0, 2)
+
+    agent_note = calc["notes"] + f" · Agent {POOL_SPLIT['agent']:g}% = ${agent_amount:.2f}"
+    if retained:
+        agent_note += f" · Lead share ${retained:.2f} retained by Company ({lead_share_reason})"
+
+    fields = {
         "va_user_id": lead["va_user_id"],
         "va_name": lead.get("va_name"),
         "prospect_name": lead.get("prospect_name"),
         "service_type": lead.get("service_type"),
         "client_phone_norm": lead.get("prospect_phone_norm"),
         "client_email_norm": lead.get("prospect_email_norm"),
-        "amount": member_amount,
-        "kind": calc["kind"],
+        "amount": agent_amount,
+        "kind": "pool_agent",
+        "engine": "pool_v2",
+        "category": calc["category"],
+        "tier": calc["tier"],
+        "pool_amount": pool,
+        "pool_rate": calc["rate"],
+        "base_amount": calc["base"],
         "visit_number": calc["visit_number"],
-        "calc_notes": calc["notes"],
+        "tail_phase": calc["phase"],
+        "calc_notes": agent_note,
+        "team_lead_id": lead_user["user_id"] if lead_eligible else None,
+        "lead_share": lead_amount,
+        "lead_share_retained": retained,
+        "lead_share_reason": lead_share_reason,
+        "ops_share_amount": ops_amount,
         "status": target_status,
+        "job_value": lead.get("job_value"),
+        "job_profit": lead.get("job_profit"),
+        "updated_at": now,
+    }
+    if existing:
+        await db.commissions.update_one(
+            {"commission_id": existing["commission_id"]}, {"$set": fields}
+        )
+        fresh = await db.commissions.find_one({"commission_id": existing["commission_id"]})
+        return {k: v for k, v in fresh.items() if k != "_id"} if fresh else None
+    doc = {
+        "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+        "lead_id": lead["lead_id"],
+        **fields,
         "pm_action_at": None,
         "pm_action_note": None,
         "owner_action_at": None,
         "paid_at": None,
         "payout_reference": None,
         "payout_method": None,
-        "job_value": lead.get("job_value"),
         "created_at": now,
-        "updated_at": now,
-        **override_fields,
     }
     await db.commissions.insert_one(doc)
     return {k: v for k, v in doc.items() if k != "_id"}

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { MagnifyingGlass, ArrowRight, Trash, ArrowCounterClockwise, Pencil, Kanban, Rows, Phone, ChatCircle, CalendarBlank } from "@phosphor-icons/react";
 import MessageUserButton from "@/components/messages/MessageUserButton";
 import { PipelineBoard } from "@/components/admin/PipelineBoard";
+import { isRevenueBasedLead } from "@/lib/leadOptions";
 
 const STAGES = [
   { value: "new_lead", label: "New Lead", color: "bg-[#0044FF]" },
@@ -79,7 +80,10 @@ export default function AdminVAPipeline() {
         const v = jobValueOverride != null
           ? parseFloat(jobValueOverride)
           : parseFloat(jobValueMap[lead.lead_id]);
-        if (Number.isFinite(v) && v > 0) payload.job_value = v;
+        if (Number.isFinite(v) && v > 0) {
+          if (isRevenueBasedLead(lead)) payload.job_value = v;
+          else payload.job_profit = v;
+        }
       }
       await api.put(`/pm/leads/${lead.lead_id}/stage`, payload);
       toast.success(`Moved to ${newStage.replace(/_/g, " ")}`);
@@ -358,7 +362,7 @@ export default function AdminVAPipeline() {
                               {ns === "paid" && (
                                 <input
                                   type="number"
-                                  placeholder="$ value"
+                                  placeholder={isRevenueBasedLead(l) ? "$ revenue" : "$ profit"}
                                   data-testid={`job-value-${l.lead_id}`}
                                   value={jobValueMap[l.lead_id] || ""}
                                   onChange={(e) =>

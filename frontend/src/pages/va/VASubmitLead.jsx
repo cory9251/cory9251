@@ -20,6 +20,7 @@ export default function VASubmitLead() {
     prospect_address: "",
     service_type: "routine",
     property_size: "1br",
+    is_recurring: false,
     preferred_datetime: "",
     source: "facebook_marketplace",
     notes: "",
@@ -150,6 +151,25 @@ export default function VASubmitLead() {
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
+          </div>
+          <div className="md:col-span-2">
+            <label
+              className="flex cursor-pointer items-start gap-3 border border-[#030712] bg-[#F0F4FF] p-3"
+              data-testid="lead-is-recurring"
+            >
+              <input
+                type="checkbox"
+                checked={form.is_recurring}
+                onChange={(e) => upd("is_recurring", e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-[#0044FF]"
+              />
+              <span className="text-xs text-[#4B5563]">
+                <span className="font-bold text-[#030712]">Recurring account?</span>{" "}
+                Weekly / biweekly / monthly service, Airbnb turnovers, or an ongoing retainer.
+                Recurring accounts pay you a lifetime tail — you earn on every single visit for
+                as long as the client stays active.
+              </span>
+            </label>
           </div>
           <div>
             <Label htmlFor="property_size" className="font-mono-label">Property size *</Label>

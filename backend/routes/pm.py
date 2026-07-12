@@ -20,23 +20,24 @@ from va_commission import (
     DIGITAL_SERVICE_TYPES,
     DigitalSettingsIn,
     AssignVAIn,
-    COMMISSION_RATES,
-    DEFAULT_DIGITAL_COMMISSION_PCT,
-    DEFAULT_TEAM_OVERRIDE_PCT,
-    DEFAULT_TEAM_OVERRIDE_L2_PCT,
-    _team_override_pct,
-    _team_override_l2_pct,
-    OVERRIDABLE_FLAT_SERVICES,
-    OVERRIDABLE_RATE_KEYS,
-    CommissionSettingsIn,
-    VACommissionOverridesIn,
+    DEFAULT_POOL_RATES,
+    CATEGORY_LABELS,
+    POOL_SPLIT,
+    TIER_THRESHOLDS,
+    TEAM_LEAD_MIN_MONTHLY_JOBS,
+    REVENUE_CATEGORIES,
+    PoolRatesIn,
+    _resolve_category,
+    _get_pool_rates,
+    _va_tier,
+    _team_lead_status,
+    _ops_manager_user,
     LeadFollowupIn,
     LeadContactIn,
     LeadCommentIn,
     apply_lead_followup,
     apply_lead_contact,
     apply_lead_comment,
-    _resolve_commission_config,
     _get_digital_commission_pct,
     require_program_manager_or_owner,
     LeadStageIn,
@@ -119,7 +120,7 @@ async def pm_get_lead(
     async for a in cur:
         activity.append({k: v for k, v in a.items() if k != "_id"})
     commission = await db.commissions.find_one(
-        {"lead_id": lead_id, "kind": {"$ne": "team_override"}}
+        {"lead_id": lead_id, "kind": {"$nin": ["team_override", "ops_share"]}}
     )
     return {
         "lead": _serialize_lead(lead),
@@ -138,6 +139,18 @@ async def pm_update_lead_stage(
     if not lead:
         raise HTTPException(404, "Lead not found")
     now = datetime.now(timezone.utc).isoformat()
+    # Pool model golden rule (§2): a pool needs its base amount. Cat E/G need
+    # collected revenue (job_value); every other category needs job profit.
+    if payload.stage == "paid":
+        eff_profit = payload.job_profit if payload.job_profit is not None else lead.get("job_profit")
+        eff_value = payload.job_value if payload.job_value is not None else lead.get("job_value")
+        cat = _resolve_category(lead.get("service_type"), bool(lead.get("is_recurring")))
+        if cat in REVENUE_CATEGORIES:
+            if not (eff_value and float(eff_value) > 0):
+                raise HTTPException(400, "Monthly collected revenue (job value) is required to mark this lead Paid.")
+        elif cat:
+            if not (eff_profit and float(eff_profit) > 0):
+                raise HTTPException(400, "Job profit is required to mark this lead Paid — the commission pool is a % of job profit.")
     history_entry = {"stage": payload.stage, "at": now, "by": admin["user_id"], "note": payload.note}
     updates: dict = {
         "stage": payload.stage,
@@ -146,6 +159,8 @@ async def pm_update_lead_stage(
     }
     if payload.job_value is not None:
         updates["job_value"] = float(payload.job_value)
+    if payload.job_profit is not None:
+        updates["job_profit"] = float(payload.job_profit)
     await db.va_leads.update_one(
         {"lead_id": lead_id},
         {"$set": updates, "$push": {"stage_history": history_entry}},
@@ -159,6 +174,7 @@ async def pm_update_lead_stage(
             "to": payload.stage,
             "note": payload.note,
             "job_value": payload.job_value,
+            "job_profit": payload.job_profit,
         },
     )
     fresh = await db.va_leads.find_one({"lead_id": lead_id})
@@ -181,7 +197,7 @@ async def pm_update_lead_stage(
         })
     elif payload.stage in ("completed",):
         existing = await db.commissions.find_one(
-            {"lead_id": lead_id, "kind": {"$ne": "team_override"}}
+            {"lead_id": lead_id, "kind": {"$nin": ["team_override", "ops_share"]}}
         )
         if existing and existing.get("status") in ("calculating",):
             await db.commissions.update_one(
@@ -272,6 +288,10 @@ async def pm_edit_lead(
         _add("estimated_budget", float(payload.estimated_budget))
     if payload.job_value is not None:
         _add("job_value", float(payload.job_value))
+    if payload.job_profit is not None:
+        _add("job_profit", float(payload.job_profit))
+    if payload.is_recurring is not None:
+        _add("is_recurring", bool(payload.is_recurring))
 
     # Reassign owner (rare but useful when a lead was misattributed).
     if payload.va_user_id and payload.va_user_id != lead.get("va_user_id"):
@@ -459,23 +479,15 @@ async def pm_assign_delivery_va(
 
 
 # ---------------------------------------------------------------------------
-# Commission rate control — global defaults + per-VA overrides
+# Commission rate control — Fixed Pool Model category rates
 # ---------------------------------------------------------------------------
 async def _commission_settings_payload() -> dict:
-    cfg = await _resolve_commission_config(None)
     return {
-        "rates": cfg["rates"],
-        "commercial_pct": cfg["commercial_pct"],
-        "digital_pct": cfg["digital_pct"],
-        "team_override_pct": await _team_override_pct(),
-        "team_override_l2_pct": await _team_override_l2_pct(),
-        "defaults": {
-            "rates": {k: v for k, v in COMMISSION_RATES.items() if k != "commercial_pct"},
-            "commercial_pct": COMMISSION_RATES["commercial_pct"] * 100.0,
-            "digital_pct": DEFAULT_DIGITAL_COMMISSION_PCT,
-            "team_override_pct": DEFAULT_TEAM_OVERRIDE_PCT,
-            "team_override_l2_pct": DEFAULT_TEAM_OVERRIDE_L2_PCT,
-        },
+        "pool_rates": await _get_pool_rates(),
+        "pool_split": POOL_SPLIT,
+        "tier_thresholds": TIER_THRESHOLDS,
+        "category_labels": CATEGORY_LABELS,
+        "defaults": {"pool_rates": DEFAULT_POOL_RATES},
     }
 
 
@@ -486,128 +498,51 @@ async def pm_get_commission_settings(admin: dict = Depends(require_program_manag
 
 @router.put("/pm/commission-settings")
 async def pm_set_commission_settings(
-    payload: CommissionSettingsIn,
+    payload: PoolRatesIn,
     admin: dict = Depends(require_program_manager_or_owner),
 ):
-    updates: dict = {}
-    if payload.rates is not None:
-        clean: dict = {}
-        for k, v in payload.rates.items():
-            if k not in OVERRIDABLE_FLAT_SERVICES:
-                raise HTTPException(400, f"Unknown service rate '{k}'")
+    clean: dict = {}
+    for cat, sub in (payload.pool_rates or {}).items():
+        if cat not in DEFAULT_POOL_RATES:
+            raise HTTPException(400, f"Unknown category '{cat}'")
+        clean[cat] = {}
+        for k, v in (sub or {}).items():
+            if k not in DEFAULT_POOL_RATES[cat]:
+                raise HTTPException(400, f"Unknown rate key '{k}' for category {cat}")
             try:
                 fv = float(v)
             except (TypeError, ValueError):
-                raise HTTPException(400, f"Rate for '{k}' must be a number")
-            if fv < 0 or fv > 10000:
-                raise HTTPException(400, f"Rate for '{k}' out of range")
-            clean[k] = fv
-        updates["commission_rates"] = clean
-    if payload.commercial_pct is not None:
-        updates["commercial_pct"] = float(payload.commercial_pct)
-    if payload.digital_pct is not None:
-        updates["digital_commission_pct"] = float(payload.digital_pct)
-    if payload.team_override_pct is not None:
-        updates["team_override_pct"] = float(payload.team_override_pct)
-    if payload.team_override_l2_pct is not None:
-        updates["team_override_l2_pct"] = float(payload.team_override_l2_pct)
-    if updates:
-        updates["commission_settings_updated_at"] = datetime.now(timezone.utc).isoformat()
-        updates["commission_settings_updated_by"] = admin["user_id"]
-        await db.app_settings.update_one({"_id": "global"}, {"$set": updates}, upsert=True)
+                raise HTTPException(400, f"Rate {cat}.{k} must be a number")
+            if fv < 0 or fv > 100:
+                raise HTTPException(400, f"Rate {cat}.{k} must be between 0 and 100")
+            clean[cat][k] = fv
+    if clean:
+        await db.app_settings.update_one(
+            {"_id": "global"},
+            {"$set": {
+                "pool_rates": clean,
+                "commission_settings_updated_at": datetime.now(timezone.utc).isoformat(),
+                "commission_settings_updated_by": admin["user_id"],
+            }},
+            upsert=True,
+        )
     return await _commission_settings_payload()
 
 
-@router.get("/pm/vas/{va_user_id}/commission-overrides")
-async def pm_get_va_commission_overrides(
-    va_user_id: str,
-    admin: dict = Depends(require_program_manager_or_owner),
-):
-    va = await db.users.find_one(
-        {"user_id": va_user_id, "role": "va"},
-        {"_id": 0, "user_id": 1, "name": 1, "commission_overrides": 1},
-    )
-    if not va:
-        raise HTTPException(404, "VA not found")
-    cfg = await _resolve_commission_config(va_user_id)
-    return {
-        "va_user_id": va_user_id,
-        "va_name": va.get("name"),
-        "overrides": va.get("commission_overrides") or {},
-        "effective": {"rates": cfg["rates"], "commercial_pct": cfg["commercial_pct"], "digital_pct": cfg["digital_pct"]},
-        "globals": await _commission_settings_payload(),
-    }
-
-
-@router.put("/pm/vas/{va_user_id}/commission-overrides")
-async def pm_set_va_commission_overrides(
-    va_user_id: str,
-    payload: VACommissionOverridesIn,
-    admin: dict = Depends(require_program_manager_or_owner),
-):
-    va = await db.users.find_one({"user_id": va_user_id, "role": "va"}, {"_id": 0, "user_id": 1})
-    if not va:
-        raise HTTPException(404, "VA not found")
-    clean: dict = {}
-    for k, v in (payload.overrides or {}).items():
-        if k not in OVERRIDABLE_RATE_KEYS:
-            raise HTTPException(400, f"Unknown rate key '{k}'")
-        try:
-            fv = float(v)
-        except (TypeError, ValueError):
-            raise HTTPException(400, f"Override '{k}' must be a number")
-        if k in ("commercial_pct", "digital_pct"):
-            if fv < 0 or fv > 100:
-                raise HTTPException(400, f"'{k}' must be between 0 and 100")
-        elif fv < 0 or fv > 10000:
-            raise HTTPException(400, f"'{k}' out of range")
-        clean[k] = fv
-    await db.users.update_one(
-        {"user_id": va_user_id},
-        {"$set": {"commission_overrides": clean, "updated_at": datetime.now(timezone.utc).isoformat()}},
-    )
-    cfg = await _resolve_commission_config(va_user_id)
-    return {
-        "va_user_id": va_user_id,
-        "overrides": clean,
-        "effective": {"rates": cfg["rates"], "commercial_pct": cfg["commercial_pct"], "digital_pct": cfg["digital_pct"]},
-    }
-
-
 # ---------------------------------------------------------------------------
-# VA Teams — up to TWO-level lead/downline with SPLIT override commissions.
-# Feature is opt-in per VA via the is_team_lead toggle.
+# VA Teams — Fixed Pool Model: single-level teams of 3-5 agents + one lead.
+# The lead earns 15% of the pool on every member job. Qualification (Senior
+# tier + 8 paid jobs/month) is auto-checked by the engine on every split.
 # ---------------------------------------------------------------------------
+MAX_TEAM_SIZE = 5
+
+
 class TeamLeadToggleIn(BaseModel):
     is_team_lead: bool
 
 
 class TeamAssignIn(BaseModel):
     team_lead_id: Optional[str] = None  # None = remove from any team
-
-
-async def _upline_depth(va_id: Optional[str], _guard: int = 0) -> int:
-    """Number of leads above this VA (0 = top). Cycle-safe."""
-    if not va_id or _guard > 5:
-        return 0
-    u = await db.users.find_one({"user_id": va_id}, {"_id": 0, "team_lead_id": 1})
-    parent = (u or {}).get("team_lead_id")
-    if not parent:
-        return 0
-    return 1 + await _upline_depth(parent, _guard + 1)
-
-
-async def _is_ancestor(candidate_id: str, of_id: str, _guard: int = 0) -> bool:
-    """True if candidate_id is somewhere above of_id in the chain (cycle guard)."""
-    if not of_id or _guard > 5:
-        return False
-    u = await db.users.find_one({"user_id": of_id}, {"_id": 0, "team_lead_id": 1})
-    parent = (u or {}).get("team_lead_id")
-    if not parent:
-        return False
-    if parent == candidate_id:
-        return True
-    return await _is_ancestor(candidate_id, parent, _guard + 1)
 
 
 @router.put("/pm/vas/{va_user_id}/team-lead")
@@ -617,13 +552,29 @@ async def pm_toggle_team_lead(
     admin: dict = Depends(require_program_manager_or_owner),
 ):
     va = await db.users.find_one(
-        {"user_id": va_user_id, "role": "va"}, {"_id": 0, "user_id": 1, "team_lead_id": 1}
+        {"user_id": va_user_id, "role": "va"}, {"_id": 0, "user_id": 1}
     )
     if not va:
         raise HTTPException(404, "VA not found")
-    updates = {"is_team_lead": payload.is_team_lead, "updated_at": datetime.now(timezone.utc).isoformat()}
-    await db.users.update_one({"user_id": va_user_id}, {"$set": updates})
-    if not payload.is_team_lead:
+    now = datetime.now(timezone.utc).isoformat()
+    if payload.is_team_lead:
+        tier = await _va_tier(va_user_id)
+        if tier["tier"] == "agent":
+            raise HTTPException(
+                400,
+                f"Team Leads must hold Senior tier ({TIER_THRESHOLDS['senior']} closed + paid jobs). "
+                f"This VA has {tier['paid_jobs']}.",
+            )
+        # Leads sit at the top — one level deep, so drop any team membership.
+        await db.users.update_one(
+            {"user_id": va_user_id},
+            {"$set": {"is_team_lead": True, "team_lead_since": now, "team_lead_id": None, "updated_at": now}},
+        )
+    else:
+        await db.users.update_one(
+            {"user_id": va_user_id},
+            {"$set": {"is_team_lead": False, "team_lead_since": None, "updated_at": now}},
+        )
         # Detach any members that reported to this (now former) lead.
         await db.users.update_many(
             {"team_lead_id": va_user_id}, {"$set": {"team_lead_id": None}}
@@ -645,21 +596,17 @@ async def pm_assign_team(
     if payload.team_lead_id:
         if payload.team_lead_id == va_user_id:
             raise HTTPException(400, "A VA can't be on their own team")
+        if member.get("is_team_lead"):
+            raise HTTPException(400, "Team Leads can't join another team — teams are one level deep")
         lead = await db.users.find_one(
             {"user_id": payload.team_lead_id, "role": "va"},
-            {"_id": 0, "user_id": 1, "is_team_lead": 1, "va_status": 1},
+            {"_id": 0, "user_id": 1, "is_team_lead": 1},
         )
         if not lead or not lead.get("is_team_lead"):
             raise HTTPException(400, "Target is not a team lead")
-        # No cycles: the target can't be somewhere below this VA.
-        if await _is_ancestor(va_user_id, payload.team_lead_id):
-            raise HTTPException(400, "That would create a loop in the team hierarchy")
-        # 2-level cap: the target lead may have at most one lead above them.
-        if await _upline_depth(payload.team_lead_id) >= 2:
-            raise HTTPException(400, "Teams are capped at two levels — this lead is already at the bottom of a 2-level chain")
-        # And this VA's own downline must not push the chain past 2 levels.
-        if await _upline_depth(payload.team_lead_id) >= 1 and await db.users.count_documents({"team_lead_id": va_user_id}) > 0:
-            raise HTTPException(400, "Teams are capped at two levels — this VA already leads a team, so they can't sit below another lead")
+        member_count = await db.users.count_documents({"team_lead_id": payload.team_lead_id})
+        if member_count >= MAX_TEAM_SIZE:
+            raise HTTPException(400, f"Teams are capped at {MAX_TEAM_SIZE} agents per lead")
     await db.users.update_one(
         {"user_id": va_user_id},
         {"$set": {"team_lead_id": payload.team_lead_id, "updated_at": datetime.now(timezone.utc).isoformat()}},
@@ -682,45 +629,51 @@ async def _override_earnings(team_lead_id: str) -> dict:
 async def pm_list_teams(admin: dict = Depends(require_program_manager_or_owner)):
     leads = await db.users.find(
         {"role": "va", "is_team_lead": True},
-        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1, "team_lead_id": 1},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1,
+         "is_team_lead": 1, "team_lead_since": 1},
     ).sort("name", 1).to_list(200)
     all_vas = await db.users.find(
         {"role": "va"},
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1, "is_team_lead": 1, "team_lead_id": 1},
     ).sort("name", 1).to_list(1000)
     members_by_lead: dict = {}
-    by_id = {v["user_id"]: v for v in all_vas}
     for v in all_vas:
         if v.get("team_lead_id"):
             members_by_lead.setdefault(v["team_lead_id"], []).append(v)
     teams = []
     for l in leads:
         earn = await _override_earnings(l["user_id"])
-        members = members_by_lead.get(l["user_id"], [])
-        # Tag which members are themselves sub-leads (2-level chains).
-        members = [
-            {**m, "sub_member_count": len(members_by_lead.get(m["user_id"], []))}
-            for m in members
-        ]
-        parent = by_id.get(l.get("team_lead_id")) if l.get("team_lead_id") else None
+        status = await _team_lead_status(l)
         teams.append({
-            **l,
-            "members": members,
-            "member_count": len(members),
-            "reports_to": {"user_id": parent["user_id"], "name": parent.get("name")} if parent else None,
+            "user_id": l["user_id"],
+            "name": l.get("name"),
+            "email": l.get("email"),
+            "va_status": l.get("va_status"),
+            "team_lead_since": l.get("team_lead_since"),
+            "members": members_by_lead.get(l["user_id"], []),
+            "member_count": len(members_by_lead.get(l["user_id"], [])),
             "override_earnings": earn,
+            "tier": status.get("tier"),
+            "qualification": {
+                "eligible": status["eligible"],
+                "reason": status["reason"],
+                "production": status["production"],
+                "grace": status["grace"],
+                "min_monthly": status["min_monthly"],
+            },
         })
-    # Eligible to be added as members: approved, not already on a team, and not
-    # the top of a chain that would exceed 2 levels (server re-validates on assign).
     assignable = [
         v for v in all_vas
-        if not v.get("team_lead_id") and (v.get("va_status") or "") == "approved"
+        if not v.get("team_lead_id") and not v.get("is_team_lead")
+        and (v.get("va_status") or "") == "approved"
     ]
     return {
         "teams": teams,
         "assignable_vas": assignable,
-        "team_override_pct": await _team_override_pct(),
-        "team_override_l2_pct": await _team_override_l2_pct(),
+        "pool_split": POOL_SPLIT,
+        "min_monthly_jobs": TEAM_LEAD_MIN_MONTHLY_JOBS,
+        "tier_thresholds": TIER_THRESHOLDS,
+        "max_team_size": MAX_TEAM_SIZE,
     }
 
 
@@ -1041,7 +994,8 @@ async def pm_log_commercial_revenue(
     payload: dict = Body(...),
     admin: dict = Depends(require_program_manager_or_owner),
 ):
-    """Log a month's revenue against a commercial account — triggers a 5% commission record."""
+    """Log a month's collected revenue against a commercial account (Cat E) —
+    creates the pool split: 75% agent / 15% team lead / 10% ops (doc §4-E)."""
     acct = await db.commercial_accounts.find_one({"account_id": account_id})
     if not acct:
         raise HTTPException(404, "Account not found")
@@ -1051,32 +1005,93 @@ async def pm_log_commercial_revenue(
     period = (payload.get("period") or datetime.now(timezone.utc).strftime("%Y-%m"))
     if revenue <= 0:
         raise HTTPException(400, "Revenue must be > 0")
-    amount = round(revenue * 0.05, 2)
+    va = await db.users.find_one(
+        {"user_id": acct["va_user_id"]},
+        {"_id": 0, "user_id": 1, "name": 1, "va_status": 1, "team_lead_id": 1},
+    )
+    # §6 — VA departure ends future pools on their accounts.
+    if not va or (va.get("va_status") or "") != "approved":
+        raise HTTPException(400, "This VA is no longer active — the account tail has ended.")
+    rates = await _get_pool_rates()
+    pct = float(rates["E"]["pct"])
+    pool = round(revenue * pct / 100.0, 2)
+    agent_amount = round(pool * POOL_SPLIT["agent"] / 100.0, 2)
+
+    lead_user, lead_status = None, None
+    if va.get("team_lead_id") and va["team_lead_id"] != va["user_id"]:
+        lead_user = await db.users.find_one(
+            {"user_id": va["team_lead_id"]},
+            {"_id": 0, "user_id": 1, "name": 1, "is_team_lead": 1, "va_status": 1, "team_lead_since": 1},
+        )
+        lead_status = await _team_lead_status(lead_user)
+    lead_eligible = bool(lead_status and lead_status["eligible"])
+    lead_amount = round(pool * POOL_SPLIT["lead"] / 100.0, 2) if lead_eligible else 0.0
+    ops_user = await _ops_manager_user()
+    ops_amount = round(pool * POOL_SPLIT["ops"] / 100.0, 2) if ops_user else 0.0
+    if agent_amount + lead_amount + ops_amount > pool:
+        agent_amount = max(0.0, round(pool - lead_amount - ops_amount, 2))
+
     now = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+    common = {
         "lead_id": None,
         "commercial_account_id": account_id,
-        "va_user_id": acct["va_user_id"],
-        "va_name": acct.get("va_name"),
         "prospect_name": acct.get("account_name"),
         "service_type": "commercial",
-        "amount": amount,
-        "kind": "commercial_recurring",
+        "engine": "pool_v2",
+        "category": "E",
+        "pool_amount": pool,
+        "pool_rate": pct,
         "visit_number": None,
-        "calc_notes": f"5% of ${revenue:.2f} for {period}",
         "period": period,
         "status": "pending_approval",
         "job_value": revenue,
         "created_at": now,
         "updated_at": now,
     }
-    await db.commissions.insert_one(doc)
+    agent_note = f"Cat E — pool {pct:g}% of ${revenue:.2f} revenue ({period}) = ${pool:.2f} · Agent {POOL_SPLIT['agent']:g}% = ${agent_amount:.2f}"
+    if not lead_eligible and pool > 0:
+        reason = (lead_status or {}).get("reason") if lead_status else "no_team_lead"
+        agent_note += f" · Lead share retained by Company ({reason})"
+    docs = [{
+        "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+        **common,
+        "va_user_id": va["user_id"],
+        "va_name": va.get("name"),
+        "kind": "pool_agent",
+        "amount": agent_amount,
+        "calc_notes": agent_note,
+    }]
+    if lead_amount > 0:
+        docs.append({
+            "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+            **common,
+            "va_user_id": lead_user["user_id"],
+            "va_name": lead_user.get("name"),
+            "kind": "team_override",
+            "level": 1,
+            "amount": lead_amount,
+            "source_va_user_id": va["user_id"],
+            "source_va_name": va.get("name"),
+            "calc_notes": f"Team Lead {POOL_SPLIT['lead']:g}% of ${pool:.2f} pool — {acct.get('account_name')} ({period})",
+        })
+    if ops_amount > 0:
+        docs.append({
+            "commission_id": f"comm_{uuid.uuid4().hex[:12]}",
+            **common,
+            "va_user_id": ops_user["user_id"],
+            "va_name": ops_user.get("name"),
+            "kind": "ops_share",
+            "amount": ops_amount,
+            "source_va_user_id": va["user_id"],
+            "source_va_name": va.get("name"),
+            "calc_notes": f"Operations {POOL_SPLIT['ops']:g}% of ${pool:.2f} pool — {acct.get('account_name')} ({period})",
+        })
+    await db.commissions.insert_many(docs)
     await db.commercial_accounts.update_one(
         {"account_id": account_id},
         {"$set": {"last_revenue_at": now}},
     )
-    return _serialize_commission(doc)
+    return _serialize_commission(docs[0])
 
 
 @router.get("/pm/weekly-report")

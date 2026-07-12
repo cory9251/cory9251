@@ -1,0 +1,35 @@
+{
+  "summary": "Tested VA Commission Fixed Pool Model v2.0 end-to-end. 14/14 pool-engine backend tests pass (cat mapping A-G, tier promotion via 25-lead seed, cat D visit 4 mid-phase, same-VA repeat allowed / different-VA blocked 409, paid-stage validation profit vs revenue, team-lead qualification/promotion/cap/self-assign/override creation, commission-settings GET/PUT validation, commercial log-revenue pool split, legacy commission freeze). Full approval pipeline regression also passes: pool_agent + ops_share + team_override each flow through PM approve → Owner approve → mark paid, VA earnings shows pool_agent commissions. Frontend spot-checked: Admin Rates page (all 15 testids present, save works), Admin Teams page (banner + selects present), Pipeline paid-input placeholder shows '$ profit', VA Dashboard agent-tier-card renders with tier + progress, VA Submit Lead has is-recurring checkbox. Old test_va_commission.py has 3 legacy failures — they use job_value for non-commercial (v2 now requires job_profit) and expect 100% commercial commission (v2 splits 75/15/10). These are expected model-change failures, not bugs.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin VA Pipeline", "issues": ["React hydration warning: <span> nested inside <option> (data-visual-editor decorator) — noisy console but not functional. AdminVAPipeline.jsx line ~201."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pool_engine_v2.py",
+    "/app/backend/tests/test_pool_v2_pipeline.py",
+    "/app/test_reports/pytest/iter78_pool.xml",
+    "/app/test_reports/pytest/iter78_regression.xml"
+  ],
+  "action_items": [
+    "Optional: update legacy /app/backend/tests/test_va_commission.py to use job_profit (not job_value) and adjust commercial-account expected amount from 100 → 75 (agent share only after 75/15/10 split). Currently 3 tests fail because they still use the pre-v2 contract.",
+    "Optional cosmetic: fix AdminVAPipeline.jsx <option> containing <span> to avoid hydration warning in console.",
+    "Frontend VA /va/team qualification card was not verified live because va.demo is not a team lead — main agent may seed a team-lead VA fixture or self-verify by promoting a senior VA in the UI."
+  ],
+  "critical_code_review_comments": [
+    "va_commission.py 918 lines — approaching split threshold. Consider extracting the pool-engine block (_resolve_category through _ensure_commission_for_lead) into va_pool_engine.py.",
+    "routes/pm.py 1626 lines — also above 700-line guideline. Extract the teams and commercial-accounts sub-sections into dedicated route files.",
+    "Pool split is enforced not to exceed pool (line 788-789) — good defensive check. Legacy commission freeze in _ensure_commission_for_lead (line 754-762) correctly bypasses pool-v2 rewrite for pre-existing pending_approval records without engine field — verified live.",
+    "Same-VA repeat-visit exception in _find_duplicate_lead (line 467) is order-dependent inside async for; if there are BOTH a same-VA completed record AND a different-VA active record, iteration order matters. In practice acceptable but consider explicit priority ordering."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (14/14 pool + 1/1 pipeline)", "frontend": "100% of testable elements (VA team-lead card requires seeded team-lead fixture)"},
+  "test_credentials": "See /app/memory/test_credentials.md — owner/admin/mechie/va.demo all working. Mechie has must_change_password=true but still logs in and API works.",
+  "seed_data_creation": "Test fixtures create TEST_-prefixed VAs, va_leads (paid), commercial_accounts, and commissions. Session-scoped autouse cleanup fixture removes all inserted docs by user_id / lead_id / account_id — verified in cleanup block.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pool engine v2 is functionally correct end-to-end. If revising legacy tests, note: (a) non-commercial paid stage now REQUIRES job_profit, (b) commercial paid/log-revenue splits so agent gets 75% (not 100%) of the 5% pool, (c) commission-settings shape is {pool_rates, pool_split, tier_thresholds, category_labels, defaults} — old flat-rate keys removed. TEST_ prefix cleanup pattern in test_pool_engine_v2.py is reusable."
+}

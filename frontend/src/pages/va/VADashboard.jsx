@@ -111,6 +111,35 @@ export default function VADashboard() {
         tier={data?.tier}
       />
 
+      {/* Fixed Pool Model agent tier */}
+      {data?.agent_tier && (
+        <div
+          data-testid="agent-tier-card"
+          className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-2 border border-[#030712] bg-[#F0F4FF] px-5 py-4"
+        >
+          <div>
+            <div className="font-mono-label text-[#4B5563]">COMMISSION TIER</div>
+            <div className="font-display text-2xl font-black uppercase tracking-tight text-[#0044FF]">
+              {data.agent_tier.tier}
+            </div>
+          </div>
+          <div className="text-xs text-[#4B5563]">
+            <div>
+              <span className="font-bold text-[#030712]">{data.agent_tier.paid_jobs}</span> closed + paid jobs
+            </div>
+            {data.agent_tier.next_tier ? (
+              <div>
+                {data.agent_tier.jobs_to_next} more to{" "}
+                <span className="font-bold uppercase text-[#030712]">{data.agent_tier.next_tier}</span> — higher
+                tier means a bigger pool % on every job you close
+              </div>
+            ) : (
+              <div className="font-bold text-[#030712]">Top tier — maximum pool rates on every job</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Stale-lead alert */}
       {data?.stale_leads_count > 0 && (
         <Link

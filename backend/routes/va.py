@@ -19,8 +19,10 @@ from notifications import notify_admins, email_admins, _public_base
 from va_commission import (
     DIGITAL_SERVICE_TYPES,
     _get_digital_commission_pct,
-    _team_override_pct,
-    _team_override_l2_pct,
+    _va_tier,
+    _team_lead_status,
+    POOL_SPLIT,
+    TEAM_LEAD_MIN_MONTHLY_JOBS,
     LeadFollowupIn,
     LeadContactIn,
     LeadCommentIn,
@@ -255,6 +257,7 @@ async def va_dashboard(user: dict = Depends(require_va)):
         "paid_count": paid_count,
         "mtd_commission": mtd_amount,
         "tier": tier_payload,
+        "agent_tier": await _va_tier(va_id),
         "conversion_rate": conversion,
         "stale_leads_count": stale_count,
         "leaderboard_rank": rank,
@@ -414,7 +417,7 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
         raise HTTPException(400, "Self-referral blocked: this address matches your registered address.")
 
     # Duplicate lead check
-    dupe = await _find_duplicate_lead(phone_norm, email_norm)
+    dupe = await _find_duplicate_lead(phone_norm, email_norm, user["user_id"])
     if dupe:
         await _log_violation(user["user_id"], "duplicate_lead", {
             "prospect_name": payload.prospect_name,
@@ -456,6 +459,7 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
         "service_type": payload.service_type,
         "property_size": payload.property_size,
         "estimated_budget": payload.estimated_budget,
+        "is_recurring": bool(payload.is_recurring),
         "preferred_datetime": payload.preferred_datetime,
         "source": payload.source,
         "notes": (payload.notes or "").strip(),
@@ -463,6 +467,7 @@ async def va_create_lead(payload: LeadIn, request: Request, user: dict = Depends
         "stage_history": [{"stage": "new_lead", "at": now, "by": user["user_id"]}],
         "stage_changed_at": now,
         "job_value": None,
+        "job_profit": None,
         "ownership_locked_at": now,
         "created_at": now,
         "updated_at": now,
@@ -515,7 +520,7 @@ async def va_get_lead(lead_id: str, user: dict = Depends(require_va_active)):
     async for a in cur:
         activity.append({k: v for k, v in a.items() if k != "_id"})
     commission = await db.commissions.find_one(
-        {"lead_id": lead_id, "kind": {"$ne": "team_override"}}
+        {"lead_id": lead_id, "kind": {"$nin": ["team_override", "ops_share"]}}
     )
     return {
         "lead": _serialize_lead(lead),
@@ -583,6 +588,8 @@ async def va_edit_lead(
         _add("notes", payload.notes.strip())
     if payload.estimated_budget is not None:
         _add("estimated_budget", float(payload.estimated_budget))
+    if payload.is_recurring is not None:
+        _add("is_recurring", bool(payload.is_recurring))
 
     if not changes:
         return _serialize_lead(lead)
@@ -847,16 +854,20 @@ async def va_earnings(
 
 @router.get("/va/team")
 async def va_team(user: dict = Depends(require_va_active)):
-    """Team lead's downline + override earnings. 403 if not a team lead."""
+    """Team lead's members + 15%-of-pool override earnings and live
+    qualification status. 403 if not a team lead."""
     if not user.get("is_team_lead"):
         raise HTTPException(403, "Team features are not enabled on your account")
     lead_id = user["user_id"]
+    me = await db.users.find_one(
+        {"user_id": lead_id},
+        {"_id": 0, "user_id": 1, "is_team_lead": 1, "va_status": 1, "team_lead_since": 1},
+    )
+    status = await _team_lead_status(me)
     members = await db.users.find(
         {"role": "va", "team_lead_id": lead_id},
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1},
     ).sort("name", 1).to_list(200)
-    # Per-member: leads, booked, sub-team size, and override the lead earned from
-    # this member's OWN closings (level-1) + from that member's downline (level-2).
     out_members = []
     for m in members:
         mid = m["user_id"]
@@ -864,10 +875,9 @@ async def va_team(user: dict = Depends(require_va_active)):
         booked = await db.va_leads.count_documents(
             {"va_user_id": mid, "stage": {"$in": ["booked", "completed", "paid"]}}
         )
-        sub_count = await db.users.count_documents({"role": "va", "team_lead_id": mid})
-        earned = 0.0  # L1: from this member's own closings
+        earned = 0.0
         async for c in db.commissions.find(
-            {"va_user_id": lead_id, "kind": "team_override", "level": 1, "source_va_user_id": mid}
+            {"va_user_id": lead_id, "kind": "team_override", "source_va_user_id": mid}
         ):
             if c.get("status") != "rejected":
                 earned += float(c.get("amount") or 0)
@@ -875,32 +885,32 @@ async def va_team(user: dict = Depends(require_va_active)):
             **m,
             "lead_count": leads_count,
             "booked_count": booked,
-            "sub_member_count": sub_count,
             "override_earned": round(earned, 2),
         })
     by_status: dict = {}
-    l1_total = 0.0
-    l2_total = 0.0
+    total = 0.0
     async for c in db.commissions.find({"va_user_id": lead_id, "kind": "team_override"}):
         st = c.get("status")
         amt = float(c.get("amount") or 0)
         by_status[st] = round(by_status.get(st, 0.0) + amt, 2)
         if st != "rejected":
-            if (c.get("level") or 1) == 2:
-                l2_total += amt
-            else:
-                l1_total += amt
-    total = round(l1_total + l2_total, 2)
+            total += amt
     return {
         "members": out_members,
         "member_count": len(out_members),
-        "override_pct": await _team_override_pct(),
-        "override_l2_pct": await _team_override_l2_pct(),
+        "pool_split": POOL_SPLIT,
+        "lead_share_pct": POOL_SPLIT["lead"],
+        "min_monthly_jobs": TEAM_LEAD_MIN_MONTHLY_JOBS,
+        "qualification": {
+            "eligible": status["eligible"],
+            "reason": status["reason"],
+            "production": status["production"],
+            "grace": status["grace"],
+            "tier": status["tier"],
+        },
         "override_earnings": {
             "by_status": by_status,
-            "total": total,
-            "level1": round(l1_total, 2),
-            "level2": round(l2_total, 2),
+            "total": round(total, 2),
         },
     }
 

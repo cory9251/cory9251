@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { toast } from "sonner";
 import { Phone, ChatCircle, CalendarBlank } from "@phosphor-icons/react";
-import { serviceTypeLabel } from "@/lib/leadOptions";
+import { serviceTypeLabel, isRevenueBasedLead } from "@/lib/leadOptions";
 
 const STAGES = [
   { value: "new_lead", label: "New Lead", color: "bg-[#0044FF]" },
@@ -46,7 +46,9 @@ export const PipelineBoard = ({ items, onMove, onOpen }) => {
     let jobValue = null;
     if (targetStage === "paid") {
       const v = window.prompt(
-        `Job value ($) for "${lead.prospect_name}"? Commission is calculated from this.`,
+        isRevenueBasedLead(lead)
+          ? `Monthly collected revenue ($) for "${lead.prospect_name}"? The commission pool is a % of revenue.`
+          : `Job profit ($) for "${lead.prospect_name}"? The commission pool is a % of job profit.`,
         lead.job_value ?? lead.estimated_budget ?? ""
       );
       if (v === null) return;

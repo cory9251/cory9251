@@ -63,6 +63,8 @@ export default function LeadDetail({ scope = "admin" }) {
         notes: data.lead.notes || "",
         estimated_budget: data.lead.estimated_budget ?? "",
         job_value: data.lead.job_value ?? "",
+        job_profit: data.lead.job_profit ?? "",
+        is_recurring: !!data.lead.is_recurring,
         reason: "",
       });
     } catch (e) {
@@ -109,6 +111,12 @@ export default function LeadDetail({ scope = "admin" }) {
       // Numeric fields
       if ("job_value" in payload) {
         payload.job_value = parseFloat(payload.job_value);
+      }
+      if ("job_profit" in payload) {
+        payload.job_profit = parseFloat(payload.job_profit);
+      }
+      if ("is_recurring" in payload && payload.is_recurring === !!lead?.is_recurring) {
+        delete payload.is_recurring;
       }
       if ("estimated_budget" in payload) {
         payload.estimated_budget = parseFloat(payload.estimated_budget);
@@ -423,7 +431,7 @@ export default function LeadDetail({ scope = "admin" }) {
                 </Field>
               )}
               {scope === "admin" && (
-                <Field label="Job value ($)">
+                <Field label="Job value ($ collected revenue)">
                   {editing ? (
                     <Input
                       data-testid="field-job_value"
@@ -439,6 +447,39 @@ export default function LeadDetail({ scope = "admin" }) {
                   )}
                 </Field>
               )}
+              {scope === "admin" && (
+                <Field label="Job profit ($ — pool base)">
+                  {editing ? (
+                    <Input
+                      data-testid="field-job_profit"
+                      type="number"
+                      value={form.job_profit}
+                      onChange={(e) => setForm({ ...form, job_profit: e.target.value })}
+                      className="h-9 rounded-none border-[#030712]"
+                    />
+                  ) : (
+                    <span>
+                      {lead.job_profit != null ? `$${Number(lead.job_profit).toFixed(2)}` : "—"}
+                    </span>
+                  )}
+                </Field>
+              )}
+              <Field label="Recurring account">
+                {editing ? (
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      data-testid="field-is_recurring"
+                      checked={!!form.is_recurring}
+                      onChange={(e) => setForm({ ...form, is_recurring: e.target.checked })}
+                      className="h-4 w-4 accent-[#0044FF]"
+                    />
+                    Recurring (lifetime tail — Cat D / G)
+                  </label>
+                ) : (
+                  <span>{lead.is_recurring ? "Yes — lifetime tail" : "No"}</span>
+                )}
+              </Field>
               <div className="md:col-span-2">
                 <Field label="Notes">
                   {editing ? (
@@ -542,6 +583,39 @@ export default function LeadDetail({ scope = "admin" }) {
               <div className="mt-1 text-xs uppercase tracking-widest text-[#4B5563]">
                 {commission.status?.replace(/_/g, " ")}
               </div>
+              {commission.engine === "pool_v2" && commission.pool_amount != null && (
+                <div className="mt-3 border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs" data-testid="pool-breakdown">
+                  <div className="flex justify-between font-bold text-[#030712]">
+                    <span>
+                      Pool{commission.category ? ` · Cat ${commission.category}` : ""}
+                      {commission.tier ? ` · ${commission.tier}` : ""}
+                    </span>
+                    <span>${Number(commission.pool_amount).toFixed(2)}</span>
+                  </div>
+                  <div className="mt-1 flex justify-between text-[#4B5563]">
+                    <span>Agent 75%</span>
+                    <span>${Number(commission.amount || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-[#4B5563]">
+                    <span>Team lead 15%</span>
+                    <span>
+                      {Number(commission.lead_share || 0) > 0
+                        ? `$${Number(commission.lead_share).toFixed(2)}`
+                        : `retained${commission.lead_share_reason ? ` (${String(commission.lead_share_reason).replace(/_/g, " ")})` : ""}`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[#4B5563]">
+                    <span>Ops 10%</span>
+                    <span>${Number(commission.ops_share_amount || 0).toFixed(2)}</span>
+                  </div>
+                  {commission.visit_number != null && (
+                    <div className="mt-1 text-[#9CA3AF]">
+                      Recurring visit #{commission.visit_number}
+                      {commission.tail_phase ? ` · ${commission.tail_phase} tail` : ""}
+                    </div>
+                  )}
+                </div>
+              )}
               {commission.calc_notes && (
                 <p className="mt-1 text-[11px] text-[#9CA3AF]" data-testid="commission-calc-notes">{commission.calc_notes}</p>
               )}

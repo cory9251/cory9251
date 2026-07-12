@@ -79,5 +79,12 @@ export const isDigitalService = (v) =>
 export const serviceTypeLabel = (v) =>
   ALL_SERVICE_TYPES.find((o) => o.value === v)?.label || v || "—";
 
+export const REVENUE_BASED_TYPES = ["commercial", "specialty_medical", "specialty_funeral"];
+
+/** Cat E/G leads — the commission pool is a % of collected revenue, not job profit. */
+export const isRevenueBasedLead = (l) =>
+  REVENUE_BASED_TYPES.includes(l?.service_type) ||
+  (!!l?.is_recurring && isDigitalService(l?.service_type));
+
 export const leadSourceLabel = (v) =>
   LEAD_SOURCES.find((o) => o.value === v)?.label || v?.replace(/_/g, " ") || "—";
