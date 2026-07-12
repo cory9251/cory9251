@@ -2138,3 +2138,8 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Tests:** /app/backend/tests/test_pool_engine_v2.py + test_pool_v2_pipeline.py (testing agent, 14/14) · legacy test_va_commission.py updated to v2 contract (12/12). All TEST_ fixture data cleaned (1496 stale test users purged).
 **REDEPLOY needed** — user pushes preview → production.
 **Deferred (doc items not built):** +$25 multi-trade / +$10 RUSH bonuses (user chose skip); G-retainer ongoing monthly logging reuses commercial-accounts flow.
+
+### 2026-07-12 (addendum) — VA Earnings Calculator — DONE, self-tested
+- New `GET /api/va/pool-rates` (VA auth): effective pool_rates + split + tier_thresholds + caller's agent_tier.
+- `EarningsCalculator.jsx` on VA Dashboard (below tier card): service select + recurring toggle + profit/revenue input → live "You earn" (75% of pool at caller's tier), next-tier comparison ("$X at SENIOR — N jobs to unlock"), D-tail per-visit rows (15/10/5%), E/G monthly view. Category resolution mirrored client-side (BASE_CATEGORY map must stay in sync with va_commission.py).
+- Verified live: deep $300 → $27.00, $400 → $36.00, recurring $400 → $45/$30/$15 per visit. data-testids: earnings-calculator, calc-service, calc-recurring, calc-amount, calc-you-earn, calc-next-tier, calc-tail-{rate}.

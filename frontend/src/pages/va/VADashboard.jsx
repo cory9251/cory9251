@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, getErr } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import EarningsTicker from "@/components/va/EarningsTicker";
+import EarningsCalculator from "@/components/va/EarningsCalculator";
 import { AnnouncementsBoard } from "@/components/announcements/AnnouncementsBoard";
 import {
   Briefcase,
@@ -139,6 +140,9 @@ export default function VADashboard() {
           </div>
         </div>
       )}
+
+      {/* Earnings calculator — makes the pool model tangible */}
+      <EarningsCalculator />
 
       {/* Stale-lead alert */}
       {data?.stale_leads_count > 0 && (

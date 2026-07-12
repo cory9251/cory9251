@@ -21,7 +21,9 @@ from va_commission import (
     _get_digital_commission_pct,
     _va_tier,
     _team_lead_status,
+    _get_pool_rates,
     POOL_SPLIT,
+    TIER_THRESHOLDS,
     TEAM_LEAD_MIN_MONTHLY_JOBS,
     LeadFollowupIn,
     LeadContactIn,
@@ -912,6 +914,17 @@ async def va_team(user: dict = Depends(require_va_active)):
             "by_status": by_status,
             "total": round(total, 2),
         },
+    }
+
+
+@router.get("/va/pool-rates")
+async def va_pool_rates(user: dict = Depends(require_va)):
+    """Effective pool rates + this VA's tier — feeds the earnings calculator."""
+    return {
+        "pool_rates": await _get_pool_rates(),
+        "pool_split": POOL_SPLIT,
+        "tier_thresholds": TIER_THRESHOLDS,
+        "agent_tier": await _va_tier(user["user_id"]),
     }
 
 
