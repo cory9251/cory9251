@@ -682,7 +682,7 @@ async def _override_earnings(team_lead_id: str) -> dict:
 async def pm_list_teams(admin: dict = Depends(require_program_manager_or_owner)):
     leads = await db.users.find(
         {"role": "va", "is_team_lead": True},
-        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1, "team_lead_id": 1},
     ).sort("name", 1).to_list(200)
     all_vas = await db.users.find(
         {"role": "va"},

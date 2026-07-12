@@ -2107,3 +2107,11 @@ Terminal off-ramps: `void`, `self_fulfilled`
 **Frontend:** `AdminVATeams.jsx` (/ops/va-program/teams, VA Program → "Teams"): rate editor, promote via dropdown, team cards w/ add/remove member + demote. `VAMyTeam.jsx` (/va/team): stats cards + member list; "My Team" nav tab gated by requiresTeamLead (VALayout). NOTE: VA must re-login after toggle for nav to update (auth context).
 **Testing:** iteration_75 — 13/13 pytest (`tests/test_iter75_va_teams.py`, self-cleaning) + full admin/VA UI E2E. Testing agent fixed a missing `import AdminVATeams` in App.js (route was registered w/o import → app-wide ReferenceError; import edits can silently drop — VERIFY grep after batch edits). $10 junk_removal → $9 member + $1 lead verified; lost rejects both; solo VAs unaffected.
 **REDEPLOY needed.**
+
+
+## 2026-07-09 — VA Teams extended to TWO LEVELS — DONE, TESTED 27/27 (iter76 + updated iter75)
+**User choices:** separate admin-set L2 rate (`team_override_l2_pct`, default 5%; L1 stays `team_override_pct` 10%) · BOTH overrides deducted from the CLOSING VA ($100 @ 10/5 → $85 closer + $10 direct lead + $5 top lead) · hard cap at 2 override levels / 3 tiers.
+**Backend:** `va_commission.py` — `_team_override_l2_pct()`, `_eligible_lead()`, `_upsert_override()` (keyed lead_id+kind+LEVEL, frozen-safe), `_apply_team_override()` rewritten for 2 levels (stale-override cleanup when chain changes). `pm.py` — dual role now allowed (a VA can be member AND lead), `_upline_depth`/`_is_ancestor` guards (cycle 400, depth>2 400), /pm/teams returns reports_to + member.sub_member_count + l2 rate (FIXED: leads projection was missing team_lead_id → reports_to always null), settings GET/PUT + l2. `va.py` /va/team returns override_l2_pct + earnings.level1/level2 + member.sub_member_count.
+**Frontend:** AdminVATeams — L1+L2 rate inputs (`override-l2-pct-input`), "↑ under {lead}" badge on sub-lead cards, "sub-lead · N" badge on members. VAMyTeam — 4th stat card "LEVEL 2 EARNED", copy shows both rates.
+**Testing:** iteration_76 (13/14 → all pass after projection fix) + iter75 updated for intentional dual-role change; 27/27 green. Exact math verified: $10 junk_removal → $8.50/$1.00/$0.50; lost rejects all 3; solo + single-level unaffected. Test data self-cleaning (verified 0 leftovers).
+**REDEPLOY needed.**

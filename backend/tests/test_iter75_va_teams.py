@@ -123,13 +123,14 @@ class TestTeamLeadToggle:
         assignable_ids = [a["user_id"] for a in j["assignable_vas"]]
         assert MEMBER_USER_ID in assignable_ids
 
-    def test_toggle_already_in_team_returns_400(self, admin, mongo):
-        # Setup: member has a team_lead_id
+    def test_toggle_member_can_now_be_lead(self, admin, mongo):
+        # Dual role allowed since 2-level teams (iter76): a member may also lead.
         mongo.users.update_one({"user_id": MEMBER_USER_ID}, {"$set": {"team_lead_id": LEAD_USER_ID}})
         r = admin.put(f"{API}/pm/vas/{MEMBER_USER_ID}/team-lead",
                       json={"is_team_lead": True}, timeout=15)
-        assert r.status_code == 400
-        # Cleanup
+        assert r.status_code == 200
+        # Cleanup — reset both flags
+        admin.put(f"{API}/pm/vas/{MEMBER_USER_ID}/team-lead", json={"is_team_lead": False}, timeout=15)
         mongo.users.update_one({"user_id": MEMBER_USER_ID}, {"$set": {"team_lead_id": None}})
 
 
@@ -154,11 +155,10 @@ class TestTeamAssignment:
         assert r.status_code == 400
 
     def test_assign_to_non_lead_400(self, admin, mongo):
-        # Assigning member to another member (non-lead) — need a fresh VA
-        # Use MEMBER as target (not a lead)
-        # Need a third VA to attempt to assign — pick any approved VA that's not the lead or member
+        # Assigning a VA to a target that is NOT a team lead must 400.
+        mongo.users.update_one({"user_id": MEMBER_USER_ID}, {"$set": {"is_team_lead": False}})
         third = mongo.users.find_one(
-            {"role": "va", "va_status": "approved",
+            {"role": "va", "va_status": "approved", "is_team_lead": {"$ne": True},
              "user_id": {"$nin": [LEAD_USER_ID, MEMBER_USER_ID]}},
             {"user_id": 1},
         )
