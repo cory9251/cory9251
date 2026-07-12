@@ -187,15 +187,16 @@ def test_commission_lifecycle(approved_va, mechie_session, owner_session):
     for stage in ("contacted", "quoted", "booked", "completed", "paid"):
         body = {"stage": stage}
         if stage == "paid":
-            body["job_value"] = 300
+            body["job_profit"] = 300
         r = mechie_session.put(f"{API}/pm/leads/{lead_id}/stage", json=body, timeout=20)
         assert r.status_code == 200, f"stage {stage}: {r.text}"
 
     # Commission should now be pending_approval
     queue = mechie_session.get(f"{API}/pm/commissions", timeout=20).json()
-    comm = next((c for c in queue["items"] if c["lead_id"] == lead_id), None)
+    comm = next((c for c in queue["items"] if c["lead_id"] == lead_id and c["kind"] == "pool_agent"), None)
     assert comm is not None and comm["status"] == "pending_approval"
-    assert comm["amount"] == 25.0
+    # Cat B (deep) agent tier: pool 12% of $300 = $36 → agent 75% = $27
+    assert comm["amount"] == 27.0
 
     # PM approves
     r = mechie_session.post(f"{API}/pm/commissions/{comm['commission_id']}/approve", json={"note": "ok"}, timeout=20)
@@ -241,7 +242,7 @@ def test_va_dashboard_and_earnings(approved_va, mechie_session, owner_session):
     for stage in ("booked", "completed", "paid"):
         body = {"stage": stage}
         if stage == "paid":
-            body["job_value"] = 500
+            body["job_profit"] = 500
         mechie_session.put(f"{API}/pm/leads/{lead['lead_id']}/stage", json=body, timeout=20)
 
     dash = s.get(f"{API}/va/dashboard", timeout=20).json()
@@ -304,7 +305,7 @@ def test_commercial_account_revenue(approved_va, mechie_session, owner_session):
     )
     assert r.status_code == 200
     comm = r.json()
-    assert comm["amount"] == 100.0  # 5% of 2000
+    assert comm["amount"] == 75.0  # pool = 5% of 2000 = $100 → agent 75% = $75
     assert comm["status"] == "pending_approval"
 
 
@@ -326,12 +327,12 @@ def test_owner_bulk_approve(approved_va, mechie_session, owner_session):
         for stage in ("booked", "completed", "paid"):
             body = {"stage": stage}
             if stage == "paid":
-                body["job_value"] = 300
+                body["job_profit"] = 300
             mechie_session.put(f"{API}/pm/leads/{lead['lead_id']}/stage", json=body, timeout=20)
         ids.append(lead["lead_id"])
     # PM approve each commission
     q = mechie_session.get(f"{API}/pm/commissions", timeout=20).json()
-    target_comms = [c for c in q["items"] if c["lead_id"] in ids]
+    target_comms = [c for c in q["items"] if c["lead_id"] in ids and c["kind"] == "pool_agent"]
     for c in target_comms:
         mechie_session.post(f"{API}/pm/commissions/{c['commission_id']}/approve", json={}, timeout=20)
 
