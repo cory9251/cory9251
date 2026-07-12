@@ -2143,3 +2143,8 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - New `GET /api/va/pool-rates` (VA auth): effective pool_rates + split + tier_thresholds + caller's agent_tier.
 - `EarningsCalculator.jsx` on VA Dashboard (below tier card): service select + recurring toggle + profit/revenue input → live "You earn" (75% of pool at caller's tier), next-tier comparison ("$X at SENIOR — N jobs to unlock"), D-tail per-visit rows (15/10/5%), E/G monthly view. Category resolution mirrored client-side (BASE_CATEGORY map must stay in sync with va_commission.py).
 - Verified live: deep $300 → $27.00, $400 → $36.00, recurring $400 → $45/$30/$15 per visit. data-testids: earnings-calculator, calc-service, calc-recurring, calc-amount, calc-you-earn, calc-next-tier, calc-tail-{rate}.
+
+### 2026-07-12 (addendum 2) — Static HTML legal pages for Twilio crawler — DONE, verified
+- ISSUE: Twilio registration rejected /privacy ("not viewable") because the SPA route renders via JS — crawlers see an empty shell.
+- FIX: self-contained static HTML (no JS, inline CSS) in frontend/public/: **privacy.html, terms.html, sms-terms.html** — served as raw files in both preview and prod builds. Content mirrors React legal pages verbatim (SMS opt-in/STOP/HELP language intact). React routes /privacy etc unchanged for site visitors.
+- Twilio URLs to submit: https://hcobnetwork.com/privacy.html · /terms.html · /sms-terms.html (AFTER REDEPLOY).
