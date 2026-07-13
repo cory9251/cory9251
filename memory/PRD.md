@@ -2144,6 +2144,14 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - `EarningsCalculator.jsx` on VA Dashboard (below tier card): service select + recurring toggle + profit/revenue input → live "You earn" (75% of pool at caller's tier), next-tier comparison ("$X at SENIOR — N jobs to unlock"), D-tail per-visit rows (15/10/5%), E/G monthly view. Category resolution mirrored client-side (BASE_CATEGORY map must stay in sync with va_commission.py).
 - Verified live: deep $300 → $27.00, $400 → $36.00, recurring $400 → $45/$30/$15 per visit. data-testids: earnings-calculator, calc-service, calc-recurring, calc-amount, calc-you-earn, calc-next-tier, calc-tail-{rate}.
 
+### 2026-07-13 (afternoon) — VP application form now creates VA account (not worker) — DONE, curl-verified
+- BUG: The VP form on /vas only stored an application record. Applicants who later hit /register (no `?as=va`) defaulted to the worker path, ending up in the worker list.
+- FIX: `POST /public/vp-applications` now ALSO creates a `role=va, va_status=pending` user account tagged `created_via: vp_application` (idempotent — no dup if email already exists). Issues a 7-day password-setup token stored as `password_reset_tokens` with `kind: vp_setup`, and emails the applicant a "Set your password" CTA that reuses `/reset-password?token=X`.
+- If the email already had a login, the confirmation email points them to `/login` instead — no duplicate accounts.
+- Confirmation panel copy on the /vas form now says "Check your email — we've sent a link to set your password."
+- Verified end-to-end via curl: new user is VA-pending, absent from worker list, token → password → login → role=va, resubmit is idempotent.
+- REDEPLOY needed for production.
+
 ### 2026-07-13 — Admin override for Team Lead promotion — DONE, curl-verified
 - Backend `PUT /api/pm/vas/{va_id}/team-lead` now accepts `override: bool` (default false). When true, bypasses the Senior tier requirement. Records `team_lead_override: true` + `team_lead_promoted_by` on the user doc for audit.
 - `_team_lead_status()` in va_commission.py respects the override — overridden leads bypass both the tier check AND the "8 paid jobs/month × 2 months" production-pause rule, so they earn full team-lead commission on member jobs.

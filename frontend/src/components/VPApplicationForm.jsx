@@ -162,9 +162,12 @@ export const VPApplicationForm = () => {
         </div>
         <h3 className="mt-5 font-display text-2xl font-black">Application received!</h3>
         <p className="mx-auto mt-3 max-w-md text-sm text-[#4B5563] leading-relaxed">
-          Our operations team reviews every application personally. If you&apos;re a fit,
-          expect to hear from us within a few business days. Keep an eye on your email
-          and WhatsApp.
+          <strong>Check your email</strong> — we&apos;ve sent a link to set your password
+          and access your Virtual Professional account. The link expires in 7 days.
+        </p>
+        <p className="mx-auto mt-3 max-w-md text-xs text-[#6B7280] leading-relaxed">
+          Our operations team reviews every application. Once approved, you&apos;ll be able to
+          submit leads and claim digital gig work directly from your dashboard.
         </p>
       </div>
     );

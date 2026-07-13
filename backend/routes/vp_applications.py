@@ -6,6 +6,7 @@ review queue under Admin → VA Program → Applications.
 """
 import re
 import uuid
+import secrets
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Literal, Optional
@@ -14,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from config import db, logger
-from auth_deps import require_admin
+from auth_deps import require_admin, hash_password
 from notifications import notify_admins, email_admins, _send_user_email, _public_base
 
 router = APIRouter()
@@ -121,8 +122,54 @@ async def submit_vp_application(payload: VPApplicationIn, request: Request):
 
     application_id = f"vpa_{uuid.uuid4().hex[:12]}"
     now_iso = datetime.now(timezone.utc).isoformat()
+
+    # ---- Create or link a pending VA user account ---------------------------
+    # This closes the "signed up as worker" hole: applicants who fill this form
+    # get a VA account immediately (va_status=pending), and the link they
+    # receive lets them set a password and log straight into /va.
+    existing_user = await db.users.find_one({"email": email})
+    linked_user_id: Optional[str] = None
+    setup_token: Optional[str] = None
+
+    if existing_user:
+        # Already have an account under this email. Do NOT overwrite it —
+        # just link the application for admin review.
+        linked_user_id = existing_user.get("user_id")
+    else:
+        linked_user_id = f"user_{uuid.uuid4().hex[:12]}"
+        # Random unusable placeholder — the applicant will overwrite it via
+        # the password-setup link. Never surfaced to anyone.
+        placeholder_pw = secrets.token_urlsafe(32)
+        await db.users.insert_one({
+            "user_id": linked_user_id,
+            "email": email,
+            "password_hash": hash_password(placeholder_pw),
+            "name": full_name,
+            "role": "va",
+            "va_status": "pending",  # pending → approved by admin
+            "va_phone": payload.phone.strip(),
+            "va_address": (payload.country or "").strip(),
+            "must_change_password": False,
+            "auth_provider": "local",
+            "created_at": now_iso,
+            "created_via": "vp_application",
+            "vp_application_id": application_id,
+        })
+        # Issue a 7-day password-setup token that reuses the reset-password flow.
+        setup_token = secrets.token_urlsafe(32)
+        await db.password_reset_tokens.insert_one({
+            "token": setup_token,
+            "user_id": linked_user_id,
+            "email": email,
+            "kind": "vp_setup",
+            "created_at": now_iso,
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+            "used": False,
+        })
+
     doc = {
         "application_id": application_id,
+        "user_id": linked_user_id,
         "full_name": full_name,
         "email": email,
         "phone": payload.phone.strip(),
@@ -151,11 +198,16 @@ async def submit_vp_application(payload: VPApplicationIn, request: Request):
         f"{streams_label} · {doc['country']} · {doc['hours_per_day']} hrs/day",
         url="/ops/va-program/applications",
     )
-    asyncio.create_task(_send_vp_emails(doc))
+    asyncio.create_task(_send_vp_emails(doc, setup_token=setup_token, existing_user=bool(existing_user)))
     return {"ok": True, "application_id": application_id}
 
 
-async def _send_vp_emails(doc: dict) -> None:
+async def _send_vp_emails(
+    doc: dict,
+    *,
+    setup_token: Optional[str] = None,
+    existing_user: bool = False,
+) -> None:
     try:
         await email_admins(
             subject=f"New Virtual Professional application — {doc['full_name']}",
@@ -168,23 +220,63 @@ async def _send_vp_emails(doc: dict) -> None:
         logger.error(f"VP application ops email failed ({doc['application_id']}): {e}")
     try:
         first_name = doc["full_name"].split(" ")[0]
+        base = _public_base().rstrip("/")
+        if setup_token:
+            # Fresh applicant → password-setup CTA (uses the reset-password flow).
+            cta_link = f"{base}/reset-password?token={setup_token}"
+            cta_html = (
+                f"<p style='margin:22px 0 6px'>"
+                f"<a href='{cta_link}' style='background:#0044FF;color:#fff;text-decoration:none;"
+                f"padding:14px 24px;font-weight:700;display:inline-block'>Set your password &amp; access your VP account</a>"
+                f"</p>"
+                f"<p style='margin:0 0 14px;font-size:12px;color:#6B7280'>Or paste this link into your browser:</p>"
+                f"<p style='margin:0 0 14px;font-size:12px;color:#0044FF;word-break:break-all'>{cta_link}</p>"
+                f"<p style='margin:0 0 14px;font-size:12px;color:#6B7280'>This link expires in 7 days and can only be used once.</p>"
+            )
+            what_next = (
+                "<ol style='margin:0 0 14px;padding-left:20px'>"
+                "<li>Click the button above to set your password.</li>"
+                "<li>You&rsquo;ll land in your Virtual Professional dashboard.</li>"
+                "<li>Our operations team reviews your application &mdash; once approved, "
+                "you can start submitting leads and claiming digital gig work.</li>"
+                "</ol>"
+            )
+        elif existing_user:
+            cta_link = f"{base}/login"
+            cta_html = (
+                f"<p style='margin:22px 0 6px'>"
+                f"<a href='{cta_link}' style='background:#0044FF;color:#fff;text-decoration:none;"
+                f"padding:14px 24px;font-weight:700;display:inline-block'>Log in to your account</a>"
+                f"</p>"
+                f"<p style='margin:0 0 14px;font-size:12px;color:#6B7280'>We noticed you already have an account under this email &mdash; no need to set a new password.</p>"
+            )
+            what_next = (
+                "<ol style='margin:0 0 14px;padding-left:20px'>"
+                "<li>Log in with your existing password.</li>"
+                "<li>Our operations team reviews your application &mdash; you&rsquo;ll hear back within a few business days.</li>"
+                "</ol>"
+            )
+        else:
+            cta_html = ""
+            what_next = (
+                "<ol style='margin:0 0 14px;padding-left:20px'>"
+                "<li>Our team reviews your application and skills.</li>"
+                "<li>Qualified candidates get an onboarding conversation scheduled.</li>"
+                "<li>You get your welcome package, platform access, and training.</li>"
+                "</ol>"
+            )
         body_html = (
             f"<p style='margin:0 0 14px'>Hi {first_name},</p>"
-            "<p style='margin:0 0 14px'><strong>Application received!</strong> Our operations team reviews "
-            "every application personally. If you're a fit, expect to hear from us within a few business days. "
-            "Keep an eye on your email and WhatsApp.</p>"
+            "<p style='margin:0 0 14px'><strong>Application received!</strong> Welcome to the HCOB Network.</p>"
+            f"{cta_html}"
             "<p style='margin:0 0 14px'>What happens next:</p>"
-            "<ol style='margin:0 0 14px;padding-left:20px'>"
-            "<li>Our team reviews your application and skills.</li>"
-            "<li>Qualified candidates get an onboarding conversation scheduled.</li>"
-            "<li>You get your welcome package, platform access, and training.</li>"
-            "</ol>"
-            "<p style='margin:0'>— The HCOB Network Team</p>"
+            f"{what_next}"
+            "<p style='margin:0'>&mdash; The HCOB Network Team</p>"
         )
         await _send_user_email(
-            {"email": doc["email"], "user_id": None, "name": doc["full_name"]},
+            {"email": doc["email"], "user_id": doc.get("user_id"), "name": doc["full_name"]},
             kind="vp_application_confirmation",
-            subject="Application received — HCOB Network Virtual Professionals",
+            subject="Welcome to the HCOB Network — set up your Virtual Professional account",
             body_html=body_html,
         )
     except Exception as e:
