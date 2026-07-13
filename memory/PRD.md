@@ -2174,3 +2174,12 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Income disclaimer added at top ("No income level is guaranteed") for compliance.
 - Data-testids preserved: `va-training`, `section-golden-rules`, `section-streams`, `section-required-fields`, `section-pool`, `section-tiers`, `section-categories`, `section-brand-rules`, `section-do`, `section-donot`, `section-checklist`, `section-virtual-work`, `section-outlets`, `section-faq`.
 - REDEPLOY needed for production.
+
+### 2026-07-13 — Twilio rejection fix: "compliant privacy policy can not be verified" — DONE, verified
+- ROOT CAUSE: opt-in checkbox on /register + footers on Landing/VAsLanding linked to SPA routes (/privacy, /sms-terms) which Twilio's verification bot cannot render (JS-only). Reviewer following links from the opt-in form hit blank pages.
+- FIX 1: Register.jsx opt-in links → plain <a href="/privacy.html"> and <a href="/sms-terms.html">.
+- FIX 2: Landing.jsx + VAsLanding.jsx footer legal links → static .html files.
+- FIX 3: privacy.html SMS clause replaced with Twilio's exact recommended verbiage: "No mobile information will be shared with third parties/affiliates for marketing/promotional purposes. All the above categories exclude text messaging originator opt-in data and consent; this information will not be shared with any third parties."
+- FIX 4: NEW static page /sms-optin.html documenting the full opt-in workflow (where consent is collected, exact checkbox language, unchecked-by-default, all CTIA disclosures) — submit this as the opt-in evidence URL in the campaign.
+- Verified: all 4 static pages return 200 on preview; register page hrefs confirmed via Playwright.
+- REDEPLOY needed, then resubmit campaign with: https://hcobnetwork.com/privacy.html (privacy policy URL) and https://hcobnetwork.com/sms-optin.html (opt-in description/URL).

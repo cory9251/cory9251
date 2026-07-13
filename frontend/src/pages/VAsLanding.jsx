@@ -516,13 +516,13 @@ export default function VAsLanding() {
             </div>
           </div>
           <div className="flex items-center gap-4 text-xs text-[#4B5563]">
-            <Link to="/privacy" className="hover:text-[#030712]">
+            <a href="/privacy.html" className="hover:text-[#030712]">
               Privacy
-            </Link>
+            </a>
             <span className="text-[#9CA3AF]">·</span>
-            <Link to="/terms" className="hover:text-[#030712]">
+            <a href="/terms.html" className="hover:text-[#030712]">
               Terms
-            </Link>
+            </a>
             <span className="text-[#9CA3AF]">·</span>
             <span>© HCOB Network · Baltimore, MD</span>
           </div>

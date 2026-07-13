@@ -288,25 +288,25 @@ export default function Register() {
                       Message frequency varies (about 1&ndash;10 per month). Message and data
                       rates may apply. Reply <strong>STOP</strong> to opt out, <strong>HELP</strong>
                       {" "}for help. Consent is not a condition of joining. See our{" "}
-                      <Link
-                        to="/privacy"
+                      <a
+                        href="/privacy.html"
                         target="_blank"
                         rel="noreferrer"
                         className="text-[#0044FF] hover:underline"
                         data-testid="register-privacy-link"
                       >
                         Privacy Policy
-                      </Link>{" "}
+                      </a>{" "}
                       and{" "}
-                      <Link
-                        to="/sms-terms"
+                      <a
+                        href="/sms-terms.html"
                         target="_blank"
                         rel="noreferrer"
                         className="text-[#0044FF] hover:underline"
                         data-testid="register-sms-terms-link"
                       >
                         SMS Messaging Terms
-                      </Link>
+                      </a>
                       .
                     </span>
                   </label>

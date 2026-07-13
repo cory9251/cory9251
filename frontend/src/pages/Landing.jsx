@@ -542,9 +542,9 @@ export default function Landing() {
             <a href="https://hcobcleaners.com" target="_blank" rel="noreferrer">
               HCOB main site
             </a>
-            <Link to="/privacy" data-testid="footer-privacy-link">Privacy</Link>
-            <Link to="/terms" data-testid="footer-terms-link">Terms</Link>
-            <Link to="/sms-terms" data-testid="footer-sms-terms-link">SMS Terms</Link>
+            <a href="/privacy.html" data-testid="footer-privacy-link">Privacy</a>
+            <a href="/terms.html" data-testid="footer-terms-link">Terms</a>
+            <a href="/sms-terms.html" data-testid="footer-sms-terms-link">SMS Terms</a>
           </div>
         </div>
       </footer>
