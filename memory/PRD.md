@@ -2144,6 +2144,14 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - `EarningsCalculator.jsx` on VA Dashboard (below tier card): service select + recurring toggle + profit/revenue input → live "You earn" (75% of pool at caller's tier), next-tier comparison ("$X at SENIOR — N jobs to unlock"), D-tail per-visit rows (15/10/5%), E/G monthly view. Category resolution mirrored client-side (BASE_CATEGORY map must stay in sync with va_commission.py).
 - Verified live: deep $300 → $27.00, $400 → $36.00, recurring $400 → $45/$30/$15 per visit. data-testids: earnings-calculator, calc-service, calc-recurring, calc-amount, calc-you-earn, calc-next-tier, calc-tail-{rate}.
 
+### 2026-07-13 — Admin override for Team Lead promotion — DONE, curl-verified
+- Backend `PUT /api/pm/vas/{va_id}/team-lead` now accepts `override: bool` (default false). When true, bypasses the Senior tier requirement. Records `team_lead_override: true` + `team_lead_promoted_by` on the user doc for audit.
+- `_team_lead_status()` in va_commission.py respects the override — overridden leads bypass both the tier check AND the "8 paid jobs/month × 2 months" production-pause rule, so they earn full team-lead commission on member jobs.
+- `/pm/teams` response now enriches `assignable_vas` with tier info, exposes `team_lead_override` on each team, and includes `qualification.override` flag.
+- Frontend `AdminVATeams.jsx`: dropdown shows tier + `[OVERRIDE]` marker for below-Senior VAs; confirm dialog prompts before overriding; team cards display an amber `ADMIN OVERRIDE` badge for overridden leads. Rules banner updated to mention override capability.
+- Verified via curl: without override → 400, with override → 200 + persisted + qualification.eligible=true.
+- REDEPLOY needed for production.
+
 ### 2026-07-12 (addendum 3) — VA Training & Playbook rewrite — DONE, screenshot-verified
 - Full rewrite of `/va/training` (`VATraining.jsx`) to align with Fixed Pool v2.0 (supersedes old Tier 0/1/2 hourly + flat-rate content).
 - NEW sections: "3 Golden Rules" callout (leads-must-answer, no-miscategorization, detail-converts) · "Three ways to earn" (Commission Agent / Virtual Gig Work / Team Lead) · Fixed Pool 75/15/10 split cards · Agent/Senior/Elite tier cards · A-G category rate table · Virtual Gig Work workflow · Common Questions FAQ.

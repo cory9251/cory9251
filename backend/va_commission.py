@@ -611,7 +611,9 @@ async def _team_lead_status(lead_user: Optional[dict]) -> dict:
         return out
     t = await _va_tier(lead_user["user_id"])
     out["tier"] = t
-    if t["tier"] == "agent":
+    override = bool(lead_user.get("team_lead_override"))
+    out["override"] = override
+    if t["tier"] == "agent" and not override:
         out["reason"] = "below_senior_tier"
         return out
     today = datetime.now(timezone.utc).date()
@@ -626,7 +628,7 @@ async def _team_lead_status(lead_user: Optional[dict]) -> dict:
     since = lead_user.get("team_lead_since") or ""
     out["grace"] = not since or since >= m2_start.isoformat()
     minj = TEAM_LEAD_MIN_MONTHLY_JOBS
-    if m1 < minj and m2 < minj and cur < minj and not out["grace"]:
+    if m1 < minj and m2 < minj and cur < minj and not out["grace"] and not override:
         out["reason"] = "production_paused"
         return out
     out["eligible"] = True

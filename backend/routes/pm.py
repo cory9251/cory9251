@@ -539,6 +539,7 @@ MAX_TEAM_SIZE = 5
 
 class TeamLeadToggleIn(BaseModel):
     is_team_lead: bool
+    override: bool = False  # admin override: bypass Senior tier requirement
 
 
 class TeamAssignIn(BaseModel):
@@ -559,21 +560,34 @@ async def pm_toggle_team_lead(
     now = datetime.now(timezone.utc).isoformat()
     if payload.is_team_lead:
         tier = await _va_tier(va_user_id)
-        if tier["tier"] == "agent":
+        if tier["tier"] == "agent" and not payload.override:
             raise HTTPException(
                 400,
                 f"Team Leads must hold Senior tier ({TIER_THRESHOLDS['senior']} closed + paid jobs). "
-                f"This VA has {tier['paid_jobs']}.",
+                f"This VA has {tier['paid_jobs']}. Pass override=true to promote anyway.",
             )
+        set_fields = {
+            "is_team_lead": True,
+            "team_lead_since": now,
+            "team_lead_id": None,
+            "updated_at": now,
+            "team_lead_override": bool(payload.override and tier["tier"] == "agent"),
+            "team_lead_promoted_by": admin.get("user_id"),
+        }
         # Leads sit at the top — one level deep, so drop any team membership.
         await db.users.update_one(
             {"user_id": va_user_id},
-            {"$set": {"is_team_lead": True, "team_lead_since": now, "team_lead_id": None, "updated_at": now}},
+            {"$set": set_fields},
         )
     else:
         await db.users.update_one(
             {"user_id": va_user_id},
-            {"$set": {"is_team_lead": False, "team_lead_since": None, "updated_at": now}},
+            {"$set": {
+                "is_team_lead": False,
+                "team_lead_since": None,
+                "team_lead_override": False,
+                "updated_at": now,
+            }},
         )
         # Detach any members that reported to this (now former) lead.
         await db.users.update_many(
@@ -630,7 +644,7 @@ async def pm_list_teams(admin: dict = Depends(require_program_manager_or_owner))
     leads = await db.users.find(
         {"role": "va", "is_team_lead": True},
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "va_status": 1,
-         "is_team_lead": 1, "team_lead_since": 1},
+         "is_team_lead": 1, "team_lead_since": 1, "team_lead_override": 1},
     ).sort("name", 1).to_list(200)
     all_vas = await db.users.find(
         {"role": "va"},
@@ -650,6 +664,7 @@ async def pm_list_teams(admin: dict = Depends(require_program_manager_or_owner))
             "email": l.get("email"),
             "va_status": l.get("va_status"),
             "team_lead_since": l.get("team_lead_since"),
+            "team_lead_override": bool(l.get("team_lead_override")),
             "members": members_by_lead.get(l["user_id"], []),
             "member_count": len(members_by_lead.get(l["user_id"], [])),
             "override_earnings": earn,
@@ -660,13 +675,19 @@ async def pm_list_teams(admin: dict = Depends(require_program_manager_or_owner))
                 "production": status["production"],
                 "grace": status["grace"],
                 "min_monthly": status["min_monthly"],
+                "override": status.get("override", False),
             },
         })
-    assignable = [
+    assignable_raw = [
         v for v in all_vas
         if not v.get("team_lead_id") and not v.get("is_team_lead")
         and (v.get("va_status") or "") == "approved"
     ]
+    # Enrich with tier so the UI can flag below-Senior promotions as overrides.
+    assignable = []
+    for v in assignable_raw:
+        t = await _va_tier(v["user_id"])
+        assignable.append({**v, "tier": t})
     return {
         "teams": teams,
         "assignable_vas": assignable,

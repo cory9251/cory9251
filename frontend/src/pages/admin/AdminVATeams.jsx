@@ -71,32 +71,54 @@ function QualificationBadge({ team }) {
 
 export default function AdminVATeams() {
   const [data, setData] = useState(null);
-  const [allVas, setAllVas] = useState([]);
 
   const load = async () => {
     try {
-      const [teamsRes, vasRes] = await Promise.all([
-        api.get("/pm/teams"),
-        api.get("/pm/vas"),
-      ]);
+      const teamsRes = await api.get("/pm/teams");
       setData(teamsRes.data);
-      setAllVas((vasRes.data.items || []).filter((v) => v.role === "va"));
     } catch (e) {
       toast.error(getErr(e));
     }
   };
 
   useEffect(() => {
-    load(); // eslint-disable-line
+    load();
   }, []);
 
-  const toggleLead = async (va, on) => {
+  const toggleLead = async (va, on, opts = {}) => {
     try {
-      await api.put(`/pm/vas/${va.user_id}/team-lead`, { is_team_lead: on });
-      toast.success(on ? `${va.name} is now a team lead` : `${va.name} is no longer a team lead`);
+      await api.put(`/pm/vas/${va.user_id}/team-lead`, {
+        is_team_lead: on,
+        override: !!opts.override,
+      });
+      toast.success(
+        on
+          ? opts.override
+            ? `${va.name} promoted (admin override)`
+            : `${va.name} is now a team lead`
+          : `${va.name} is no longer a team lead`
+      );
       load();
     } catch (e) {
       toast.error(getErr(e));
+    }
+  };
+
+  const promoteWithOverrideCheck = async (va) => {
+    const t = va.tier || {};
+    const belowSenior = (t.tier || "").toLowerCase() === "agent";
+    if (belowSenior) {
+      const ok = window.confirm(
+        `${va.name} does not meet the Senior tier requirement yet ` +
+          `(${t.paid_jobs ?? 0} paid jobs). ` +
+          `Promote anyway as an admin override? ` +
+          `They will function as a full team lead and their team-lead earnings ` +
+          `will not pause based on production requirements.`
+      );
+      if (!ok) return;
+      await toggleLead(va, true, { override: true });
+    } else {
+      await toggleLead(va, true);
     }
   };
 
@@ -110,11 +132,8 @@ export default function AdminVATeams() {
   };
 
   const eligibleLeads = useMemo(
-    () =>
-      allVas.filter(
-        (v) => !v.is_team_lead && !v.team_lead_id && (v.va_status || "") === "approved"
-      ),
-    [allVas]
+    () => (data?.assignable_vas || []),
+    [data]
   );
 
   if (data === null) {
@@ -146,6 +165,7 @@ export default function AdminVATeams() {
           <li>Senior tier or higher ({data.tier_thresholds?.senior ?? 25} closed + paid jobs).</li>
           <li>Personal production of at least {minJobs} closed + paid jobs per month.</li>
           <li>Below minimum for two consecutive months → override pauses (retained by the Company) until production resumes.</li>
+          <li><strong>Admin override:</strong> you can promote any approved VA regardless of tier or production. Overridden leads are marked and skip the pause rules.</li>
         </ul>
       </div>
 
@@ -153,7 +173,8 @@ export default function AdminVATeams() {
       <div className="mt-6">
         <h2 className="font-display text-lg font-black">Create a team lead</h2>
         <p className="mt-1 text-xs text-[#9CA3AF]">
-          Promotion requires Senior tier — the server rejects VAs below {data.tier_thresholds?.senior ?? 25} paid jobs.
+          Senior tier is the standard requirement — but admins can override and promote any approved VA.
+          Below-Senior promotions are marked <strong>[OVERRIDE]</strong> and prompt for confirmation.
         </p>
         <div className="mt-2 flex items-center gap-2">
           <select
@@ -165,16 +186,21 @@ export default function AdminVATeams() {
               const id = e.target.value;
               if (!id) return;
               const va = eligibleLeads.find((v) => v.user_id === id);
-              await toggleLead(va, true);
               e.target.value = "";
+              if (va) await promoteWithOverrideCheck(va);
             }}
           >
             <option value="">Pick an approved VA to promote…</option>
-            {eligibleLeads.map((v) => (
-              <option key={v.user_id} value={v.user_id}>
-                {v.name || v.email}
-              </option>
-            ))}
+            {eligibleLeads.map((v) => {
+              const belowSenior = ((v.tier?.tier) || "").toLowerCase() === "agent";
+              const paid = v.tier?.paid_jobs ?? 0;
+              return (
+                <option key={v.user_id} value={v.user_id}>
+                  {v.name || v.email} · {(v.tier?.tier || "agent").toUpperCase()} ({paid} paid)
+                  {belowSenior ? " [OVERRIDE]" : ""}
+                </option>
+              );
+            })}
           </select>
         </div>
       </div>
@@ -200,6 +226,15 @@ export default function AdminVATeams() {
                     </span>
                   )}
                   <QualificationBadge team={t} />
+                  {t.team_lead_override && (
+                    <span
+                      data-testid={`override-badge-${t.user_id}`}
+                      className="inline-flex items-center gap-1 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"
+                      title="Promoted by admin override — bypasses Senior tier & production requirements"
+                    >
+                      ADMIN OVERRIDE
+                    </span>
+                  )}
                   <span className="text-xs text-[#6B7280]">
                     · {t.member_count}/{maxSize} member{t.member_count === 1 ? "" : "s"} · override earned{" "}
                     <span className="font-bold text-emerald-700">{fmt(t.override_earnings.total)}</span>
