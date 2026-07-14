@@ -2203,4 +2203,27 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Framer Motion used for entrance/scroll-reveal animations. All interactive elements have `data-testid` per design guidelines.
 - Legal footer links (`/privacy.html`, `/terms.html`, `/sms-terms.html`) preserved as static `<a>` tags for Twilio bot compliance.
 - Verified via 7 screenshots across all sections; no runtime errors (only 401 on `/api/auth/me` for logged-out visitors, which is expected).
+
+### 2026-07-14 — Contractor landing (`/work` — `Landing.jsx`) rebuilt with new SEO copy — DONE, verified
+- User supplied new SEO-optimized worker/contractor page copy + Cory Clarke's founder portrait + a founding quote: "We structure the unstructured. That is the true essence of the HCOB Network."
+- Rebuilt `/app/frontend/src/pages/Landing.jsx` end-to-end using the same editorial magazine palette as the customer page (bone #F5F4F0 · deep forest #1B2A22 · terracotta #C84B31 · charcoal #1C1A17) for full brand cohesion.
+- New sections in order:
+  1. Sticky header with brand lockup + nav (The network / Platform / Live projects / For customers / Refer & earn) + Apply CTA.
+  2. Hero — asymmetric split: forest panel left with H1 "Do the work you're great at. We'll handle the rest." + CTAs; right = Cory's portrait with a terracotta "Founder — Cory Clarke" ribbon and a bone-white founder quote card carrying the "We structure the unstructured" line.
+  3. "A network of specialists — not a subbing mill." — sticky H2 + drop-cap editorial narrative.
+  4. Division of Labor ledger — 5-row two-column table (WE HANDLE / YOU HANDLE) with forest-priority header, check icons on WE, terracotta bars on YOU. **Stacks vertically on mobile per copy spec.**
+  5. How Jobs Reach You — 4 platform feature cards (Opportunity Blasts, Shift Pickup, GPS Clock-In/Out, Payroll on the Platform).
+  6. Live Projects feed — reuses `/api/public/gigs` but the "Payout" cell now reads "See in app" (per doc rule: "Do not display contractor pay rates").
+  7. The Repeat-Work Promise — inverted dark forest section with terracotta accents + 3 metric cards (Repeat / First-call / Track record).
+  8. Grow the Network — big terracotta 10% referral commission callout linking to `/vas` for the VP program.
+  9. Community close — "By the community. For the community." centered.
+  10. Final CTA — terracotta section "Bring your skill. We'll bring the work." with Apply + Call CTAs.
+  11. Charcoal footer — contact block with 410-701-0570, cross-links to customers/vas/hcobcleaners.com, legal `.html` static links.
+- Phone: **410-701-0570** (per doc — the operations team number, differs from customer page's 410-870-9347).
+- Compliance rules observed from doc: no pay rates displayed; no "employee/partner/guaranteed work" language; only 10% referral commission is disclosed.
+- SEO metadata set on mount: title "Join the HCOB Network | Contractor Jobs in Maryland" · description "Skilled in a trade? Join a network of specialists in Baltimore. We bring the customers, quotes & payments — you do the work you're great at. Apply today."
+- Framer Motion scroll-reveal animations throughout. All interactive elements have data-testids. Cross-link to /vas retained, footer legal `.html` links intact (Twilio bot compliance).
+- Verified via 13 desktop + mobile screenshots (hero with Cory + quote, network, ledger, platform, live feed, repeat-work, referral, community, CTA, footer) — no runtime errors.
+- **REDEPLOY needed to push to hcobnetwork.com/work in production.**
+
 - **REDEPLOY needed to push to hcobnetwork.com production.**
