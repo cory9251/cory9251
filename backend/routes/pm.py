@@ -530,11 +530,11 @@ async def pm_set_commission_settings(
 
 
 # ---------------------------------------------------------------------------
-# VA Teams — Fixed Pool Model: single-level teams of 3-5 agents + one lead.
+# VA Teams — Fixed Pool Model: single-level teams of up to 10 agents + one lead.
 # The lead earns 15% of the pool on every member job. Qualification (Senior
 # tier + 8 paid jobs/month) is auto-checked by the engine on every split.
 # ---------------------------------------------------------------------------
-MAX_TEAM_SIZE = 5
+MAX_TEAM_SIZE = 10
 
 
 class TeamLeadToggleIn(BaseModel):

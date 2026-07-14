@@ -62,7 +62,7 @@ const STREAMS = [
     icon: UsersThree,
     kicker: "Team Lead Path",
     title: "Build a Team",
-    body: "Prove yourself as an agent and step up to Team Lead. Build a team of 3 to 5 agents and earn an override on everything your team produces — on top of your own production.",
+    body: "Prove yourself as an agent and step up to Team Lead. Build a team of up to 10 agents and earn an override on everything your team produces — on top of your own production.",
   },
 ];
 

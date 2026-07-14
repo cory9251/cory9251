@@ -142,7 +142,7 @@ export default function AdminVATeams() {
 
   const split = data.pool_split || { agent: 75, lead: 15, ops: 10 };
   const minJobs = data.min_monthly_jobs || 8;
-  const maxSize = data.max_team_size || 5;
+  const maxSize = data.max_team_size || 10;
 
   return (
     <div className="mx-auto max-w-4xl" data-testid="admin-va-teams-page">
