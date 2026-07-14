@@ -1,100 +1,82 @@
 {
-  "project_overview": {
-    "domain": "Operations & Gig Dispatch",
-    "theme": "Light",
-    "archetype": "4 (Swiss & High-Contrast)"
+  "theme": "dark/light hybrid",
+  "typography": {
+    "headings": "font-display (must use tight tracking `tracking-tight` or `tracking-tighter`)",
+    "body": "font-sans (clean, highly legible, `leading-relaxed`)",
+    "kicker_labels": "font-mono-label (must use uppercase, `tracking-[0.2em]`, tiny size `text-xs`)",
+    "hierarchy_rules": "H1 max `text-6xl` or `text-7xl`. Never use center-everything approach. Rely on left-alignment and sharp optical balance."
   },
-  "design_system": {
-    "colors": {
-      "background_primary": "#FFFFFF",
-      "background_secondary": "#F9FAFB",
-      "surface": "#FFFFFF",
-      "primary_accent": "#0044FF",
-      "secondary_accent": "#111827",
-      "text_primary": "#030712",
-      "text_secondary": "#4B5563",
-      "border": "#E5E7EB",
-      "success": "#10B981",
-      "warning": "#F59E0B",
-      "danger": "#EF4444"
-    },
-    "typography": {
-      "heading_font": "Cabinet Grotesk",
-      "body_font": "IBM Plex Sans",
-      "weights": {
-        "heading": "font-black or font-light",
-        "body": "font-normal to font-medium"
-      },
-      "sizes": {
-        "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter",
-        "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight",
-        "h3": "text-xl sm:text-2xl tracking-tight",
-        "body": "text-base leading-relaxed",
-        "label": "text-xs tracking-[0.2em] uppercase text-text_secondary"
-      }
-    },
-    "surfaces": {
-      "admin_dashboard": "Grid Borders ('Technical' Look) - border-collapse style layout, right and bottom borders only, exposing the grid skeleton. Sharp corners (rounded-none or rounded-sm).",
-      "worker_app": "Neumorphism ('Tactile' Variant) - soft shadows with sharp 1px inner borders (border-black/5), pure white backgrounds on light gray canvas. Rounded corners (rounded-2xl)."
-    },
-    "spacing": "Generous Spacing: p-6 to p-8 inside cards, gap-6 to gap-8 between bento grid items. Tight gap-4 for admin tables.",
-    "interactions": "Hover states must explicitly set text color (e.g. hover:bg-primary_accent hover:text-white). Focus rings must use primary_accent."
+  "colors": {
+    "background": "#F5F4F0 (Warm Bone)",
+    "foreground": "#1C1A17 (Off-Black/Charcoal)",
+    "primary": "#1B2A22 (Deep Forest Green)",
+    "accent": "#C84B31 (Terracotta/Brick Red)",
+    "muted_border": "rgba(28, 26, 23, 0.15)",
+    "instruction": "Use arbitrary Tailwind classes (e.g., `bg-[#F5F4F0]`, `text-[#1C1A17]`) to enforce this palette on the page and avoid clashing with the existing site's electric blue/black style."
   },
-  "layout_strategies": {
-    "admin_console": {
-      "grid_type": "MODE B: The 'Control Room' Grid",
-      "structure": "Sidebar left navigation. Top row: 3-4 KPI widgets. Main area: Dense data table for gig management. Right side panel for 'Gig Blast' actions.",
-      "visual_rules": "Information clarity, functional beauty, no unnecessary flair. Sharp edges, max 4px border-radius."
+  "visual_enhancers": {
+    "borders": "Use sharp 1px borders (`border-[#1C1A17]/15`) to create an editorial/ledger look. No heavy tactile shadows.",
+    "shapes": "Sharp corners (`rounded-none`) or extremely subtle radii (`rounded-sm`) to reflect a serious, magazine-like Brutalist aesthetic.",
+    "hover_states": "Interactive elements must shift colors or subtly translate. CTAs in Terracotta should darken on hover `hover:bg-[#A03A24]`.",
+    "motion": "Use framer-motion for simple staggered fade-in-up entrances on scroll (`initial={{ opacity: 0, y: 20 }}`)."
+  },
+  "layouts": {
+    "hero": "Asymmetric split. Left: massive H1 text and CTAs in a Deep Forest Green container (`bg-[#1B2A22] text-[#F5F4F0]`). Right: Full height image.",
+    "problem_section": "Editorial text block. Large drop-cap or oversized quotation style. Sticky H2 on the left, flowing narrative on the right.",
+    "how_it_works": "Bento grid (Mode A). Use oversized numerals (`01`, `02`, `03`) in `font-display` or `font-mono-label` with accent color. Avoid 3 boring equal columns.",
+    "multi_trade": "Long-form editorial section. Two columns. Incorporate the team image with an offset overlapping caption.",
+    "comparison_table": "Ledger style. Do not use an HTML table. Use a CSS grid where each row has a sharp top and bottom border. HCOB column should be visually prioritized.",
+    "case_study": "Inverted dark section (`bg-[#1B2A22] text-[#F5F4F0]`). Brutalist metrics, large display numbers.",
+    "services_grid": "14 items. Use an editorial grid (`grid-cols-2 md:grid-cols-4 lg:grid-cols-5`) with visible 1px borders separating every item (Technical Look).",
+    "quote_section": "Embed `<QuoteRequestForm />` within a warm, grounded container. Generous padding (`p-12`)."
+  },
+  "image_urls": {
+    "hero_image": {
+      "url": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBob21lJTIwcmVub3ZhdGlvbiUyMGNvbnN0cnVjdGlvbnxlbnwwfHx8fDE3ODM5OTk5NTJ8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern concrete building under construction",
+      "placement": "Hero Section right side"
     },
-    "worker_app": {
-      "grid_type": "Mobile-first Bento Grid",
-      "structure": "Mobile-first container wrapper (max-w-md mx-auto) to simulate mobile view on desktop. Bottom tab navigation. Feed of available gigs presented as bento cards.",
-      "visual_rules": "Thumb-friendly large primary actions. Subtle roundness (rounded-2xl) for cards. Profile/ID upload uses full-width interactive dropzones."
+    "team_image": {
+      "url": "https://images.unsplash.com/photo-1694521787193-9293daeddbaa?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwzfHxjb250cmFjdG9yJTIwdGVhbSUyMHdvcmtpbmd8ZW58MHx8fHwxNzgzOTk5OTUyfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Contractor team working together",
+      "placement": "Multi-Trade or Problem section"
+    },
+    "case_study_image": {
+      "url": "https://images.unsplash.com/photo-1781243680823-aae6c7f1ff12?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxpbmR1c3RyaWFsJTIwcmVjeWNsaW5nJTIwZmFjaWxpdHl8ZW58MHx8fHwxNzgzOTk5OTUyfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Compressed bales of mixed paper (Recycling Operation)",
+      "placement": "Case Study Section"
     }
   },
-  "media_assets": {
-    "worker_profiles": [
-      {
-        "url": "https://images.unsplash.com/photo-1611178206064-2ae27f72b9ca?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMHByb2ZpbGUlMjBwaWN0dXJlJTIwcGxhaW4lMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4MDA5NDYwOXww&ixlib=rb-4.1.0&q=85",
-        "description": "Worker Profile 1",
-        "category": "worker_avatar"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1607990283143-e81e7a2c9349?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMHByb2ZpbGUlMjBwaWN0dXJlJTIwcGxhaW4lMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4MDA5NDYwOXww&ixlib=rb-4.1.0&q=85",
-        "description": "Worker Profile 2",
-        "category": "worker_avatar"
-      }
-    ],
-    "company_logos": [
-      {
-        "url": "https://images.unsplash.com/photo-1698209652952-6ccdcf934f13?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjB0ZWNoJTIwY29tcGFueSUyMGxvZ28lMjBtaW5pbWFsfGVufDB8fHx8MTc4MDA5NDYwOXww&ixlib=rb-4.1.0&q=85",
-        "description": "Abstract logo for Admin Platform",
-        "category": "brand_logo"
-      }
-    ],
-    "generated_assets": [
-      {
-        "url": "https://static.prod-images.emergentagent.com/jobs/847c27b2-97b7-4959-80bd-581f3a182291/images/bc6fd89040bf44448ba805c2bc7e0824f8024d5115de66e72a1bbd7a74353139.png",
-        "description": "Gig Categories Iconography (Cleaning, Labor, Driving)",
-        "category": "hero_illustration"
-      },
-      {
-        "url": "https://static.prod-images.emergentagent.com/jobs/847c27b2-97b7-4959-80bd-581f3a182291/images/c5845f2d5dbbdf707c35665a09abce3bd5be559290185aba531628b942b1d59a.png",
-        "description": "Admin Operations Background Visual",
-        "category": "dashboard_background"
-      }
+  "testing": {
+    "data_testids": [
+      "customers-page", "customers-hero-title", "hero-quote-cta", "hero-call-cta",
+      "customers-problem", "customers-process", "customers-multi-trade",
+      "customers-comparison", "customers-case-study", "case-study-metric-*",
+      "customers-services", "service-card-*", "customers-quote", "customers-cta",
+      "footer-quote-cta", "footer-call-cta", "footer-contractors-link", "header-phone-cta", "customers-brand-lockup"
     ]
   },
+  "seo_and_metadata": {
+    "document_title": "HCOB Network | Managed Home & Property Services in Baltimore",
+    "meta_description": "One call, every trade. HCOB Network manages your entire project — cleaning, junk removal, painting, roofing & more — with vetted local pros in Maryland."
+  },
   "instructions_to_main_agent": [
-    "You are building two distinct views: An Admin Dashboard and a Worker App view.",
-    "Use Phosphor Icons (@phosphor-icons/react) for sharp, professional iconography. Install it using `yarn add @phosphor-icons/react`.",
-    "Do NOT use HTML <input type='date'> or <select>. ALWAYS use Shadcn UI DatePicker, Select, DropdownMenu, and Tables.",
-    "Every interactive element and key text MUST have a data-testid attribute in kebab-case based on its role.",
-    "Admin Dashboard: Use a dense, grid-based layout with sharp borders ('Control Room' Grid). Implement a 'Blast Gig' side panel or modal.",
-    "Worker App: Design mobile-first layout. Wrap the content in a max-w-md container if viewed on desktop. Use a bottom navigation bar. Gig cards should use tactile neumorphism with generous p-6 padding.",
-    "Typography: Apply Cabinet Grotesk for headings and IBM Plex Sans for body text.",
-    "Colors: Strictly follow the Swiss & High-Contrast palette (Stark white, 10% grey, Cobalt Blue accents). Avoid purple or teal entirely.",
-    "Never use placeholders for images. Use the provided media assets in this JSON.",
-    "For the file upload (ID Picture), use a styled dropzone or customized Shadcn Input, not standard browser file input styling."
+    "Rebuild `/app/frontend/src/pages/Customers.jsx` entirely.",
+    "DO NOT reuse the old electric blue/black aesthetic. Implement the custom color variables described in this JSON via arbitrary Tailwind classes (`bg-[#F5F4F0]`, `text-[#1C1A17]`, `bg-[#1B2A22]`, `bg-[#C84B31]`).",
+    "Use Phosphor Icons (`@phosphor-icons/react`) or `lucide-react`. DO NOT use emojis.",
+    "Do not touch the routing. Keep `<QuoteRequestForm />` exactly as an embedded component without redesigning its internals.",
+    "Implement the SEO `useEffect` to set document.title and meta description on mount.",
+    "Ensure the header is sticky with a glassmorphism effect (`backdrop-blur-xl bg-[#F5F4F0]/80`) and contains the primary CTA button and mobile phone icon.",
+    "Do not use generic Inter font for headings. Apply `font-display` to all H1, H2, H3 elements.",
+    "Avoid symmetric centered text blocks. Use sharp left-aligned typography.",
+    "The 14 services MUST be included in the Services section."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Avoid generic 'AI slop' aesthetics (centered layouts, simplistic gradients, uniform styling).",
+    "Create depth through layered design elements and distinctive layouts.",
+    "NEVER use emoji characters for icons.",
+    "Every interaction needs micro-animations (hover states, transitions).",
+    "Never use placeholder URLs (like placehold.co or via.placeholder.com). Use ONLY the provided `image_urls`.",
+    "Add `data-testid` attributes to all interactive and structural elements."
   ]
 }
