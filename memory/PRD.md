@@ -2227,3 +2227,9 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - **REDEPLOY needed to push to hcobnetwork.com/work in production.**
 
 - **REDEPLOY needed to push to hcobnetwork.com production.**
+
+## Register Page — Editorial Theme Switch (Jun 14, 2026)
+- `/register` fully restyled to the Editorial Magazine palette (warm bone bg, forest green worker / terracotta VA).
+- Full theme switch on role select: side panel color+headline, kicker, title, submit button, and mobile role banner all change per track (framer-motion animated).
+- Mobile-only colored banner (`register-mobile-role-banner`) states the selected track since the desktop panel is hidden.
+- All prior functionality preserved: SMS opt-in (A2P 10DLC), VA pending notice, Google signup (worker only), `?as=va` and `?next=` params, all data-testids.
