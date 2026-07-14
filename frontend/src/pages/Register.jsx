@@ -104,6 +104,9 @@ export default function Register() {
       }
       if (u.role === "worker" && next && next.startsWith("/")) {
         nav(next, { replace: true });
+      } else if (u.role === "worker") {
+        // New workers go straight into the work questionnaire wizard.
+        nav("/crew/onboarding", { replace: true });
       } else {
         nav(roleHomePath(u), { replace: true });
       }

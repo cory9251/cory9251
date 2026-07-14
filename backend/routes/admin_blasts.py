@@ -281,6 +281,10 @@ class AudienceFilter(BaseModel):
     payout_status: Optional[str] = None  # "missing" | "set"
     id_status: Optional[str] = None  # "missing" | "submitted" | "verified"
     search: Optional[str] = None
+    work_class: Optional[str] = None  # "general_labor" | "specialist"
+    trade: Optional[str] = None  # specialist trade id
+    trade_status: Optional[str] = None  # "pending" | "verified" | "returned" | "any"
+    attributes: Optional[str] = None  # comma-separated work attributes
 
 
 async def _build_audience(f: AudienceFilter) -> list[dict]:
@@ -298,6 +302,10 @@ async def _build_audience(f: AudienceFilter) -> list[dict]:
         payout_status=f.payout_status,
         id_status=f.id_status,
         search=f.search,
+        work_class=f.work_class,
+        trade=f.trade,
+        trade_status=f.trade_status,
+        attributes=f.attributes,
     )
     # Only include workers with a valid email — can't email without one.
     return [w for w in workers if (w.get("email") or "").strip()]

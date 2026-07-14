@@ -31,7 +31,8 @@ const FIELD_LABELS = {
   phone: "Phone number",
   zip_code: "ZIP code",
   date_of_birth: "Date of birth",
-  skills: "Skills (pick at least one)",
+  skills: "Work skills — complete the questionnaire",
+  specialist_trade_incomplete: "Finish or remove an incomplete specialist trade",
   availability: "Availability (pick at least one)",
   emergency_contact_name: "Emergency contact name",
   emergency_contact_phone: "Emergency contact phone",
@@ -86,9 +87,6 @@ export default function WorkerProfile() {
         date_of_birth: user.date_of_birth || "",
         has_car: !!user.has_car,
         has_truck: !!user.has_truck,
-        has_cdl: !!user.has_cdl,
-        experience_level: user.experience_level || "",
-        skills: user.skills || [],
         availability: user.availability || [],
         emergency_contact_name: user.emergency_contact_name || "",
         emergency_contact_phone: user.emergency_contact_phone || "",
@@ -332,35 +330,8 @@ export default function WorkerProfile() {
           </Field>
         </Section>
 
-        {/* Section: Skills */}
-        <Section title="What you do" icon={ListChecks} required>
-          <div className="grid grid-cols-2 gap-2">
-            {options.skills.map((s) => (
-              <ChipToggle
-                key={s.value}
-                testId={`skill-${s.value}`}
-                active={form.skills.includes(s.value)}
-                onClick={() => toggleArr("skills", s.value)}
-                label={s.label}
-              />
-            ))}
-          </div>
-          <Field label="Experience level" className="mt-3">
-            <select
-              data-testid="profile-experience"
-              value={form.experience_level}
-              onChange={(e) => set("experience_level", e.target.value)}
-              className="h-11 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 text-sm"
-            >
-              <option value="">Select…</option>
-              {options.experience_levels.map((e) => (
-                <option key={e} value={e}>
-                  {EXPERIENCE_LABELS[e] || e}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </Section>
+        {/* Section: What you do — questionnaire v2 summary */}
+        <WorkSummary user={user} options={options} />
 
         {/* Section: Availability */}
         <Section title="When you're free" icon={CalendarBlank} required>
@@ -382,7 +353,7 @@ export default function WorkerProfile() {
           <p className="-mt-2 mb-2 text-xs text-[#4B5563]">
             Used for driver gigs and labor that needs hauling.
           </p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <ChipToggle
               testId="vehicle-car"
               active={form.has_car}
@@ -397,12 +368,13 @@ export default function WorkerProfile() {
               label="Truck"
               icon={Truck}
             />
-            <ChipToggle
-              testId="vehicle-cdl"
-              active={form.has_cdl}
-              onClick={() => set("has_cdl", !form.has_cdl)}
-              label="CDL"
-            />
+          </div>
+          <div className="mt-2 text-[11px] text-[#4B5563]">
+            Have a CDL? It now lives under{" "}
+            <Link to="/crew/certifications" className="font-semibold text-[#0044FF]">
+              Certifications
+            </Link>{" "}
+            — upload your license there.
           </div>
         </Section>
 
@@ -532,6 +504,88 @@ export default function WorkerProfile() {
 
       <ChangePasswordCard />
     </div>
+  );
+}
+
+const CLAIM_PILLS = {
+  incomplete: ["#F59E0B", "INCOMPLETE"],
+  pending: ["#0044FF", "PENDING VERIFICATION"],
+  verified: ["#10B981", "VERIFIED"],
+  returned: ["#EF4444", "RETURNED"],
+};
+
+function WorkSummary({ user, options }) {
+  const skillLabel = Object.fromEntries((options.skills || []).map((s) => [s.value, s.label]));
+  const attrLabel = Object.fromEntries((options.work_attributes || []).map((a) => [a.value, a.label]));
+  const classes = user.work_classes || [];
+  const generalSkills = user.general_skills || [];
+  const trades = user.specialist_trades || [];
+  const attrs = user.work_attributes || [];
+  return (
+    <section className="gb-tactile rounded-2xl border border-black/5 bg-white p-5" data-testid="work-profile-summary">
+      <div className="mb-4 flex items-center gap-2">
+        <ListChecks size={16} weight="duotone" className="text-[#0044FF]" />
+        <h2 className="font-display text-lg font-black tracking-tight">What you do</h2>
+        <span className="ml-auto text-[10px] font-bold uppercase tracking-widest text-[#F59E0B]">Required</span>
+      </div>
+
+      {classes.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {classes.map((c) => (
+            <span key={c} className="rounded-full bg-[#030712] px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
+              {c === "general_labor" ? "Crew & Labor" : "Specialist"}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {generalSkills.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {generalSkills.map((s) => (
+            <span key={s} className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2.5 py-1 text-[11px] font-semibold">
+              {skillLabel[s] || s}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {trades.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {trades.map((t) => {
+            const [bg, label] = CLAIM_PILLS[t.status] || CLAIM_PILLS.incomplete;
+            return (
+              <div key={t.trade} data-testid={`profile-trade-${t.trade}`} className="flex items-center justify-between rounded-xl border border-[#E5E7EB] px-3 py-2">
+                <span className="text-sm font-bold">{skillLabel[t.trade] || t.trade.replace(/_/g, " ")}</span>
+                <span className="rounded-full px-2 py-0.5 text-[9px] font-bold tracking-widest text-white" style={{ backgroundColor: bg }}>
+                  {label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {attrs.length > 0 && (
+        <div className="mt-3 text-xs text-[#4B5563]">
+          Attributes: {attrs.map((a) => attrLabel[a] || a).join(", ")}
+          {user.bilingual_languages && <> · {user.bilingual_languages}</>}
+        </div>
+      )}
+
+      {classes.length === 0 && generalSkills.length === 0 && trades.length === 0 && (
+        <div className="text-sm text-[#4B5563]">
+          Tell HCOB how you work — crew gigs, a specialty trade, or both.
+        </div>
+      )}
+
+      <Link
+        to="/crew/questionnaire"
+        data-testid="edit-questionnaire-link"
+        className="mt-4 flex h-11 items-center justify-center rounded-xl bg-[#0044FF] text-sm font-bold text-white hover:bg-[#0036cc]"
+      >
+        {classes.length ? "Edit work questionnaire" : "Start work questionnaire"}
+      </Link>
+    </section>
   );
 }
 

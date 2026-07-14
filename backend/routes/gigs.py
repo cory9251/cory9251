@@ -130,6 +130,9 @@ def _is_past(scheduled_at: Optional[str]) -> bool:
 # Helpers — re-exported for use by other modules (admin/timesheet/reports)
 # ============================================================================
 def _gig_doc(payload: GigIn, created_by: str) -> dict:
+    from constants import SPECIALIST_TRADES
+    if payload.target_trade and payload.target_trade not in SPECIALIST_TRADES:
+        raise HTTPException(400, "Unknown specialist trade")
     return {
         "gig_id": f"gig_{uuid.uuid4().hex[:12]}",
         "title": payload.title,
@@ -153,6 +156,7 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "payment_timeline_note": payload.payment_timeline_note,
         "contact_phone": payload.contact_phone,
         "required_badge_id": payload.required_badge_id,
+        "target_trade": payload.target_trade,
         "project_id": payload.project_id,
         "status": payload.status or "open",
         "publish_at": payload.publish_at,
@@ -402,6 +406,10 @@ async def _notify_matching_workers_of_new_gig(gig: dict) -> int:
     overlap with the gig's category AND whose ZIP starts with the gig's ZIP
     prefix (or has no ZIP — they get notified too rather than miss out)."""
     target_skills = GIG_CATEGORY_TO_SKILLS.get(gig.get("category"), [])
+    if gig.get("target_trade"):
+        # Specialist-targeted blast — only workers with the trade ACTIVE
+        # (verified or in migration grace) carry it in their synced skills.
+        target_skills = [gig["target_trade"]]
     if not target_skills:
         return 0
 
@@ -972,6 +980,7 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "description": src.get("description") or "",
         "category": src.get("category"),
         "subcategory": src.get("subcategory"),
+        "target_trade": src.get("target_trade"),
         "location": src.get("location"),
         "address_line": src.get("address_line"),
         "scheduled_date": src.get("scheduled_date"),
@@ -1101,6 +1110,20 @@ async def accept_gig(
             f"This assignment requires the {(b or {}).get('name') or 'required'} certification. "
             "Pass the test and get approved on your Certifications page first.",
         )
+
+    # Specialist-trade gate — trade-targeted gigs need an ACTIVE claim
+    # (verified, or unverified inside the migration grace window).
+    tt = gig.get("target_trade")
+    if tt:
+        from worker_taxonomy import trade_is_active
+        from constants import TRADE_LABELS
+        claims = user.get("specialist_trades") or []
+        if not any(c.get("trade") == tt and trade_is_active(c) for c in claims):
+            raise HTTPException(
+                403,
+                f"This assignment is targeted at verified {TRADE_LABELS.get(tt, tt)} specialists. "
+                "Complete your equipment verification on your profile to unlock it.",
+            )
 
     existing = await db.gig_acceptances.find_one(
         {"gig_id": gig_id, "worker_id": user["user_id"]}

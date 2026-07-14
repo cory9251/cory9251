@@ -1356,6 +1356,8 @@ api.include_router(bookkeeping_router)
 api.include_router(announcements_router)
 api.include_router(ai_assignments_router)
 api.include_router(badges_router)
+from routes.trades import router as trades_router  # noqa: E402
+api.include_router(trades_router)
 from routes.vp_applications import router as vp_applications_router  # noqa: E402
 api.include_router(vp_applications_router)
 app.include_router(api)
@@ -1398,6 +1400,13 @@ async def on_startup():
     await seed_accounts_and_templates()
     await seed_badges()
     await seed_service_catalog()
+    # Questionnaire v2 (FRD Addendum A): trade checklists + roster migration
+    import asyncio as _asyncio
+    from routes.trades import seed_trade_definitions
+    from worker_taxonomy import migrate_workers_to_v2, resync_grace_expired_loop
+    await seed_trade_definitions()
+    await migrate_workers_to_v2()
+    _asyncio.create_task(resync_grace_expired_loop())
     from routes.bookkeeping import backfill_paid_commission_payroll
     n = await backfill_paid_commission_payroll()
     if n:

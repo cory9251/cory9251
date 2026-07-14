@@ -55,6 +55,18 @@ def _profile_missing_fields(user: dict) -> List[str]:
         return []
     missing: List[str] = []
     for f in REQUIRED_PROFILE_FIELDS:
+        if f == "skills":
+            # Questionnaire v2: at least one general skill OR one submitted
+            # specialist trade. Legacy accounts fall back to the flat array.
+            trades = user.get("specialist_trades") or []
+            ok = (
+                bool(user.get("general_skills"))
+                or any(t.get("status") in ("pending", "verified") for t in trades)
+                or (user.get("questionnaire_version") != 2 and bool(user.get("skills")))
+            )
+            if not ok:
+                missing.append("skills")
+            continue
         v = user.get(f)
         if v is None:
             missing.append(f)
@@ -62,6 +74,10 @@ def _profile_missing_fields(user: dict) -> List[str]:
             missing.append(f)
         elif isinstance(v, list) and len(v) == 0:
             missing.append(f)
+    # FRD Addendum A: a claimed specialist trade with an incomplete checklist
+    # blocks profile completion — finish it or remove the claim.
+    if any(t.get("status") == "incomplete" for t in user.get("specialist_trades") or []):
+        missing.append("specialist_trade_incomplete")
     return missing
 
 

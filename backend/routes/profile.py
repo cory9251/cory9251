@@ -25,6 +25,10 @@ from constants import (
     EXPERIENCE_OPTIONS,
     TSHIRT_SIZES,
     REQUIRED_PROFILE_FIELDS,
+    GENERAL_CLEANING_SKILLS,
+    GENERAL_LABOR_SKILLS,
+    WORK_ATTRIBUTES,
+    ATTRIBUTE_LABELS,
 )
 from models import ProfileUpdateIn
 
@@ -42,6 +46,10 @@ async def profile_options(user: dict = Depends(get_current_user)):
         "experience_levels": EXPERIENCE_OPTIONS,
         "tshirt_sizes": TSHIRT_SIZES,
         "required_fields": REQUIRED_PROFILE_FIELDS,
+        # Questionnaire v2 groups (FRD Addendum A)
+        "general_cleaning_skills": [{"value": s, "label": SKILL_LABELS[s]} for s in GENERAL_CLEANING_SKILLS],
+        "general_labor_skills": [{"value": s, "label": SKILL_LABELS[s]} for s in GENERAL_LABOR_SKILLS],
+        "work_attributes": [{"value": a, "label": ATTRIBUTE_LABELS[a]} for a in WORK_ATTRIBUTES],
     }
 
 

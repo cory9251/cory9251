@@ -93,6 +93,7 @@ export default function CreateGigDialog({
     payment_timeline_note: "",
     contact_phone: "",
     required_badge_id: "",
+    target_trade: "",
   });
   const [date, setDate] = useState(initialDate || today);
   const [hour, setHour] = useState("9");
@@ -117,6 +118,16 @@ export default function CreateGigDialog({
     api
       .get("/admin/badges")
       .then(({ data }) => setBadgeOptions((data || []).filter((b) => b.active)))
+      .catch(() => {});
+  }, [open]);
+
+  // Specialist trades for the "target trade" blast gate.
+  const [tradeOptions, setTradeOptions] = useState([]);
+  useEffect(() => {
+    if (!open) return;
+    api
+      .get("/trades/definitions")
+      .then(({ data }) => setTradeOptions(data?.trades || []))
       .catch(() => {});
   }, [open]);
 
@@ -203,6 +214,7 @@ export default function CreateGigDialog({
         break_minutes: parseInt(form.break_minutes || 0),
         address_line: form.address_line.trim() || null,
         required_badge_id: form.required_badge_id || null,
+        target_trade: form.target_trade || null,
         recurrence,
         repeat_count: recurrence === "none" ? 1 : parseInt(repeatCount || 1),
       });
@@ -228,6 +240,7 @@ export default function CreateGigDialog({
         payment_timeline_note: "",
         contact_phone: "",
         required_badge_id: "",
+        target_trade: "",
       });
     } catch (e) {
       toast.error(getErr(e));
@@ -343,6 +356,32 @@ export default function CreateGigDialog({
             </Select>
             <div className="mt-1 text-[11px] text-[#4B5563]">
               Only workers HCOB-certified for this specialty can request the assignment.
+            </div>
+          </div>
+
+          <div className="md:col-span-2">
+            <Label className="font-mono-label">Specialist trade targeting (optional)</Label>
+            <Select
+              value={form.target_trade || "none"}
+              onValueChange={(v) => set("target_trade", v === "none" ? "" : v)}
+            >
+              <SelectTrigger
+                data-testid="gig-target-trade"
+                className="mt-2 h-11 rounded-none border-[#030712]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None — open to the whole category</SelectItem>
+                {tradeOptions.map((t) => (
+                  <SelectItem key={t.trade_id} value={t.trade_id}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="mt-1 text-[11px] text-[#4B5563]">
+              Blast + claiming restricted to workers with this trade verified (equipment proof on file).
             </div>
           </div>
 

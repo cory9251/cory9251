@@ -140,14 +140,22 @@ function BadgeCard({ badge, onTakeTest, onChanged }) {
           You're certified — you get first access to {badge.name} assignments.
         </div>
       ) : !app ? (
-        <Button
-          data-testid={`take-test-btn-${badge.badge_id}`}
-          onClick={onTakeTest}
-          className="mt-4 h-11 w-full rounded-2xl bg-[#030712] text-sm font-bold text-white"
-        >
-          <Exam size={16} weight="fill" className="mr-2" />
-          Take the test · {badge.question_count} questions · pass at {badge.pass_pct}%
-        </Button>
+        badge.question_count === 0 ? (
+          <ProofPanel
+            badge={badge}
+            app={{ documents: [], portfolio_links: [], notes: "" }}
+            onChanged={onChanged}
+          />
+        ) : (
+          <Button
+            data-testid={`take-test-btn-${badge.badge_id}`}
+            onClick={onTakeTest}
+            className="mt-4 h-11 w-full rounded-2xl bg-[#030712] text-sm font-bold text-white"
+          >
+            <Exam size={16} weight="fill" className="mr-2" />
+            Take the test · {badge.question_count} questions · pass at {badge.pass_pct}%
+          </Button>
+        )
       ) : app.status === "test_failed" ? (
         <div className="mt-4 rounded-xl border border-[#EF4444]/30 bg-[#FEF2F2] p-3 text-xs text-[#991B1B]">
           You scored {app.score_pct}% — {badge.pass_pct}% needed. Retakes require
@@ -221,7 +229,9 @@ function ProofPanel({ badge, app, onChanged }) {
   return (
     <div className="mt-4 space-y-3 rounded-xl border border-[#0044FF]/20 bg-[#F0F4FF] p-4" data-testid={`proof-panel-${badge.badge_id}`}>
       <div className="text-xs font-bold text-[#1D4ED8]">
-        Test passed ({app.score_pct}%) — now show HCOB your credentials.
+        {app.score_pct != null
+          ? `Test passed (${app.score_pct}%) — now show HCOB your credentials.`
+          : "No test needed — upload your credential document for HCOB review."}
       </div>
 
       <div>
@@ -283,7 +293,7 @@ function ProofPanel({ badge, app, onChanged }) {
       <Button
         data-testid={`proof-submit-btn-${badge.badge_id}`}
         onClick={submit}
-        disabled={busy}
+        disabled={busy || (badge.question_count === 0 && docs.length === 0)}
         className="h-11 w-full rounded-xl bg-[#0044FF] text-sm font-bold text-white"
       >
         {busy ? "Submitting…" : "Submit for HCOB review"}

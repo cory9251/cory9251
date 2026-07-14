@@ -79,6 +79,10 @@ async def list_workers(
     payout_status: Optional[str] = Query(None, description="'missing' = no payout method on file; 'set' = method is set"),
     id_status: Optional[str] = Query(None, description="'missing' | 'submitted' | 'verified'"),
     search: Optional[str] = Query(None, description="Free-text search across name/email/phone"),
+    work_class: Optional[str] = Query(None, description="'general_labor' | 'specialist'"),
+    trade: Optional[str] = Query(None, description="Specialist trade id, e.g. carpet_cleaning"),
+    trade_status: Optional[str] = Query(None, description="'incomplete' | 'pending' | 'verified' | 'returned' | 'any'"),
+    attributes: Optional[str] = Query(None, description="Comma-separated work attributes"),
     admin: dict = Depends(require_admin),
 ):
     return await _filter_workers(
@@ -87,6 +91,8 @@ async def list_workers(
         profile_complete=profile_complete, min_rating=min_rating,
         available_now=available_now, payout_status=payout_status,
         id_status=id_status, search=search,
+        work_class=work_class, trade=trade, trade_status=trade_status,
+        attributes=attributes,
     )
 
 
@@ -103,6 +109,10 @@ async def _filter_workers(
     payout_status: Optional[str] = None,
     id_status: Optional[str] = None,
     search: Optional[str] = None,
+    work_class: Optional[str] = None,
+    trade: Optional[str] = None,
+    trade_status: Optional[str] = None,
+    attributes: Optional[str] = None,
 ) -> list[dict]:
     """Shared worker-filter logic. Used by /admin/workers AND the email-blast
     endpoints so the audience picker on the blast composer is guaranteed to
@@ -135,6 +145,17 @@ async def _filter_workers(
         av_list = [a.strip() for a in availability.split(",") if a.strip()]
         if av_list:
             query["availability"] = {"$in": av_list}
+    if work_class in ("general_labor", "specialist"):
+        query["work_classes"] = work_class
+    if trade:
+        em: dict = {"trade": trade.strip()}
+        if trade_status and trade_status != "any":
+            em["status"] = trade_status
+        query["specialist_trades"] = {"$elemMatch": em}
+    if attributes:
+        attr_list = [a.strip() for a in attributes.split(",") if a.strip()]
+        if attr_list:
+            query["work_attributes"] = {"$in": attr_list}
     if zip_code:
         query["zip_code"] = zip_code.strip()
     elif zip_prefix:

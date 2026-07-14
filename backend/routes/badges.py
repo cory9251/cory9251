@@ -208,7 +208,24 @@ async def worker_upload_doc(
 ):
     _require_worker(user)
     app = await _get_application(badge_id, user["user_id"])
-    if not app or app.get("status") != "test_passed":
+    if not app:
+        badge = await db.badges.find_one({"badge_id": badge_id, "active": True}, {"_id": 0})
+        if badge is not None and not (badge.get("questions") or []):
+            # Doc-only certification (Forklift / CDL) — no test, straight to upload.
+            app = {
+                "application_id": f"bap_{uuid.uuid4().hex[:12]}",
+                "badge_id": badge_id,
+                "user_id": user["user_id"],
+                "status": "test_passed",
+                "score_pct": None,
+                "doc_only": True,
+                "documents": [],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.badge_applications.insert_one(dict(app))
+        else:
+            raise HTTPException(400, "Pass the test first, then upload your credentials")
+    elif app.get("status") != "test_passed":
         raise HTTPException(400, "Pass the test first, then upload your credentials")
     if len(app.get("documents") or []) >= MAX_DOCS:
         raise HTTPException(400, f"Max {MAX_DOCS} documents per application")
@@ -445,6 +462,19 @@ async def admin_approve_application(
     await db.users.update_one(
         {"user_id": app["user_id"]}, {"$addToSet": {"certified_badges": app["badge_id"]}}
     )
+    # Cert-tag badges (Forklift / CDL) also feed the dispatch skill tags.
+    badge_doc = await db.badges.find_one({"badge_id": app["badge_id"]}, {"_id": 0, "skill_tag": 1})
+    tag = (badge_doc or {}).get("skill_tag")
+    if tag:
+        await db.users.update_one(
+            {"user_id": app["user_id"]}, {"$pull": {"cert_tags": {"tag": tag}}}
+        )
+        await db.users.update_one(
+            {"user_id": app["user_id"]},
+            {"$push": {"cert_tags": {"tag": tag, "verified": True, "grace_until": None, "source": "badge"}}},
+        )
+        from worker_taxonomy import sync_user_skills
+        await sync_user_skills(app["user_id"])
     await _notify(
         app["user_id"],
         f"You're certified: {badge_name}",
@@ -504,6 +534,24 @@ def _q(q, options, ci):
 
 
 SEED_BADGES = [
+    {
+        # Doc-only certification (FRD Addendum A) — no test, upload the card.
+        "seed_key": "forklift_cert",
+        "name": "Forklift Certification",
+        "description": "Upload your current forklift operator certification card. No test required — HCOB verifies the document.",
+        "color": "#F97316",
+        "skill_tag": "forklift",
+        "questions": [],
+    },
+    {
+        # Doc-only certification — CDL lives here ONLY (removed from Vehicle).
+        "seed_key": "cdl_license",
+        "name": "CDL (Commercial Driver's License)",
+        "description": "Upload a photo of your valid CDL. No test required — HCOB verifies the license.",
+        "color": "#0044FF",
+        "skill_tag": "cdl",
+        "questions": [],
+    },
     {
         "seed_key": "cleaning_pro",
         "name": "Certified Cleaning Pro",
@@ -614,6 +662,7 @@ async def seed_badges() -> None:
                 "name": s["name"],
                 "description": s["description"],
                 "color": s["color"],
+                "skill_tag": s.get("skill_tag"),
                 "pass_pct": 80,
                 "questions": s["questions"],
                 "active": True,

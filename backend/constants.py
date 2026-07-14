@@ -23,6 +23,12 @@ WORKER_SKILLS = [
     "warehouse",
     "landscaping",
     "painting",
+    "pressure_washing",
+    "carpentry",
+    "handyman",
+    "junk_removal",
+    "plumbing",
+    "electrical",
     # Driver / transport
     "driving",
     "delivery",
@@ -48,6 +54,12 @@ SKILL_LABELS = {
     "warehouse": "Warehouse",
     "landscaping": "Landscaping",
     "painting": "Painting",
+    "pressure_washing": "Pressure washing",
+    "carpentry": "Carpentry",
+    "handyman": "Handyman",
+    "junk_removal": "Junk removal / hauling",
+    "plumbing": "Plumbing (licensed)",
+    "electrical": "Electrical (licensed)",
     "driving": "Driving",
     "delivery": "Delivery",
     "cdl": "CDL",
@@ -64,7 +76,8 @@ GIG_CATEGORY_TO_SKILLS = {
     ],
     "labor": [
         "hourly_labor", "heavy_lifting", "forklift", "moving",
-        "warehouse", "landscaping", "painting",
+        "warehouse", "landscaping", "painting", "pressure_washing",
+        "carpentry", "handyman", "junk_removal", "plumbing", "electrical",
     ],
     "driver": ["driving", "delivery", "cdl"],
 }
@@ -74,6 +87,47 @@ AVAILABILITY_OPTIONS = [
 ]
 EXPERIENCE_OPTIONS = ["none", "0_1_yr", "1_3_yr", "3_plus_yr"]
 TSHIRT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]
+
+# ============================================================================
+# Worker questionnaire v2 (FRD Addendum A) — classes, trades, attributes
+# ============================================================================
+WORK_CLASSES = ["general_labor", "specialist"]
+
+GENERAL_CLEANING_SKILLS = [
+    "deep_cleaning", "routine_cleaning", "moveouts", "detailing",
+    "window_cleaning", "post_construction",
+]
+GENERAL_LABOR_SKILLS = [
+    "hourly_labor", "heavy_lifting", "moving", "warehouse", "driving", "delivery",
+]
+GENERAL_SKILLS = GENERAL_CLEANING_SKILLS + GENERAL_LABOR_SKILLS
+
+SPECIALIST_TRADES = [
+    "painting", "landscaping", "carpet_cleaning", "pressure_washing",
+    "carpentry", "handyman", "junk_removal", "plumbing", "electrical",
+]
+TRADE_LABELS = {
+    "painting": "Painting",
+    "landscaping": "Landscaping",
+    "carpet_cleaning": "Carpet Cleaning",
+    "pressure_washing": "Pressure Washing",
+    "carpentry": "Carpentry",
+    "handyman": "Handyman",
+    "junk_removal": "Junk Removal / Hauling",
+    "plumbing": "Plumbing (Licensed)",
+    "electrical": "Electrical (Licensed)",
+}
+LICENSED_TRADES = ["plumbing", "electrical"]
+
+WORK_ATTRIBUTES = ["fast_learner", "bilingual", "team_lead"]
+ATTRIBUTE_LABELS = {
+    "fast_learner": "Fast learner",
+    "bilingual": "Bilingual",
+    "team_lead": "Team lead experience",
+}
+
+# Certification tags that map badge approvals into dispatch skills.
+CERT_TAGS = ["forklift", "cdl"]
 
 # Fields required for a worker profile to be considered "complete" — gates the
 # ability to request gigs together with id_verified.

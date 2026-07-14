@@ -724,6 +724,42 @@ function AdminProfileEditor({ worker, onSaved }) {
         </FieldRow>
       </Section>
 
+      {/* Questionnaire v2 — classes, trades, attributes (read-only) */}
+      <Section title="Classes & specialist trades" hint="From the worker questionnaire. Verify equipment claims in Ops → Trades.">
+        <div className="flex flex-wrap gap-1.5" data-testid="admin-worker-classes">
+          {(worker.work_classes || []).map((c) => (
+            <span key={c} className="bg-[#030712] px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
+              {c === "general_labor" ? "General Labor" : "Specialist"}
+            </span>
+          ))}
+          {!(worker.work_classes || []).length && (
+            <span className="text-xs text-[#9CA3AF]">Questionnaire not completed yet</span>
+          )}
+        </div>
+        {(worker.specialist_trades || []).length > 0 && (
+          <div className="mt-3 space-y-1.5" data-testid="admin-worker-trades">
+            {(worker.specialist_trades || []).map((t) => (
+              <div key={t.trade} className="flex items-center justify-between border border-[#E5E7EB] px-3 py-2 text-sm">
+                <span className="font-semibold capitalize">{t.trade.replace(/_/g, " ")}</span>
+                <span
+                  className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white ${
+                    { incomplete: "bg-[#F59E0B]", pending: "bg-[#0044FF]", verified: "bg-[#10B981]", returned: "bg-[#EF4444]" }[t.status] || "bg-[#4B5563]"
+                  }`}
+                >
+                  {t.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {(worker.work_attributes || []).length > 0 && (
+          <div className="mt-3 text-xs text-[#4B5563]" data-testid="admin-worker-attributes">
+            Attributes: {(worker.work_attributes || []).map((a) => a.replace(/_/g, " ")).join(", ")}
+            {worker.bilingual_languages && <> · Languages: {worker.bilingual_languages}</>}
+          </div>
+        )}
+      </Section>
+
       {/* Availability */}
       <Section title="Availability">
         <div className="flex flex-wrap gap-1.5">

@@ -29,6 +29,7 @@ import {
   Sparkle,
   Tag,
   SealCheck,
+  Wrench,
   CaretDown,
   Coins,
   UserPlus,
@@ -65,6 +66,7 @@ const groups = [
     items: [
       { to: "/ops/workers", label: "Workers", icon: UsersThree, end: false },
       { to: "/ops/badges", label: "Certifications", icon: SealCheck, end: false },
+      { to: "/ops/trades", label: "Trades", icon: Wrench, end: false },
       { to: "/ops/referrals", label: "Referrals", icon: Handshake, end: false },
       { to: "/ops/messages", label: "Messages", icon: ChatCircleDots, end: false, badge: "messages" },
     ],

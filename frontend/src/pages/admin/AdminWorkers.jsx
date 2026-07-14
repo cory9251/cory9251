@@ -46,9 +46,42 @@ const SKILL_OPTIONS = [
   { value: "warehouse", label: "Warehouse" },
   { value: "landscaping", label: "Landscaping" },
   { value: "painting", label: "Painting" },
+  { value: "pressure_washing", label: "Pressure washing" },
+  { value: "carpentry", label: "Carpentry" },
+  { value: "handyman", label: "Handyman" },
+  { value: "junk_removal", label: "Junk removal" },
+  { value: "plumbing", label: "Plumbing" },
+  { value: "electrical", label: "Electrical" },
   { value: "driving", label: "Driving" },
   { value: "delivery", label: "Delivery" },
   { value: "cdl", label: "CDL" },
+];
+
+const CLASS_OPTIONS = [
+  { value: "general_labor", label: "General Labor" },
+  { value: "specialist", label: "Specialist" },
+];
+
+const TRADE_OPTIONS = [
+  { value: "painting", label: "Painting" },
+  { value: "landscaping", label: "Landscaping" },
+  { value: "carpet_cleaning", label: "Carpet cleaning" },
+  { value: "pressure_washing", label: "Pressure washing" },
+  { value: "carpentry", label: "Carpentry" },
+  { value: "handyman", label: "Handyman" },
+  { value: "junk_removal", label: "Junk removal" },
+  { value: "plumbing", label: "Plumbing" },
+  { value: "electrical", label: "Electrical" },
+];
+
+const TRADE_STATUS_OPTIONS = [
+  { value: "verified", label: "Verified" },
+  { value: "pending", label: "Pending" },
+  { value: "returned", label: "Returned" },
+  { value: "any", label: "Any status" },
+];
+
+const ATTR_OPTIONS = [
   { value: "fast_learner", label: "Fast learner" },
   { value: "bilingual", label: "Bilingual" },
   { value: "team_lead", label: "Team lead" },
@@ -128,6 +161,10 @@ export default function AdminWorkers() {
   const [payoutMissing, setPayoutMissing] = useState(
     () => params.get("payout_status") === "missing"
   );
+  const [workClass, setWorkClass] = useState("");
+  const [tradeFilter, setTradeFilter] = useState("");
+  const [tradeStatus, setTradeStatus] = useState("verified");
+  const [attrs, setAttrs] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
   const nav = useNavigate();
 
@@ -146,6 +183,12 @@ export default function AdminWorkers() {
       if (availableNow) q.available_now = true;
       if (payoutMissing) q.payout_status = "missing";
       if (search.trim()) q.search = search.trim();
+      if (workClass) q.work_class = workClass;
+      if (tradeFilter) {
+        q.trade = tradeFilter;
+        q.trade_status = tradeStatus || "any";
+      }
+      if (attrs.length) q.attributes = attrs.join(",");
       const { data } = await api.get("/admin/workers", { params: q });
       setWorkers(data);
     } catch (e) {
@@ -156,7 +199,7 @@ export default function AdminWorkers() {
   useEffect(() => {
     load();
     // eslint-disable-next-line
-  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, availableNow, payoutMissing, search]);
+  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, availableNow, payoutMissing, search, workClass, tradeFilter, tradeStatus, attrs]);
 
   const toggleArr = (arr, setter, v) =>
     setter(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
@@ -172,6 +215,10 @@ export default function AdminWorkers() {
     setAvailableNow(false);
     setPayoutMissing(false);
     setSearch("");
+    setWorkClass("");
+    setTradeFilter("");
+    setTradeStatus("verified");
+    setAttrs([]);
   };
 
   const activeFilterCount =
@@ -184,7 +231,10 @@ export default function AdminWorkers() {
     (minRating ? 1 : 0) +
     (availableNow ? 1 : 0) +
     (payoutMissing ? 1 : 0) +
-    (search ? 1 : 0);
+    (search ? 1 : 0) +
+    (workClass ? 1 : 0) +
+    (tradeFilter ? 1 : 0) +
+    attrs.length;
 
   return (
     <div data-testid="admin-workers">
@@ -303,6 +353,68 @@ export default function AdminWorkers() {
                     onClick={() => toggleArr(skills, setSkills, s.value)}
                   >
                     {s.label}
+                  </FilterChip>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="font-mono-label mb-2">Worker class</div>
+              <div className="flex flex-wrap gap-1.5">
+                {CLASS_OPTIONS.map((c) => (
+                  <FilterChip
+                    key={c.value}
+                    testId={`filter-class-${c.value}`}
+                    active={workClass === c.value}
+                    onClick={() => setWorkClass(workClass === c.value ? "" : c.value)}
+                  >
+                    {c.label}
+                  </FilterChip>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="font-mono-label mb-2">Specialist trade</div>
+              <div className="flex flex-wrap gap-1.5">
+                {TRADE_OPTIONS.map((t) => (
+                  <FilterChip
+                    key={t.value}
+                    testId={`filter-trade-${t.value}`}
+                    active={tradeFilter === t.value}
+                    onClick={() => setTradeFilter(tradeFilter === t.value ? "" : t.value)}
+                  >
+                    {t.label}
+                  </FilterChip>
+                ))}
+              </div>
+              {tradeFilter && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {TRADE_STATUS_OPTIONS.map((s) => (
+                    <FilterChip
+                      key={s.value}
+                      testId={`filter-trade-status-${s.value}`}
+                      active={tradeStatus === s.value}
+                      onClick={() => setTradeStatus(s.value)}
+                    >
+                      {s.label}
+                    </FilterChip>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="font-mono-label mb-2">Work attributes</div>
+              <div className="flex flex-wrap gap-1.5">
+                {ATTR_OPTIONS.map((a) => (
+                  <FilterChip
+                    key={a.value}
+                    testId={`filter-attr-${a.value}`}
+                    active={attrs.includes(a.value)}
+                    onClick={() => toggleArr(attrs, setAttrs, a.value)}
+                  >
+                    {a.label}
                   </FilterChip>
                 ))}
               </div>

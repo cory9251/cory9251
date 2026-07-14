@@ -59,6 +59,7 @@ import AdminBookkeeping from "@/pages/admin/AdminBookkeeping";
 import AdminAnnouncements from "@/pages/admin/AdminAnnouncements";
 import AdminAIAssignment from "@/pages/admin/AdminAIAssignment";
 import AdminBadges from "@/pages/admin/AdminBadges";
+import AdminTrades from "@/pages/admin/AdminTrades";
 import AdminServicesCatalog from "@/pages/admin/AdminServicesCatalog";
 import AdminVAJobs from "@/pages/admin/AdminVAJobs";
 import AdminWorkerPay from "@/pages/admin/AdminWorkerPay";
@@ -71,6 +72,7 @@ import CustomerChat from "@/pages/CustomerChat";
 import WorkerLayout from "@/components/worker/WorkerLayout";
 import WorkerFeed from "@/pages/worker/WorkerFeed";
 import WorkerProfile from "@/pages/worker/WorkerProfile";
+import WorkerQuestionnaire from "@/pages/worker/WorkerQuestionnaire";
 import WorkerAccepted from "@/pages/worker/WorkerAccepted";
 import WorkerGigDetail from "@/pages/worker/WorkerGigDetail";
 import PrivacyPolicy from "@/pages/legal/PrivacyPolicy";
@@ -174,6 +176,7 @@ function RouterShell() {
         <Route path="announcements" element={<AdminAnnouncements />} />
         <Route path="ai-assignment" element={<AdminAIAssignment />} />
         <Route path="badges" element={<AdminBadges />} />
+        <Route path="trades" element={<AdminTrades />} />
         <Route path="services" element={<AdminServicesCatalog />} />
         <Route path="va-program/pipeline/:leadId" element={<LeadDetail scope="admin" />} />
         <Route path="va-program/commissions" element={<AdminVACommissions />} />
@@ -215,6 +218,8 @@ function RouterShell() {
         <Route path="messages" element={<Messages />} />
         <Route path="refer" element={<WorkerReferrals />} />
         <Route path="certifications" element={<WorkerCertifications />} />
+        <Route path="onboarding" element={<WorkerQuestionnaire onboarding />} />
+        <Route path="questionnaire" element={<WorkerQuestionnaire />} />
         <Route path="me" element={<WorkerProfile />} />
       </Route>
 
