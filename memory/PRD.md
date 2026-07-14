@@ -2183,3 +2183,24 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - FIX 4: NEW static page /sms-optin.html documenting the full opt-in workflow (where consent is collected, exact checkbox language, unchecked-by-default, all CTIA disclosures) — submit this as the opt-in evidence URL in the campaign.
 - Verified: all 4 static pages return 200 on preview; register page hrefs confirmed via Playwright.
 - REDEPLOY needed, then resubmit campaign with: https://hcobnetwork.com/privacy.html (privacy policy URL) and https://hcobnetwork.com/sms-optin.html (opt-in description/URL).
+
+
+### 2026-07-14 — Customer landing page rebuild (SEO copy + new visual language) — DONE, verified
+- User uploaded new SEO-optimized copy for hcobnetwork.com customer page and requested "distinctive new look" (not the electric-blue/black aesthetic used previously).
+- Design agent produced `design_guidelines.json` with an editorial magazine palette: **bone #F5F4F0 background · charcoal #1C1A17 text · deep forest #1B2A22 primary · terracotta #C84B31 accent**.
+- Rebuilt `/app/frontend/src/pages/Customers.jsx` end-to-end (`/` route) with 8 sections:
+  1. Hero — asymmetric split: forest-panel left with H1 "One call. Every trade. Fully managed." + terracotta CTA; hero construction image right with editorial "01" overlay and multi-trade caption.
+  2. Problem — sticky H2 + editorial drop-cap narrative "Managing contractors shouldn't be a second job."
+  3. How It Works (3 steps) — oversized terracotta numerals, staggered fade-in.
+  4. Multi-Trade — team image with offset terracotta callout "You don't hire four contractors — you hire one outcome."
+  5. Comparison ledger — HCOB vs. Lead-Gen sites, 6 rows, HCOB column visually prioritized in forest with check icons; lead-gen column muted with X icons.
+  6. Case Study — inverted dark forest section, recycling operation with 4 brutalist metric callouts (2×, 24/7, GPS, Live).
+  7. Services grid — 14 tiles (added Roofing & Windows + Virtual & Admin Services), 1px-divided editorial grid.
+  8. Quote form — embedded `<QuoteRequestForm />` unchanged, wrapped in warm bone container.
+  9. Final CTA in terracotta + inverted dark footer with legal links, contractor/VA cross-links, and "By the Community. For the Community." signature.
+- Phone kept at **(410) 870-9347** per user (not doc's 410-701-0570).
+- SEO: on-mount `document.title` = "HCOB Network | Managed Home & Property Services in Baltimore"; meta description updated.
+- Framer Motion used for entrance/scroll-reveal animations. All interactive elements have `data-testid` per design guidelines.
+- Legal footer links (`/privacy.html`, `/terms.html`, `/sms-terms.html`) preserved as static `<a>` tags for Twilio bot compliance.
+- Verified via 7 screenshots across all sections; no runtime errors (only 401 on `/api/auth/me` for logged-out visitors, which is expected).
+- **REDEPLOY needed to push to hcobnetwork.com production.**
