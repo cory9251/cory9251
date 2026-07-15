@@ -393,9 +393,12 @@ export default function GigDetail() {
             <Item label="When" value={formatGigLong(gig)} testId="gig-when-admin" hint={formatGigRelative(gig)} />
             <Item
               label="Pay"
-              value={`$${Number(gig.pay_rate).toFixed(2)} ${
-                gig.pay_type === "hourly" ? "/hr" : "flat"
-              }`}
+              value={
+                payLine(gig) ||
+                `$${Number(gig.pay_rate).toFixed(2)} ${
+                  gig.pay_type === "hourly" ? "/hr" : "flat"
+                }`
+              }
             />
             <Item label="Slots" value={`${gig.slots_filled}/${gig.slots}`} />
             <Item label="Duration" value={gig.duration_hours ? `${gig.duration_hours} hrs` : "—"} />
