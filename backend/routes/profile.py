@@ -167,6 +167,48 @@ class AvailabilityIn(BaseModel):
     hours: Optional[int] = None  # how long to stay available; default = until midnight (site TZ)
 
 
+# ----- SMS opt-in / opt-out (Twilio A2P 10DLC compliance) -------------------
+class SmsOptInIn(BaseModel):
+    opted_in: bool
+    source: Optional[str] = None  # "worker_profile_toggle" | "dashboard_nudge" | etc.
+
+
+@router.put("/me/sms-opt-in")
+async def set_sms_opt_in(
+    payload: SmsOptInIn, user: dict = Depends(get_current_user)
+):
+    """Worker self-service SMS consent toggle.
+
+    Stamps `sms_opt_in`, `sms_opt_in_at`, `sms_opt_in_source` on the user.
+    We keep the previous timestamp when they opt back OUT (as `sms_opt_out_at`)
+    so the audit log can show both events. Requires a phone number on file
+    to opt IN (Twilio has no destination without one).
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if payload.opted_in:
+        phone = (user.get("phone") or "").strip()
+        if not phone:
+            raise HTTPException(400, "Add a phone number to your profile before opting in to text updates.")
+        source = (payload.source or "worker_self_service").strip()[:64] or "worker_self_service"
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {
+                "$set": {
+                    "sms_opt_in": True,
+                    "sms_opt_in_at": now_iso,
+                    "sms_opt_in_source": source,
+                },
+                "$unset": {"sms_opt_out_at": ""},
+            },
+        )
+    else:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"sms_opt_in": False, "sms_opt_out_at": now_iso}},
+        )
+    return await _get_user_by_id(user["user_id"])
+
+
 @router.put("/me/availability")
 async def set_availability(
     payload: AvailabilityIn, user: dict = Depends(get_current_user)

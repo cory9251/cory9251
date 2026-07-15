@@ -24,6 +24,7 @@ import {
   CurrencyDollar,
   SealCheck,
   CaretRight,
+  ChatText,
 } from "@phosphor-icons/react";
 
 // Pretty labels for the profile-complete checklist
@@ -398,6 +399,9 @@ export default function WorkerProfile() {
           </Field>
         </Section>
 
+        {/* Section: Text updates — SMS opt-in / opt-out (A2P 10DLC) */}
+        <SmsOptInSection user={user} onChanged={checkAuth} />
+
         {/* Section: Payout — how HCOB sends you money */}
         <Section title="How we pay you" icon={CurrencyDollar}>
           <div className="text-xs leading-relaxed text-[#4B5563]">
@@ -710,6 +714,78 @@ function ChipToggle({ active, onClick, label, icon: Icon, testId }) {
     </button>
   );
 }
+
+function SmsOptInSection({ user, onChanged }) {
+  const optedIn = !!user?.sms_opt_in;
+  const phone = (user?.phone || "").trim();
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async () => {
+    if (!optedIn && !phone) {
+      toast.error("Add a phone number to your profile first, then save.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.put("/me/sms-opt-in", {
+        opted_in: !optedIn,
+        source: "worker_profile_toggle",
+      });
+      await onChanged?.();
+      toast.success(!optedIn ? "You're in — we'll text you gig updates." : "You'll no longer get text updates.");
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Text updates" icon={ChatText}>
+      <div className="flex items-start justify-between gap-4 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4">
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-sm font-bold text-[#030712]">
+            Get texts about new gigs, offers, and reminders
+          </div>
+          <div className="mt-1 text-xs leading-relaxed text-[#4B5563]">
+            Msg &amp; data rates may apply. Msg frequency varies. Reply <strong>STOP</strong> to opt out at any time, <strong>HELP</strong> for help.
+            {" "}See our{" "}
+            <Link to="/sms-terms" className="underline">SMS terms</Link>{" & "}
+            <Link to="/privacy" className="underline">privacy policy</Link>.
+          </div>
+          {optedIn && user?.sms_opt_in_at && (
+            <div className="mt-2 font-mono-label text-[#065F46]">
+              Opted in {new Date(user.sms_opt_in_at).toLocaleDateString()}
+            </div>
+          )}
+          {!phone && !optedIn && (
+            <div className="mt-2 text-[11px] font-bold text-[#B91C1C]">
+              Add a phone number in the Basics section above to enable.
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={optedIn}
+          onClick={toggle}
+          disabled={busy || (!optedIn && !phone)}
+          data-testid="profile-sms-opt-in-toggle"
+          className={`relative mt-1 inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+            optedIn ? "bg-[#10B981]" : "bg-[#E5E7EB]"
+          } ${busy || (!optedIn && !phone) ? "opacity-50 cursor-not-allowed" : ""}`}
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+              optedIn ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 
 function ChangePasswordCard() {
   const [open, setOpen] = useState(false);

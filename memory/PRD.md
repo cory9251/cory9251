@@ -2259,3 +2259,10 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - **New admin page `/ops/sms-consent`** (`AdminSMSConsent.jsx`) — nav link under Growth → SMS Consent (`ShieldCheck` icon). Stat strip (Opted in / Not opted in / Opt-in rate), tab filter, search box (250ms debounce), Export CSV button.
 - **Roster augmentation**: `/api/admin/workers` now accepts `sms_opt_in=true|false`. AdminWorkers page has a new "SMS consent" filter panel row and each worker card now shows a blue `SMS OK` badge (with title tooltip showing opt-in date) when consented.
 - Smoke-tested end-to-end via curl (874 workers scanned, 2 opted in, CSV downloads) and screenshot verified admin page renders with real data.
+
+## SMS Opt-In Self-Service — Profile Toggle + Dashboard Nudge (Jul 15, 2026) — DONE
+- **Backend**: `PUT /api/me/sms-opt-in` in `routes/profile.py` — body `{opted_in: bool, source?: string}`. Opt-in stamps `sms_opt_in=true`, `sms_opt_in_at`, `sms_opt_in_source` (defaults `worker_self_service`, capped 64 chars) and unsets `sms_opt_out_at`. Opt-out flips to false and records `sms_opt_out_at`. Refuses opt-in with **HTTP 400** ("Add a phone number…") if no phone on file — Twilio needs a destination.
+- **Frontend (a) Profile toggle**: new "Text updates" `Section` on `/crew/me` (between Emergency Contact and Payout) — pill toggle switch, live opt-in date badge when consented, disabled with red hint when phone missing, includes required A2P copy ("Msg & data rates apply. Reply STOP to opt out, HELP for help") + links to `/sms-terms` and `/privacy`. Fires with `source: "worker_profile_toggle"`.
+- **Frontend (b) Dashboard nudge**: new `SmsOptInNudge.jsx` component rendered inside `WorkerFeed` after the customer-chats inbox. Green banner, one-tap "YES, TEXT ME" CTA (fires opt-in with `source: "dashboard_nudge"`), phone-missing variant deep-links to profile. "Not now" or the X dismiss writes `hcob_sms_nudge_dismissed_at` to localStorage for a **7-day cooldown**. Auto-hides if user already opted in.
+- Verified end-to-end via curl (opt-in / opt-out / re-opt-in cycle + phone-missing 400) and mobile screenshots (feed nudge + profile toggle both rendering correctly).
+

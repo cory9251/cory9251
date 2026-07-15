@@ -28,6 +28,7 @@ import { getPaymentTimeline } from "@/lib/paymentTimeline";
 import { formatGigFull, isGigToday } from "@/lib/gigDate";
 import AvailableNowToggle from "@/components/worker/AvailableNowToggle";
 import WorkerCustomerChatsInbox from "@/components/worker/WorkerCustomerChatsInbox";
+import SmsOptInNudge from "@/components/worker/SmsOptInNudge";
 import FeedFilters, { DEFAULT_FILTERS, applyFeedFilters } from "@/components/worker/FeedFilters";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
@@ -123,6 +124,10 @@ export default function WorkerFeed() {
           is in (auto-hides when empty). Closes the "I have no idea where to
           find my chats" gap workers were running into. */}
       <WorkerCustomerChatsInbox />
+
+      {/* SMS opt-in nudge — auto-hides if worker already consented or has
+          dismissed in the last 7 days. */}
+      <SmsOptInNudge />
 
       {/* Certifications entry point — specialty jobs are gated behind badges.
           Closable (X) — also reachable from Profile and gig detail pages. */}
