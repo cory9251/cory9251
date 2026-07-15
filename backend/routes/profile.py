@@ -246,6 +246,9 @@ async def download_file(
         record["owner_id"] == requester["user_id"]
         or requester.get("role") == "admin"
     )
+    # Gig photos (specialist project cards) are viewable by any logged-in user.
+    if not allowed and record.get("kind") == "gig_photo":
+        allowed = True
     # Message attachments: any participant of the thread containing the
     # message that references this attachment may view it.
     if not allowed and record.get("kind") == "message_attachment":

@@ -115,7 +115,9 @@ class GigIn(BaseModel):
     # Wall-clock at the job site (TZ-free). Format: "YYYY-MM-DDTHH:mm".
     # Single source of truth — same string is shown to admin and workers in any TZ.
     scheduled_local: Optional[str] = None
-    pay_rate: float
+    # Optional for range-pay specialist projects — required otherwise
+    # (enforced in _gig_doc per template rules).
+    pay_rate: Optional[float] = None
     pay_type: PayType
     slots: int = 1
     # Optional backup pool. Workers approved as backups get auto-promoted to
@@ -144,6 +146,29 @@ class GigIn(BaseModel):
     # generates `repeat_count` gig instances spaced by the chosen period.
     recurrence: Optional[GigRecurrence] = "none"
     repeat_count: Optional[int] = 1  # ignored when recurrence == 'none'
+
+    # ── FRD Addendum B — posting template + specialist project fields ──────
+    template: Literal["labor_shift", "specialist_project"] = "labor_shift"
+    photos: Optional[List[str]] = None  # storage paths; first = card thumbnail
+    quantity_count: Optional[float] = None
+    quantity_unit: Optional[str] = None  # doors, rooms, sq ft, linear ft…
+    condition_notes: Optional[str] = None
+    materials_provided: Optional[List[str]] = None  # "We provide"
+    materials_bring: Optional[List[str]] = None  # "You bring"
+    est_hours_min: Optional[float] = None
+    est_hours_max: Optional[float] = None
+    access_notes: Optional[str] = None
+    # Pay modes: flat ($180 flat) / hourly_estimate ($45/hr · est 3–4h) /
+    # range ($150–$250 — depends on: reason, MANDATORY).
+    pay_mode: Optional[Literal["flat", "hourly_estimate", "range"]] = None
+    pay_range_min: Optional[float] = None
+    pay_range_max: Optional[float] = None
+    pay_range_reason: Optional[str] = None
+    # Date modes: fixed / window (pick your day at claim) / tbd (interest only)
+    date_mode: Optional[Literal["fixed", "window", "tbd"]] = None
+    window_start: Optional[str] = None  # YYYY-MM-DD
+    window_end: Optional[str] = None
+    window_arrival_time: Optional[str] = None  # "HH:mm", default 09:00
     # Optional "Coming soon" → "Open" toggle.
     status: Optional[Literal["open", "coming_soon"]] = "open"
     publish_at: Optional[str] = None  # ISO 8601 — when to auto-flip to open
@@ -173,6 +198,24 @@ class GigPatch(BaseModel):
     contact_phone: Optional[str] = None
     required_badge_id: Optional[str] = None
     target_trade: Optional[str] = None
+    # FRD Addendum B — specialist project fields (all optional on patch)
+    photos: Optional[List[str]] = None
+    quantity_count: Optional[float] = None
+    quantity_unit: Optional[str] = None
+    condition_notes: Optional[str] = None
+    materials_provided: Optional[List[str]] = None
+    materials_bring: Optional[List[str]] = None
+    est_hours_min: Optional[float] = None
+    est_hours_max: Optional[float] = None
+    access_notes: Optional[str] = None
+    pay_mode: Optional[Literal["flat", "hourly_estimate", "range"]] = None
+    pay_range_min: Optional[float] = None
+    pay_range_max: Optional[float] = None
+    pay_range_reason: Optional[str] = None
+    date_mode: Optional[Literal["fixed", "window", "tbd"]] = None
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    window_arrival_time: Optional[str] = None
     project_id: Optional[str] = None
     clear_project: Optional[bool] = False
     status: Optional[str] = None  # admin can flip status from the Edit dialog
@@ -426,3 +469,5 @@ class WorkerAgreementIn(BaseModel):
     typed_name: str = Field(..., min_length=1, max_length=200)
     agreed_rules: List[str] = Field(..., min_items=1, max_items=20)
     version: str = Field(default=WORKER_AGREEMENT_VERSION, max_length=10)
+    # Window-dated gigs: the worker picks their day at claim (YYYY-MM-DD).
+    chosen_date: Optional[str] = None

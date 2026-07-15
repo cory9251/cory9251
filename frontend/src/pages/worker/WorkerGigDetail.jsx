@@ -29,7 +29,19 @@ import {
   UsersThree,
   FolderSimple,
   SealCheck,
+  HandWaving,
 } from "@phosphor-icons/react";
+import GigPhoto from "@/components/GigPhoto";
+import {
+  isSpecialist,
+  takesInterestOnly,
+  payLine,
+  payReason,
+  dateLine,
+  scopeLine,
+  windowDays,
+  dayLabel,
+} from "@/lib/specialist";
 
 const CAT_ICON = { cleaning: Broom, labor: Wrench, driver: Car };
 
@@ -57,6 +69,8 @@ export default function WorkerGigDetail() {
   const [agreementVersion, setAgreementVersion] = useState("v1");
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [agreementTypedName, setAgreementTypedName] = useState("");
+  // Window-dated gigs — worker picks their day at claim (FRD Addendum B).
+  const [chosenDate, setChosenDate] = useState("");
 
   const load = async () => {
     try {
@@ -69,6 +83,8 @@ export default function WorkerGigDetail() {
 
   useEffect(() => {
     load();
+    // View tracking — deduped per worker per gig server-side (Addendum B).
+    api.post(`/gigs/${gigId}/view`).catch(() => {});
     // eslint-disable-next-line
   }, [gigId]);
 
@@ -108,6 +124,7 @@ export default function WorkerGigDetail() {
         typed_name: agreementTypedName.trim(),
         agreed_rules: agreementRules,
         version: agreementVersion,
+        chosen_date: gig?.date_mode === "window" ? chosenDate : null,
       });
       setAgreementOpen(false);
       toast.success("Request sent — waiting for HCOB approval");
@@ -311,10 +328,78 @@ export default function WorkerGigDetail() {
           <MarkdownView text={gig.description} />
         </div>
 
+        {/* Specialist project — photos + structured scope (Addendum B) */}
+        {isSpecialist(gig) && (
+          <>
+            {(gig.photos || []).length > 0 && (
+              <div className="mt-4 flex gap-2 overflow-x-auto pb-1" data-testid="specialist-gallery">
+                {gig.photos.map((p, i) => (
+                  <GigPhoto
+                    key={p}
+                    path={p}
+                    className={`h-36 ${i === 0 ? "w-56" : "w-36"} shrink-0 rounded-xl object-cover`}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="mt-4 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-4" data-testid="specialist-scope-card">
+              <div className="font-mono-label">Scope</div>
+              <div className="mt-1 font-display text-lg font-bold">{scopeLine(gig)}</div>
+              {gig.condition_notes && (
+                <div className="mt-2 text-xs leading-relaxed text-[#4B5563]">
+                  <strong>Condition:</strong> {gig.condition_notes}
+                </div>
+              )}
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="font-mono-label text-[#10B981]">We provide</div>
+                  <ul className="mt-1 space-y-0.5 text-xs">
+                    {(gig.materials_provided || []).length ? (
+                      gig.materials_provided.map((m) => <li key={m}>• {m}</li>)
+                    ) : (
+                      <li className="text-[#9CA3AF]">Nothing — bring your setup</li>
+                    )}
+                  </ul>
+                </div>
+                <div>
+                  <div className="font-mono-label text-[#0044FF]">You bring</div>
+                  <ul className="mt-1 space-y-0.5 text-xs">
+                    {(gig.materials_bring || []).length ? (
+                      gig.materials_bring.map((m) => <li key={m}>• {m}</li>)
+                    ) : (
+                      <li className="text-[#9CA3AF]">Everything is on site</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+              {gig.access_notes && (
+                <div className="mt-3 text-xs text-[#4B5563]">
+                  <strong>Access:</strong> {gig.access_notes}
+                </div>
+              )}
+              {gig.target_trade && (
+                <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#7C3AED] px-3 py-1 text-[10px] font-black tracking-widest text-white" data-testid="target-trade-chip">
+                  <Wrench size={12} weight="fill" />
+                  SENT TO VERIFIED {gig.target_trade.replace(/_/g, " ").toUpperCase()} PROS
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#E5E7EB] pt-4 text-sm">
           <Row icon={CurrencyDollar} label="Pay">
-            ${Number(gig.pay_rate).toFixed(2)}{" "}
-            {gig.pay_type === "hourly" ? "/hr" : "flat"}
+            {payLine(gig) || (
+              <>
+                ${Number(gig.pay_rate || 0).toFixed(2)}{" "}
+                {gig.pay_type === "hourly" ? "/hr" : "flat"}
+              </>
+            )}
+            {payReason(gig) && (
+              <div className="mt-1 text-[11px] font-normal text-[#92400E]" data-testid="pay-range-reason">
+                Depends on: {payReason(gig)}
+              </div>
+            )}
           </Row>
           <Row icon={MapPin} label="Location">{gig.location}</Row>
           <Row icon={Clock} label="When" data-testid="gig-when">
@@ -322,14 +407,16 @@ export default function WorkerGigDetail() {
               data-testid="gig-when-value"
               className={isGigToday(gig) ? "font-bold text-[#0044FF]" : ""}
             >
-              {formatGigLong(gig)}
+              {dateLine(gig) || formatGigLong(gig)}
             </span>
-            <span
-              data-testid="gig-when-relative"
-              className="ml-2 text-[10px] font-mono-label text-[#4B5563]"
-            >
-              {formatGigRelative(gig)}
-            </span>
+            {!dateLine(gig) && (
+              <span
+                data-testid="gig-when-relative"
+                className="ml-2 text-[10px] font-mono-label text-[#4B5563]"
+              >
+                {formatGigRelative(gig)}
+              </span>
+            )}
           </Row>
           <Row icon={Users} label="Slots">
             {gig.slots_filled}/{gig.slots}
@@ -770,6 +857,8 @@ export default function WorkerGigDetail() {
               Get certified →
             </Button>
           </div>
+        ) : takesInterestOnly(gig) ? (
+          <InterestPanel gig={gig} onChanged={load} />
         ) : (
           <Button
             data-testid="accept-gig-btn"
@@ -931,6 +1020,29 @@ export default function WorkerGigDetail() {
                   Must match the name on your profile: <strong>{user?.name}</strong>
                 </div>
               </div>
+
+              {/* Window gigs — pick your work day (Addendum B) */}
+              {gig.date_mode === "window" && (
+                <div className="mt-5">
+                  <Label className="font-mono-label text-[10px] uppercase tracking-widest text-[#4B5563]">
+                    Pick your work day
+                  </Label>
+                  <select
+                    data-testid="agreement-chosen-date"
+                    value={chosenDate}
+                    onChange={(e) => setChosenDate(e.target.value)}
+                    className="mt-2 h-12 w-full rounded-2xl border border-[#030712] bg-white px-4 text-sm"
+                  >
+                    <option value="">Select a day…</option>
+                    {windowDays(gig).map((d) => (
+                      <option key={d} value={d}>{dayLabel(d)}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1.5 text-[11px] text-[#4B5563]">
+                    Arrival {gig.window_arrival_time || "09:00"} — your day locks in when HCOB approves.
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex flex-wrap gap-2 border-t border-[#E5E7EB] bg-[#F9FAFB] px-6 py-4">
               <Button
@@ -948,6 +1060,7 @@ export default function WorkerGigDetail() {
                 disabled={
                   busy ||
                   !agreementChecked ||
+                  (gig.date_mode === "window" && !chosenDate) ||
                   agreementTypedName.trim().toLowerCase() !==
                     (user?.name || "").trim().toLowerCase()
                 }
@@ -971,3 +1084,136 @@ const Row = ({ icon: I, label, children }) => (
     <div className="mt-1 font-semibold">{children}</div>
   </div>
 );
+
+// FRD Addendum B — "I'm Interested" flow for open-variable specialist gigs.
+function InterestPanel({ gig, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [availability, setAvailability] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/gigs/${gig.gig_id}/interest`, { note, availability });
+      toast.success("Hand raised — HCOB will follow up with final details");
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const withdraw = async () => {
+    setBusy(true);
+    try {
+      await api.delete(`/gigs/${gig.gig_id}/interest`);
+      toast.success("Interest withdrawn");
+      onChanged();
+    } catch (e) {
+      toast.error(getErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (gig.my_interest) {
+    return (
+      <div data-testid="interest-confirmation" className="rounded-2xl border border-[#7C3AED]/30 bg-[#F5F3FF] p-5">
+        <div className="flex items-center gap-2 text-[#6D28D9]">
+          <HandWaving size={20} weight="fill" />
+          <div className="font-display text-base font-bold">You raised your hand</div>
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-[#6D28D9]/90">
+          HCOB reviews interested pros and sends a direct offer with the locked
+          price and confirmed date. Accepting that offer books the job.
+        </p>
+        {gig.my_interest.note && (
+          <p className="mt-2 text-xs text-[#4B5563]">Your note: "{gig.my_interest.note}"</p>
+        )}
+        <Button
+          data-testid="withdraw-interest-btn"
+          variant="outline"
+          disabled={busy}
+          onClick={withdraw}
+          className="mt-4 h-11 w-full rounded-2xl border-[#6D28D9] text-[#6D28D9]"
+        >
+          {busy ? "…" : "Withdraw interest"}
+        </Button>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <div>
+        <Button
+          data-testid="interested-btn"
+          onClick={() => setOpen(true)}
+          className="h-14 w-full rounded-2xl bg-[#7C3AED] text-base font-bold tracking-wide text-white hover:bg-[#6D28D9]"
+        >
+          <HandWaving size={18} weight="fill" className="mr-2" /> I'm Interested
+        </Button>
+        <p className="mt-2 text-center text-[11px] text-[#4B5563]">
+          {gig.pay_mode === "range"
+            ? "Price locks when HCOB sends you a direct offer."
+            : "Scheduling is flexible — HCOB confirms the date with you."}{" "}
+          No commitment yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid="interest-form" className="rounded-2xl border border-[#7C3AED]/40 bg-white p-5">
+      <div className="font-display text-base font-bold">Raise your hand</div>
+      <div className="mt-3">
+        <Label className="font-mono-label text-[10px] uppercase tracking-widest">
+          Note to HCOB (optional)
+        </Label>
+        <textarea
+          data-testid="interest-note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          maxLength={300}
+          placeholder='e.g. "Done 20+ of these — have all the tools"'
+          className="mt-2 w-full rounded-xl border border-[#E5E7EB] p-3 text-sm"
+        />
+      </div>
+      <div className="mt-3">
+        <Label className="font-mono-label text-[10px] uppercase tracking-widest">
+          Your availability (optional)
+        </Label>
+        <input
+          data-testid="interest-availability"
+          value={availability}
+          onChange={(e) => setAvailability(e.target.value)}
+          maxLength={200}
+          placeholder='e.g. "Weekdays after 3pm"'
+          className="mt-2 h-11 w-full rounded-xl border border-[#E5E7EB] px-3 text-sm"
+        />
+      </div>
+      <div className="mt-4 flex gap-2">
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={() => setOpen(false)}
+          className="h-11 flex-1 rounded-2xl border-[#E5E7EB]"
+        >
+          Back
+        </Button>
+        <Button
+          data-testid="interest-submit"
+          disabled={busy}
+          onClick={submit}
+          className="h-11 flex-1 rounded-2xl bg-[#7C3AED] text-white hover:bg-[#6D28D9]"
+        >
+          {busy ? "Sending…" : "Send interest"}
+        </Button>
+      </div>
+    </div>
+  );
+}

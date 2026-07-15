@@ -24,6 +24,7 @@ export function ProtectedRoute({ children, role }) {
 
 export function PublicOnly({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading || user === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-white">
@@ -32,6 +33,19 @@ export function PublicOnly({ children }) {
     );
   }
   if (user && user !== false) {
+    const next = new URLSearchParams(location.search).get("next");
+    if (user.role === "worker" && next && next.startsWith("/")) {
+      return <Navigate to={next} replace />;
+    }
+    // Fresh worker accounts (never touched the v2 questionnaire) get the
+    // onboarding wizard first.
+    if (
+      user.role === "worker" &&
+      user.questionnaire_version !== 2 &&
+      !(user.work_classes || []).length
+    ) {
+      return <Navigate to="/crew/onboarding" replace />;
+    }
     return <Navigate to={roleHomePath(user)} replace />;
   }
   return children;

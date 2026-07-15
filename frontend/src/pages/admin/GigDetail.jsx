@@ -51,6 +51,9 @@ import {
 } from "@phosphor-icons/react";
 import { MapPin, SealCheck } from "@phosphor-icons/react";
 import EditGigDialog from "@/components/admin/EditGigDialog";
+import GigPhoto from "@/components/GigPhoto";
+import GigInterestsCard from "@/components/admin/GigInterestsCard";
+import { isSpecialist, payLine, payReason, dateLine, scopeLine } from "@/lib/specialist";
 import AssignWorkerDialog from "@/components/admin/AssignWorkerDialog";
 import PickProjectForGigDialog from "@/components/admin/PickProjectForGigDialog";
 import PayOverrideDialog from "@/components/admin/PayOverrideDialog";
@@ -358,6 +361,32 @@ export default function GigDetail() {
           <div className="mt-4 text-[#4B5563]">
             <MarkdownView text={gig.description} />
           </div>
+
+          {/* Specialist project block (FRD Addendum B) */}
+          {isSpecialist(gig) && (
+            <div className="mt-6" data-testid="admin-specialist-block">
+              <div className="font-mono-label text-[#7C3AED]">Specialist project</div>
+              {(gig.photos || []).length > 0 && (
+                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                  {gig.photos.map((p) => (
+                    <GigPhoto key={p} path={p} className="h-28 w-40 shrink-0 border border-[#E5E7EB] object-cover" />
+                  ))}
+                </div>
+              )}
+              <div className="mt-2 text-sm font-bold">{scopeLine(gig)}</div>
+              <div className="mt-1 text-xs text-[#4B5563]">
+                {payLine(gig)}
+                {payReason(gig) ? ` — depends on: ${payReason(gig)}` : ""}
+                {" · "}
+                {dateLine(gig) || formatGigLong(gig)}
+              </div>
+              <GigInterestsCard
+                gigId={gig.gig_id}
+                interestCount={gig.interest_count || 0}
+                viewCount={gig.view_count || 0}
+              />
+            </div>
+          )}
 
           <dl className="mt-8 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
             <Item label="Public location" value={gig.location} />

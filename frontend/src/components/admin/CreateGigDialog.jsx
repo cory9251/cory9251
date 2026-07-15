@@ -13,6 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import MarkdownEditor from "@/components/MarkdownEditor";
+import SpecialistGigFields, {
+  DEFAULT_SPEC,
+  validateSpecialist,
+  specPayload,
+  specDateDisplay,
+} from "@/components/admin/SpecialistGigFields";
 import { PAYMENT_TIMELINE_OPTIONS } from "@/lib/paymentTimeline";
 import {
   Select,
@@ -191,20 +197,34 @@ export default function CreateGigDialog({
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  // FRD Addendum B — posting template (labor shift vs specialist project)
+  const [template, setTemplate] = useState("labor_shift");
+  const [spec, setSpec] = useState(DEFAULT_SPEC);
+  const patchSpec = (p) => setSpec((s) => ({ ...s, ...p }));
+  const isSpec = template === "specialist_project";
+  const needsFixedDate = !isSpec || spec.date_mode === "fixed";
+
   const submit = async (e) => {
     e.preventDefault();
     const { iso, local, display } = buildScheduledAt(date, hour, minute, ampm);
-    if (!iso) {
+    if (needsFixedDate && !iso) {
       toast.error("Pick a date");
       return;
     }
+    if (isSpec) {
+      const err = validateSpecialist(spec, needsFixedDate ? iso : "n/a");
+      if (err) {
+        toast.error(err);
+        return;
+      }
+    }
     setLoading(true);
     try {
-      const res = await api.post("/gigs", {
+      const payload = {
         ...form,
-        scheduled_date: display,
-        scheduled_at: iso,
-        scheduled_local: local,
+        scheduled_date: needsFixedDate ? display : specDateDisplay(spec),
+        scheduled_at: needsFixedDate ? iso : null,
+        scheduled_local: needsFixedDate ? local : null,
         pay_rate: parseFloat(form.pay_rate || 0),
         slots: parseInt(form.slots || 1),
         backup_slots: parseInt(form.backup_slots || 0),
@@ -215,9 +235,11 @@ export default function CreateGigDialog({
         address_line: form.address_line.trim() || null,
         required_badge_id: form.required_badge_id || null,
         target_trade: form.target_trade || null,
-        recurrence,
-        repeat_count: recurrence === "none" ? 1 : parseInt(repeatCount || 1),
-      });
+        recurrence: isSpec ? "none" : recurrence,
+        repeat_count: !isSpec && recurrence !== "none" ? parseInt(repeatCount || 1) : 1,
+      };
+      if (isSpec) Object.assign(payload, specPayload(spec));
+      const res = await api.post("/gigs", payload);
       const count = res?.data?.created_count || 1;
       toast.success(count > 1 ? `Created ${count} recurring gigs` : "Gig created");
       onOpenChange(false);
@@ -242,6 +264,8 @@ export default function CreateGigDialog({
         required_badge_id: "",
         target_trade: "",
       });
+      setSpec(DEFAULT_SPEC);
+      setTemplate("labor_shift");
     } catch (e) {
       toast.error(getErr(e));
     } finally {
@@ -264,6 +288,39 @@ export default function CreateGigDialog({
           onSubmit={submit}
           className="grid max-h-[70vh] grid-cols-1 gap-4 overflow-y-auto p-6 md:max-h-[80vh] md:grid-cols-2"
         >
+          {/* Posting template picker (FRD Addendum B) */}
+          <div className="md:col-span-2">
+            <Label className="font-mono-label">Posting template</Label>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                data-testid="template-labor-shift"
+                onClick={() => setTemplate("labor_shift")}
+                className={`border-2 px-4 py-3 text-left ${
+                  !isSpec ? "border-[#030712] bg-[#030712] text-white" : "border-[#E5E7EB] bg-white hover:border-[#030712]/50"
+                }`}
+              >
+                <div className="text-sm font-black">Labor Shift</div>
+                <div className={`text-[11px] ${!isSpec ? "text-white/70" : "text-[#4B5563]"}`}>
+                  Crew work — fixed date & hourly/flat pay. The classic format.
+                </div>
+              </button>
+              <button
+                type="button"
+                data-testid="template-specialist-project"
+                onClick={() => setTemplate("specialist_project")}
+                className={`border-2 px-4 py-3 text-left ${
+                  isSpec ? "border-[#0044FF] bg-[#0044FF] text-white" : "border-[#E5E7EB] bg-white hover:border-[#0044FF]/50"
+                }`}
+              >
+                <div className="text-sm font-black">Specialist Project</div>
+                <div className={`text-[11px] ${isSpec ? "text-white/80" : "text-[#4B5563]"}`}>
+                  Photos, scope, materials split, pay & date modes, interest flow.
+                </div>
+              </button>
+            </div>
+          </div>
+
           <div className="md:col-span-2">
             <Label className="font-mono-label">Title</Label>
             <Input
@@ -416,7 +473,10 @@ export default function CreateGigDialog({
             </div>
           </div>
 
+          {isSpec && <SpecialistGigFields spec={spec} patch={patchSpec} />}
+
           {/* Date picker + time row */}
+          {needsFixedDate && (
           <div>
             <Label className="font-mono-label flex items-center gap-1.5">
               <CalendarBlank size={12} /> Date
@@ -446,7 +506,9 @@ export default function CreateGigDialog({
               </PopoverContent>
             </Popover>
           </div>
+          )}
 
+          {needsFixedDate && (
           <div>
             <Label className="font-mono-label flex items-center gap-1.5">
               <Clock size={12} /> Time
@@ -496,6 +558,7 @@ export default function CreateGigDialog({
               </Select>
             </div>
           </div>
+          )}
 
           <div>
             <Label className="font-mono-label">Duration (hrs)</Label>
@@ -527,6 +590,7 @@ export default function CreateGigDialog({
             </div>
           </div>
 
+          {!isSpec && (
           <div>
             <Label className="font-mono-label">Pay type</Label>
             <Select
@@ -545,20 +609,23 @@ export default function CreateGigDialog({
               </SelectContent>
             </Select>
           </div>
+          )}
 
+          {!isSpec && (
           <div>
             <Label className="font-mono-label">Rate (USD)</Label>
             <Input
               data-testid="gig-rate"
               type="number"
               step="0.01"
-              required
+              required={!isSpec}
               value={form.pay_rate}
               onChange={(e) => set("pay_rate", e.target.value)}
               className="mt-2 h-11 rounded-none border-[#030712]"
               placeholder="25"
             />
           </div>
+          )}
 
           <div>
             <Label className="font-mono-label">Slots</Label>

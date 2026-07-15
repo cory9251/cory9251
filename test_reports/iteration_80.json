@@ -1,0 +1,30 @@
+{
+  "summary": "FRD Addendum B (Specialist Gigs + Interest-first Flow) Phases 1 & 2 validated end-to-end. Backend pytest: 6/6 green — POST /gigs/{id}/view returns 200 silently; GET /gigs/{id} enriches with view_count, interest_count, my_interest; interest create/duplicate-update/withdraw/re-express lifecycle correct with interest_count decrement on delete; GET /admin/gigs/{id}/interests returns nested worker payload (name, email, phone, zip, avatar_path, badge_count, verified_trades, completions, rating_avg) plus note/availability/status/created_at; specialist_project without photos/condition_notes rejected 400 with 'Specialist project incomplete'; standard labor_shift gig create still works (regression). Frontend: (1) Worker feed at /crew — SPECIALIST purple pill, INTERESTED yellow pill, scope-line '400 sq ft · materials provided · est. 4–6 hrs', pay range '$250–$400', 'Flexible scheduling — we'll work around you' all render correctly for gig_32b349ecf057. (2) Worker gig detail — photos, SCOPE card, condition notes, WE PROVIDE / YOU BRING columns, pay range with 'Depends on' reason, interest-confirmation panel with withdraw-interest-btn. Full cycle exercised: withdraw → 'Interest withdrawn' → interested-btn appears → click opens interest-form with note+availability+submit → re-submit → confirmation restored (toast 'Hand raised'). Worker left in interested state for downstream admin test. (3) Admin gig detail at /ops/assignments/{id} — GigInterestsCard shows 'Interested contractors (1)' with Worker Demo, note 're-expressed by FE test', availability 'weekends', phone, ZIP, '1 VIEWS' badge. (4) Admin CreateGigDialog opens cleanly (no JSX errors), Labor Shift template renders Date+Time selects, switching to Specialist Project reveals full SpecialistGigFields section (photos uploader, quantity/unit, condition notes, we-provide/you-bring, est hours min/max, pay mode: Flat/Hourly+estimate/Range with reason, date mode: Fixed/Window/TBD). Selecting Fixed shows Date+Time; TBD/Window hide them.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin gig detail header (specialist range gig)", "issues": ["PAY stat block shows '$0.00 flat' even when the gig is pay_mode=range with a $250–$400 body — the summary tile hasn't been updated for range/hourly_estimate pay modes. Cosmetic — the accurate range renders in the SPECIALIST PROJECT body just above."]},
+      {"screen": "Worker feed console (pre-existing)", "issues": ["Hydration warning: <span> inside <option> in FeedFilters.jsx line ~120. Same issue flagged in iter79. Non-blocking."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter80_addendum_b.py", "/app/test_reports/pytest/iter80.xml"],
+  "action_items": [
+    "Cosmetic: update admin gig detail header PAY stat block to display pay range (e.g. '$250–$400') or 'Range' label for pay_mode=range gigs, and 'Hourly + est' for hourly_estimate mode, instead of falling back to '$0.00 flat'.",
+    "Cosmetic (carried over from iter79): fix <span> inside <option> in FeedFilters.jsx line ~120."
+  ],
+  "critical_code_review_comments": [
+    "CreateGigDialog.jsx recompiles clean and the JSX repair (needsFixedDate conditional close) is holding. Consider splitting the dialog — file is large and mixes label→shift, specialist template, best-fit workers preview, and validation logic in one component.",
+    "gig_interest.py admin queue response nests worker as {worker: {...}}; consumer FE tests must reach in one level. Consider flattening or documenting in an OpenAPI schema — the test agent had to write a defensive extractor.",
+    "InterestPanel.jsx (WorkerGigDetail.jsx 1088-1220) — the withdraw→re-express cycle currently issues DELETE then POST; consider a PUT/PATCH to /interest for edits to avoid the intermediate 'withdrawn' state showing to admin (interest_count fluctuates).",
+    "gigs.py enrichment: view_count is incremented on every POST /gigs/{id}/view — good — but per the FRD user choice 'view tracking YES; per-worker deduped view tracking'. Confirm the dedupe key is (gig_id, worker_id) unique and repeat POSTs by same worker don't inflate view_count. Backend test observed view_count=1 after 3 rapid GETs, but a dedicated dedupe assertion (POST twice, expect count unchanged) would strengthen coverage."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter80_addendum_b.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% — all Addendum B flows exercised (feed pills/scope, worker detail scope+interest cycle, admin interests card, CreateGigDialog specialist + labor_shift regression, date-mode toggle)"},
+  "test_credentials": "worker.demo@hcobcleaners.com / WorkerDemo2026! and admin@hcobcleaners.com / HcobAdmin2026! per /app/memory/test_credentials.md",
+  "seed_data_creation": "One throwaway labor_shift gig 'ADDB-TEST normal regression gig' created by test_normal_gig_still_creatable and immediately deleted. gig_32b349ecf057 preserved per instructions; Worker Demo left with re-expressed interest (note='re-expressed by FE test', availability='weekends').",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Interest queue response shape: {interest_id, gig_id, worker_id, note, availability, status, created_at, worker:{user_id,name,email,phone,zip_code,avatar_path,badge_count,verified_trades,completions,rating_avg}}. Gig create requires both `location` (single string) AND `pay_rate` (in addition to pay_amount) for labor_shift template. Admin gig detail lives at /ops/assignments/{id} (NOT /ops/gigs/{id} — that redirects). Create-gig launcher testid: 'open-create-gig'. Specialist date-mode buttons: click text 'Fixed'/'Window'/'TBD (interest only)'. Pay-mode buttons: 'Flat'/'Hourly + estimate'/'Range (interest only)'. Withdraw btn testid: 'withdraw-interest-btn'; re-express form: 'interested-btn' -> 'interest-form' with 'interest-note' / 'interest-availability' / 'interest-submit'."
+}

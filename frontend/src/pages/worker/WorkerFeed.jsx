@@ -18,7 +18,11 @@ import {
   FolderSimple,
   SealCheck,
   X,
+  HandWaving,
+  Toolbox,
 } from "@phosphor-icons/react";
+import GigPhoto from "@/components/GigPhoto";
+import { isSpecialist, payLine, dateLine, scopeLine } from "@/lib/specialist";
 import { TAG_CONFIG, getTagBorderClass, getOrderedTags } from "@/lib/gigTags";
 import { getPaymentTimeline } from "@/lib/paymentTimeline";
 import { formatGigFull, isGigToday } from "@/lib/gigDate";
@@ -252,7 +256,7 @@ export default function WorkerFeed() {
                   tagBorder || "border border-black/5"
                 }`}
               >
-                {(activeTags.length > 0 || showPayPill || g.project || g.required_badge) && (
+                {(activeTags.length > 0 || showPayPill || g.project || g.required_badge || isSpecialist(g)) && (
                   <div
                     data-testid={`tag-stack-${g.gig_id}`}
                     className="-mt-1 mb-3 flex flex-wrap gap-1.5"
@@ -286,6 +290,14 @@ export default function WorkerFeed() {
                           className={pt.pulse ? "animate-pulse" : ""}
                         />
                         {pt.short}
+                      </span>
+                    )}
+                    {isSpecialist(g) && (
+                      <span
+                        data-testid={`specialist-pill-${g.gig_id}`}
+                        className="inline-flex items-center gap-1 rounded-full bg-[#7C3AED] px-2.5 py-1 text-[10px] font-black tracking-[0.18em] text-white"
+                      >
+                        <Toolbox size={11} weight="fill" /> SPECIALIST
                       </span>
                     )}
                     {g.required_badge && (
@@ -326,6 +338,14 @@ export default function WorkerFeed() {
                     <h3 className="mt-2 font-display text-xl font-bold leading-snug">
                       {g.title}
                     </h3>
+                    {scopeLine(g) && (
+                      <div
+                        data-testid={`scope-line-${g.gig_id}`}
+                        className="mt-1 text-xs font-semibold text-[#4B5563]"
+                      >
+                        {scopeLine(g)}
+                      </div>
+                    )}
                   </div>
                   {isApproved ? (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#10B981] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
@@ -335,6 +355,13 @@ export default function WorkerFeed() {
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#F59E0B] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
                       REQUESTED
+                    </span>
+                  ) : g.my_interest ? (
+                    <span
+                      data-testid={`interested-pill-${g.gig_id}`}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#7C3AED] px-3 py-1 text-[10px] font-bold tracking-widest text-white"
+                    >
+                      <HandWaving size={10} weight="fill" /> INTERESTED
                     </span>
                   ) : !isPinned ? (
                     <span className="shrink-0 rounded-full bg-[#0044FF] px-3 py-1 text-[10px] font-bold tracking-widest text-white">
@@ -346,15 +373,18 @@ export default function WorkerFeed() {
                 <div className="mt-4 grid grid-cols-1 gap-2 border-t border-[#E5E7EB] pt-3 text-xs sm:grid-cols-2">
                   <Bit
                     icon={CurrencyDollar}
-                    value={`$${Number(g.pay_rate).toFixed(0)}${
-                      g.pay_type === "hourly" ? "/hr" : ""
-                    }`}
+                    value={
+                      payLine(g) ||
+                      `$${Number(g.pay_rate || 0).toFixed(0)}${
+                        g.pay_type === "hourly" ? "/hr" : ""
+                      }`
+                    }
                   />
                   <Bit icon={MapPin} value={g.location} />
                   <Bit
                     icon={Clock}
-                    value={formatGigFull(g)}
-                    highlight={isGigToday(g)}
+                    value={dateLine(g) || formatGigFull(g)}
+                    highlight={!dateLine(g) && isGigToday(g)}
                     testId={`feed-when-${g.gig_id}`}
                     className="sm:col-span-2"
                   />

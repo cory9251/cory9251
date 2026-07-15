@@ -129,11 +129,89 @@ def _is_past(scheduled_at: Optional[str]) -> bool:
 # ============================================================================
 # Helpers — re-exported for use by other modules (admin/timesheet/reports)
 # ============================================================================
+def _specialist_fields(payload: GigIn) -> dict:
+    """FRD Addendum B — validate + shape the posting-template block."""
+    t = payload.template or "labor_shift"
+    fields = {
+        "template": t,
+        "photos": payload.photos or [],
+        "quantity_count": payload.quantity_count,
+        "quantity_unit": (payload.quantity_unit or "").strip() or None,
+        "condition_notes": (payload.condition_notes or "").strip() or None,
+        "materials_provided": payload.materials_provided or [],
+        "materials_bring": payload.materials_bring or [],
+        "est_hours_min": payload.est_hours_min,
+        "est_hours_max": payload.est_hours_max,
+        "access_notes": (payload.access_notes or "").strip() or None,
+        "pay_mode": payload.pay_mode,
+        "pay_range_min": payload.pay_range_min,
+        "pay_range_max": payload.pay_range_max,
+        "pay_range_reason": (payload.pay_range_reason or "").strip() or None,
+        "date_mode": payload.date_mode,
+        "window_start": payload.window_start,
+        "window_end": payload.window_end,
+        "window_arrival_time": payload.window_arrival_time,
+        "view_count": 0,
+        "interest_count": 0,
+    }
+    if t != "specialist_project":
+        if payload.pay_rate is None or payload.pay_rate <= 0:
+            raise HTTPException(400, "Pay rate is required")
+        fields["date_mode"] = "fixed"
+        fields["pay_mode"] = None
+        return fields
+
+    errs = []
+    photos = payload.photos or []
+    if len(photos) < 2:
+        errs.append("at least 2 photos (first is the card thumbnail)")
+    if len(photos) > 6:
+        errs.append("max 6 photos")
+    if not payload.quantity_count or payload.quantity_count <= 0 or not fields["quantity_unit"]:
+        errs.append("quantity + unit")
+    if not fields["condition_notes"]:
+        errs.append("condition notes")
+    if not (fields["materials_provided"] or fields["materials_bring"]):
+        errs.append("materials split (we provide / you bring)")
+    if (
+        not payload.est_hours_min or payload.est_hours_min <= 0
+        or not payload.est_hours_max or payload.est_hours_max < payload.est_hours_min
+    ):
+        errs.append("estimated time range")
+    mode = payload.pay_mode
+    if mode in ("flat", "hourly_estimate"):
+        if payload.pay_rate is None or payload.pay_rate <= 0:
+            errs.append("pay rate")
+    elif mode == "range":
+        if (
+            not payload.pay_range_min or not payload.pay_range_max
+            or payload.pay_range_min <= 0 or payload.pay_range_max <= payload.pay_range_min
+        ):
+            errs.append("valid pay range (min < max)")
+        if not fields["pay_range_reason"]:
+            errs.append("range reason — a range cannot be published without one")
+    else:
+        errs.append("pay mode")
+    dm = payload.date_mode
+    if dm == "fixed":
+        if not payload.scheduled_at:
+            errs.append("scheduled date")
+    elif dm == "window":
+        if not payload.window_start or not payload.window_end or payload.window_end < payload.window_start:
+            errs.append("valid date window")
+    elif dm != "tbd":
+        errs.append("date mode")
+    if errs:
+        raise HTTPException(400, "Specialist project incomplete: " + "; ".join(errs))
+    return fields
+
+
 def _gig_doc(payload: GigIn, created_by: str) -> dict:
     from constants import SPECIALIST_TRADES
     if payload.target_trade and payload.target_trade not in SPECIALIST_TRADES:
         raise HTTPException(400, "Unknown specialist trade")
-    return {
+    spec = _specialist_fields(payload)
+    doc = {
         "gig_id": f"gig_{uuid.uuid4().hex[:12]}",
         "title": payload.title,
         "description": payload.description,
@@ -169,6 +247,8 @@ def _gig_doc(payload: GigIn, created_by: str) -> dict:
         "last_blast_at": None,
         "blast_channels": [],
     }
+    doc.update(spec)
+    return doc
 
 
 def _strip_sensitive_for_worker(gig: dict, my_acceptance: Optional[dict]) -> dict:
@@ -635,6 +715,12 @@ async def list_gigs(
         ).to_list(1000)
         accepted_map = {a["gig_id"]: a for a in accepted}
 
+        # Interest state — lets the feed show an INTERESTED pill (Addendum B).
+        my_interests = await db.gig_interests.find(
+            {"worker_id": user["user_id"]}, {"_id": 0, "gig_id": 1, "note": 1, "created_at": 1}
+        ).to_list(1000)
+        interest_map = {i["gig_id"]: i for i in my_interests}
+
         # Pre-fetch project titles for any project-linked gigs in this feed so
         # the worker UI can show a 'PROJECT' badge on the card. We intentionally
         # only expose `project_id` + `title` here (no client_name) — full
@@ -653,6 +739,7 @@ async def list_gigs(
             a = accepted_map.get(g["gig_id"])
             g = _strip_sensitive_for_worker(g, a)
             g["my_acceptance"] = a
+            g["my_interest"] = interest_map.get(g["gig_id"])
             pid = g.get("project_id")
             if pid and pid in wpmap:
                 g["project"] = {
@@ -764,6 +851,9 @@ async def get_gig(gig_id: str, user: dict = Depends(get_current_user)):
         )
         gig = _strip_sensitive_for_worker(gig, my)
         gig["my_acceptance"] = my
+        gig["my_interest"] = await db.gig_interests.find_one(
+            {"gig_id": gig_id, "worker_id": user["user_id"]}, {"_id": 0}
+        )
 
         # Minimal project hint shown to ALL workers (even before requesting) so
         # they know this gig is part of a coordinated project. Full sibling/
@@ -1125,6 +1215,40 @@ async def accept_gig(
                 "Complete your equipment verification on your profile to unlock it.",
             )
 
+    # FRD Addendum B — projects with an open variable take interest, not claims.
+    if gig.get("template") == "specialist_project" and (
+        gig.get("pay_mode") == "range" or gig.get("date_mode") == "tbd"
+    ):
+        raise HTTPException(
+            403,
+            "This project has an open price or date — tap \"I'm Interested\" instead "
+            "and HCOB will confirm the final details with you.",
+        )
+
+    # Window dates — the worker picks their day at claim (calendar hold).
+    if gig.get("date_mode") == "window":
+        cd = (agreement.chosen_date or "").strip()
+        ws, we = gig.get("window_start") or "", gig.get("window_end") or ""
+        if not cd:
+            raise HTTPException(400, "Pick your work day within the posted window")
+        if not (ws <= cd <= we):
+            raise HTTPException(400, f"Pick a day between {ws} and {we}")
+        arrival = gig.get("window_arrival_time") or "09:00"
+        local = f"{cd}T{arrival}"
+        try:
+            disp_dt = datetime.fromisoformat(local)
+            await db.gigs.update_one(
+                {"gig_id": gig_id},
+                {"$set": {
+                    "scheduled_at": disp_dt.replace(tzinfo=timezone.utc).isoformat(),
+                    "scheduled_local": local,
+                    "scheduled_date": disp_dt.strftime("%a %b %d · %-I:%M %p"),
+                }},
+            )
+            gig["scheduled_at"] = disp_dt.replace(tzinfo=timezone.utc).isoformat()
+        except ValueError:
+            raise HTTPException(400, "Invalid day format — use YYYY-MM-DD")
+
     existing = await db.gig_acceptances.find_one(
         {"gig_id": gig_id, "worker_id": user["user_id"]}
     )
@@ -1158,6 +1282,7 @@ async def accept_gig(
         "acceptance_id": f"acc_{uuid.uuid4().hex[:12]}",
         "gig_id": gig_id,
         "worker_id": user["user_id"],
+        "chosen_date": agreement.chosen_date,
         # NEW model: worker requests, admin approves. Slot is NOT reserved on request.
         "status": "requested",
         "requested_at": now_iso,

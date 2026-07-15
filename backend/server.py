@@ -1358,6 +1358,8 @@ api.include_router(ai_assignments_router)
 api.include_router(badges_router)
 from routes.trades import router as trades_router  # noqa: E402
 api.include_router(trades_router)
+from routes.gig_interest import router as gig_interest_router  # noqa: E402
+api.include_router(gig_interest_router)
 from routes.vp_applications import router as vp_applications_router  # noqa: E402
 api.include_router(vp_applications_router)
 app.include_router(api)
