@@ -21,6 +21,7 @@ import {
   Lightning,
   Warning,
   CurrencyDollar,
+  ChatText,
 } from "@phosphor-icons/react";
 
 const TABS = [
@@ -165,6 +166,7 @@ export default function AdminWorkers() {
   const [tradeFilter, setTradeFilter] = useState("");
   const [tradeStatus, setTradeStatus] = useState("verified");
   const [attrs, setAttrs] = useState([]);
+  const [smsOptIn, setSmsOptIn] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const nav = useNavigate();
 
@@ -189,6 +191,8 @@ export default function AdminWorkers() {
         q.trade_status = tradeStatus || "any";
       }
       if (attrs.length) q.attributes = attrs.join(",");
+      if (smsOptIn === "yes") q.sms_opt_in = true;
+      else if (smsOptIn === "no") q.sms_opt_in = false;
       const { data } = await api.get("/admin/workers", { params: q });
       setWorkers(data);
     } catch (e) {
@@ -199,7 +203,7 @@ export default function AdminWorkers() {
   useEffect(() => {
     load();
     // eslint-disable-next-line
-  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, availableNow, payoutMissing, search, workClass, tradeFilter, tradeStatus, attrs]);
+  }, [tab, skills, availability, zipCode, zipPrefix, vehicle, profileComplete, minRating, availableNow, payoutMissing, search, workClass, tradeFilter, tradeStatus, attrs, smsOptIn]);
 
   const toggleArr = (arr, setter, v) =>
     setter(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
@@ -219,6 +223,7 @@ export default function AdminWorkers() {
     setTradeFilter("");
     setTradeStatus("verified");
     setAttrs([]);
+    setSmsOptIn("");
   };
 
   const activeFilterCount =
@@ -234,7 +239,8 @@ export default function AdminWorkers() {
     (search ? 1 : 0) +
     (workClass ? 1 : 0) +
     (tradeFilter ? 1 : 0) +
-    attrs.length;
+    attrs.length +
+    (smsOptIn ? 1 : 0);
 
   return (
     <div data-testid="admin-workers">
@@ -518,6 +524,27 @@ export default function AdminWorkers() {
             </div>
 
             <div>
+              <div className="font-mono-label mb-2">SMS consent</div>
+              <div className="flex flex-wrap gap-1.5">
+                <FilterChip
+                  testId="filter-sms-opt-in-yes"
+                  active={smsOptIn === "yes"}
+                  onClick={() => setSmsOptIn(smsOptIn === "yes" ? "" : "yes")}
+                >
+                  <ChatText size={9} weight="fill" className="mr-0.5 inline" />
+                  Opted in
+                </FilterChip>
+                <FilterChip
+                  testId="filter-sms-opt-in-no"
+                  active={smsOptIn === "no"}
+                  onClick={() => setSmsOptIn(smsOptIn === "no" ? "" : "no")}
+                >
+                  Not opted in
+                </FilterChip>
+              </div>
+            </div>
+
+            <div>
               <div className="font-mono-label mb-2">Min rating</div>
               <div className="flex flex-wrap gap-1.5">
                 {[3, 4, 4.5, 5].map((r) => (
@@ -628,6 +655,19 @@ export default function AdminWorkers() {
                         : w.payout_method === "apple_cash"
                         ? "APPLE CASH"
                         : "CHIME"}
+                    </span>
+                  )}
+                  {w.sms_opt_in && (
+                    <span
+                      data-testid={`sms-opt-in-badge-${w.user_id}`}
+                      className="inline-flex items-center gap-1 bg-[#0044FF]/10 px-2 py-1 text-[10px] font-bold tracking-widest text-[#0044FF]"
+                      title={`Opted in to SMS${
+                        w.sms_opt_in_at
+                          ? ` on ${new Date(w.sms_opt_in_at).toLocaleDateString()}`
+                          : ""
+                      }`}
+                    >
+                      <ChatText size={10} weight="fill" /> SMS OK
                     </span>
                   )}
                 </div>

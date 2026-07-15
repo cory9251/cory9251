@@ -33,6 +33,7 @@ import {
   CaretDown,
   Coins,
   UserPlus,
+  ShieldCheck,
 } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
@@ -77,6 +78,7 @@ const groups = [
     icon: Megaphone,
     items: [
       { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
+      { to: "/ops/sms-consent", label: "SMS Consent", icon: ShieldCheck, end: false },
       { to: "/ops/services", label: "Service Catalog", icon: Tag, end: false },
       { to: "/ops/announcements", label: "Announcements", icon: Megaphone, end: false },
       { to: "/ops/reports", label: "Reports", icon: ChartBar, end: false },

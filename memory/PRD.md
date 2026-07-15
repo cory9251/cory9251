@@ -2250,3 +2250,12 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Tested: iteration_80 — backend 6/6, frontend 100% (feed pills, interest cycle, admin queue, CreateGigDialog specialist + labor_shift regression).
 - Demo gig for user review: gig_32b349ecf057 "ADDB-TEST Deck Staining Project" (range pay $250–$400, TBD date) — Worker Demo has active interest. Delete after review.
 - **Phase 3 NOT built yet** (direct offers: admin sends locked price+date offer to an interested worker; accept books the job identical to claiming; offers expire when gig filled/complete or after timeframe). Awaiting user review of Phases 1 & 2 before building.
+
+
+## Twilio A2P 10DLC Consent Log + STOP Footer (Jul 15, 2026) — DONE
+- **STOP footer everywhere**: `notifications._send_sms_sync` now runs every outbound SMS body through `_with_stop_footer()` which idempotently appends "Reply STOP to opt out." (skipped if the caller already included their own STOP/text-STOP line). Applies to ALL SMS paths (blasts, direct offers, referrals, replies, admin test-send). Kept short so it rarely bumps a single-segment SMS into a second billable segment.
+- **Consent capture already existed** on `/register` → stored per user as `sms_opt_in`, `sms_opt_in_at`, `sms_opt_in_source: "worker_signup_form"` by `routes/auth.py`.
+- **New endpoint `GET /api/admin/sms-consent`** in `routes/admin.py` — returns `{rows, counts:{total, opted_in, opted_out}}` with `?filter=all|opted_in|opted_out&search=` filters. `&format=csv` returns a `StreamingResponse` (attachment: `hcob-sms-consent-YYYY-MM-DD.csv`) with columns user_id/name/email/phone/sms_opt_in/sms_opt_in_at/sms_opt_in_source/created_at — this is the file we hand a carrier on A2P audit.
+- **New admin page `/ops/sms-consent`** (`AdminSMSConsent.jsx`) — nav link under Growth → SMS Consent (`ShieldCheck` icon). Stat strip (Opted in / Not opted in / Opt-in rate), tab filter, search box (250ms debounce), Export CSV button.
+- **Roster augmentation**: `/api/admin/workers` now accepts `sms_opt_in=true|false`. AdminWorkers page has a new "SMS consent" filter panel row and each worker card now shows a blue `SMS OK` badge (with title tooltip showing opt-in date) when consented.
+- Smoke-tested end-to-end via curl (874 workers scanned, 2 opted in, CSV downloads) and screenshot verified admin page renders with real data.

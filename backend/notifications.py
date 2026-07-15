@@ -170,11 +170,27 @@ def _send_email_sync(api_key: str, sender: str, to: str, subject: str, html: str
     )
 
 
+# Twilio / A2P 10DLC carrier compliance: every outbound SMS must include an
+# opt-out disclosure. We append "Reply STOP to opt out." exactly once — the
+# guard makes it idempotent so callers that already added their own footer
+# don't get it duplicated. Kept short (<=25 chars) so it rarely pushes a
+# single-segment SMS into a second billable segment.
+SMS_STOP_FOOTER = "Reply STOP to opt out."
+
+
+def _with_stop_footer(body: str) -> str:
+    text = (body or "").rstrip()
+    lower = text.lower()
+    if "reply stop" in lower or "text stop" in lower:
+        return text
+    return f"{text}\n\n{SMS_STOP_FOOTER}"
+
+
 def _send_sms_sync(sid: str, token: str, from_: str, to: str, body: str) -> dict:
     if not (sid and token and from_):
         return {"skipped": "no_twilio_creds"}
     c = TwilioClient(sid, token)
-    m = c.messages.create(body=body, from_=from_, to=to)
+    m = c.messages.create(body=_with_stop_footer(body), from_=from_, to=to)
     return {"sid": m.sid}
 
 

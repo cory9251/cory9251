@@ -83,6 +83,7 @@ async def list_workers(
     trade: Optional[str] = Query(None, description="Specialist trade id, e.g. carpet_cleaning"),
     trade_status: Optional[str] = Query(None, description="'incomplete' | 'pending' | 'verified' | 'returned' | 'any'"),
     attributes: Optional[str] = Query(None, description="Comma-separated work attributes"),
+    sms_opt_in: Optional[bool] = Query(None, description="Filter workers by their SMS text consent flag"),
     admin: dict = Depends(require_admin),
 ):
     return await _filter_workers(
@@ -93,6 +94,7 @@ async def list_workers(
         id_status=id_status, search=search,
         work_class=work_class, trade=trade, trade_status=trade_status,
         attributes=attributes,
+        sms_opt_in=sms_opt_in,
     )
 
 
@@ -113,6 +115,7 @@ async def _filter_workers(
     trade: Optional[str] = None,
     trade_status: Optional[str] = None,
     attributes: Optional[str] = None,
+    sms_opt_in: Optional[bool] = None,
 ) -> list[dict]:
     """Shared worker-filter logic. Used by /admin/workers AND the email-blast
     endpoints so the audience picker on the blast composer is guaranteed to
@@ -256,7 +259,107 @@ async def _filter_workers(
     elif id_status == "missing":
         workers = [w for w in workers if not (w.get("id_image_path") or "").strip()]
 
+    if sms_opt_in is True:
+        workers = [w for w in workers if w.get("sms_opt_in") is True]
+    elif sms_opt_in is False:
+        workers = [w for w in workers if not w.get("sms_opt_in")]
+
     return workers
+
+
+# ---------- SMS Consent audit log ----------
+# Used for the admin "SMS Consent" screen and for A2P 10DLC / carrier audits:
+# a per-worker log showing when they opted in, from where, and their phone
+# number of record. `sms_opt_in_at` and `sms_opt_in_source` are stamped on
+# the worker record at signup (see routes/auth.py) and stay stable — we do
+# NOT rewrite them here.
+@router.get("/admin/sms-consent")
+async def list_sms_consent(
+    filter: str = Query("all", description="'all' | 'opted_in' | 'opted_out'"),
+    search: Optional[str] = Query(None, description="Free-text search name/email/phone"),
+    format: str = Query("json", description="'json' | 'csv'"),
+    admin: dict = Depends(require_admin),
+):
+    query: dict = {"role": "worker"}
+    if filter == "opted_in":
+        query["sms_opt_in"] = True
+    elif filter == "opted_out":
+        query["$or"] = [{"sms_opt_in": {"$ne": True}}, {"sms_opt_in": {"$exists": False}}]
+
+    if search:
+        s = re.escape(search.strip())
+        if s:
+            search_or = [
+                {"name": {"$regex": s, "$options": "i"}},
+                {"email": {"$regex": s, "$options": "i"}},
+                {"phone": {"$regex": s, "$options": "i"}},
+            ]
+            if "$or" in query:
+                # combine with existing $or (opted_out branch) via $and
+                query = {"$and": [{k: v for k, v in query.items() if k != "$or"},
+                                  {"$or": query["$or"]},
+                                  {"$or": search_or}]}
+            else:
+                query["$or"] = search_or
+
+    docs = await db.users.find(
+        query,
+        {
+            "_id": 0, "user_id": 1, "name": 1, "email": 1, "phone": 1,
+            "sms_opt_in": 1, "sms_opt_in_at": 1, "sms_opt_in_source": 1,
+            "created_at": 1,
+        },
+    ).sort("sms_opt_in_at", -1).to_list(5000)
+
+    rows = [
+        {
+            "user_id": d.get("user_id"),
+            "name": d.get("name") or "",
+            "email": d.get("email") or "",
+            "phone": d.get("phone") or "",
+            "sms_opt_in": bool(d.get("sms_opt_in")),
+            "sms_opt_in_at": d.get("sms_opt_in_at") or "",
+            "sms_opt_in_source": d.get("sms_opt_in_source") or "",
+            "created_at": d.get("created_at") or "",
+        }
+        for d in docs
+    ]
+
+    if format == "csv":
+        import io
+        import csv
+        from fastapi.responses import StreamingResponse
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "user_id", "name", "email", "phone",
+            "sms_opt_in", "sms_opt_in_at", "sms_opt_in_source", "created_at",
+        ])
+        for r in rows:
+            writer.writerow([
+                r["user_id"], r["name"], r["email"], r["phone"],
+                "yes" if r["sms_opt_in"] else "no",
+                r["sms_opt_in_at"], r["sms_opt_in_source"], r["created_at"],
+            ])
+        buf.seek(0)
+        filename = f"sms-consent-{datetime.now(timezone.utc).date().isoformat()}.csv"
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    total = len(rows)
+    opted_in_count = sum(1 for r in rows if r["sms_opt_in"])
+    return {
+        "rows": rows,
+        "counts": {
+            "total": total,
+            "opted_in": opted_in_count,
+            "opted_out": total - opted_in_count,
+        },
+    }
 
 
 @router.get("/admin/workers/match")
