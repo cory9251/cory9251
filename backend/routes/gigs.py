@@ -999,6 +999,24 @@ async def update_gig(
         updates["site_lng"] = coords["lng"] if coords else None
         updates["geocode_attempted"] = True
 
+    # If the gig was auto-completed because its date passed, and admin now
+    # pushes `scheduled_at` back to the future, un-complete it so it can be
+    # blasted / accepted again. Without this, the sweep leaves it stuck on
+    # `completed` forever even after the reschedule.
+    if (
+        "scheduled_at" in updates
+        and updates.get("scheduled_at")
+        and gig.get("status") == "completed"
+        and gig.get("auto_completed_at")
+        and not _is_past(updates["scheduled_at"])
+        and "status" not in updates
+    ):
+        filled = int(gig.get("slots_filled") or 0)
+        total = int(gig.get("slots") or 1)
+        updates["status"] = "filled" if filled >= total else "open"
+        updates["auto_completed_at"] = None
+        updates["auto_completed_reason"] = None
+
     if not updates:
         return {k: v for k, v in gig.items() if k != "_id"}
 
@@ -1058,12 +1076,23 @@ async def update_gig(
 
 @router.post("/gigs/{gig_id}/duplicate")
 async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
-    """Clone an existing gig into a fresh, empty 'open' gig."""
+    """Clone an existing gig into a fresh, empty 'open' gig.
+
+    If the source's `scheduled_at` is in the past, the copy is created with a
+    blank schedule so admin must pick a new date before it goes live. Copying a
+    past date would otherwise trip the auto-complete sweep and immediately
+    flip the new gig to `completed` — see `_sweep_expired_gigs`.
+    """
     src = await db.gigs.find_one({"gig_id": gig_id})
     if not src:
         raise HTTPException(404, "Gig not found")
     title = src.get("title") or "Gig"
     suffix = " (copy)" if not title.endswith(" (copy)") else ""
+    src_scheduled_at = src.get("scheduled_at")
+    src_scheduled_date = src.get("scheduled_date")
+    if _is_past(src_scheduled_at):
+        src_scheduled_at = None
+        src_scheduled_date = None
     doc = {
         "gig_id": f"gig_{uuid.uuid4().hex[:12]}",
         "title": f"{title}{suffix}",
@@ -1073,8 +1102,8 @@ async def duplicate_gig(gig_id: str, admin: dict = Depends(require_admin)):
         "target_trade": src.get("target_trade"),
         "location": src.get("location"),
         "address_line": src.get("address_line"),
-        "scheduled_date": src.get("scheduled_date"),
-        "scheduled_at": src.get("scheduled_at"),
+        "scheduled_date": src_scheduled_date,
+        "scheduled_at": src_scheduled_at,
         "pay_rate": src.get("pay_rate"),
         "pay_type": src.get("pay_type"),
         "slots": src.get("slots") or 1,

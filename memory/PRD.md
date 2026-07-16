@@ -2300,3 +2300,14 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - Created `/app/docs/ADMIN_TRAINING.md` — full Admin portal manual organized by the real sidebar structure (Dashboard/Calendar, Work Pipeline, People, Growth, Finance, VA Program, Settings), plus role matrix (Admin/PM/Owner), common-workflow cheat sheets (post & fill assignment, worker onboarding/verification, blast campaign, VA commission payout, emergency kill switch), and a quick-reference table.
 - Documentation-only change; no code touched, no testing required.
 
+
+## Bug Fix — 2026-02 (Duplicated gigs stuck on `completed`)
+- **Report**: Duplicating a past gig produced a copy that immediately flipped to `completed`. Even after admin edited it to a future date, the status stayed `completed` and the gig never re-appeared on the worker feed.
+- **Root cause**: two-part bug in `/app/backend/routes/gigs.py`.
+  1. `duplicate_gig` copied `scheduled_at` verbatim from the source. When the source date was in the past, the next GET fired `_sweep_expired_gigs`, which flipped the new copy to `completed`.
+  2. `update_gig` blindly `$set`-ed patch fields, so bumping `scheduled_at` back to the future never cleared the auto-complete status.
+- **Fix**:
+  - `duplicate_gig`: when source `scheduled_at` is `_is_past()`, drop both `scheduled_at` and `scheduled_date` on the copy so the admin picks a fresh date.
+  - `update_gig`: if `scheduled_at` is being updated to a future value AND the gig is currently `completed` with an `auto_completed_at` marker AND admin didn't explicitly pass a `status`, reset status back to `open` (or `filled` if slots are already fully taken) and clear the auto-complete markers.
+- **Regression tests**: `/app/backend/tests/test_duplicate_past_gig.py` — 3/3 pass. Covers (a) duplicate of past gig clears schedule and does not get auto-completed, (b) reschedule of an auto-completed gig to the future resurrects it, (c) admin's explicit `status` override still wins.
+
