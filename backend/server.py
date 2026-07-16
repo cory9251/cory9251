@@ -1362,6 +1362,8 @@ from routes.gig_interest import router as gig_interest_router  # noqa: E402
 api.include_router(gig_interest_router)
 from routes.vp_applications import router as vp_applications_router  # noqa: E402
 api.include_router(vp_applications_router)
+from routes.partner import router as partner_router  # noqa: E402
+api.include_router(partner_router)
 app.include_router(api)
 
 # CORS — explicit allowlist from env (never "*" with credentials). Regex covers

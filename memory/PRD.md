@@ -2311,3 +2311,16 @@ Terminal off-ramps: `void`, `self_fulfilled`
   - `update_gig`: if `scheduled_at` is being updated to a future value AND the gig is currently `completed` with an `auto_completed_at` marker AND admin didn't explicitly pass a `status`, reset status back to `open` (or `filled` if slots are already fully taken) and clear the auto-complete markers.
 - **Regression tests**: `/app/backend/tests/test_duplicate_past_gig.py` — 3/3 pass. Covers (a) duplicate of past gig clears schedule and does not get auto-completed, (b) reschedule of an auto-completed gig to the future resurrects it, (c) admin's explicit `status` override still wins.
 
+
+## Partner API for PalletTrack — 2026-06 — DONE
+- Read-only external API for the PalletTrack app (`https://pallet-counter-3.emergent.host`).
+- Auth: shared key in `PARTNER_API_KEY` (backend `.env`), accepted via `X-API-Key` header or `Authorization: Bearer`. Constant-time compare, 401 otherwise.
+- Scope: only gigs whose **title** contains `PARTNER_SHIFT_TITLE_FILTER` (env, currently `"recycling plant"`, case-insensitive). `shift_name` in responses == gig `title` (per user answer: "Title").
+- Endpoints (`/app/backend/routes/partner.py`, registered in `server.py`):
+  - `GET /api/partner/workers` — workers assigned to matching shifts (name, email, phone, shift_names).
+  - `GET /api/partner/shifts/active` — currently clocked-in workers (clock_in set, no clock_out).
+  - `GET /api/partner/shifts/hours?start_date&end_date&worker_email` — completed shift hours w/ clock times, hours_worked, paid_hours, total_hours.
+- CORS: `https://pallet-counter-3.emergent.host` added explicitly to `CORS_ORIGINS` (regex already covered `*.emergent.host`).
+- Verified via curl on preview: 401 without/with bad key, all 3 endpoints return correct data, date/email filters work, CORS preflight passes. Seeded preview test data: gig `gig_partner_test_1` ("♻️Recycling Plant shift") + 2 acceptances (one active, one completed 6h).
+- NOTE: production needs a redeploy to pick up the new endpoints + PARTNER_API_KEY.
+- Duplicate-gig "choose" follow-up: user said it's resolved, no work needed.
