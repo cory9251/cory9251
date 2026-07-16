@@ -2294,3 +2294,9 @@ Terminal off-ramps: `void`, `self_fulfilled`
   - `WorkerDetail.jsx` (admin): new `DocumentReviewBlock` in the right sidebar under Verification. Same PDF/image awareness, empty-state message when the worker hasn't uploaded, and a green "Mark verified" button that hits the corresponding admin endpoint.
 - **Verified**: curl end-to-end (worker uploads PDF → both flags false → admin verifies both → flags true). Screenshots confirm mobile worker profile shows both new sections with correct badges, and desktop admin worker detail page shows both review blocks with PDF links and verified state.
 
+
+## Implemented — 2026-06 (Iter: Admin Training Manual)
+- User requested a training document on app features; audience clarified as **Admins** (option B).
+- Created `/app/docs/ADMIN_TRAINING.md` — full Admin portal manual organized by the real sidebar structure (Dashboard/Calendar, Work Pipeline, People, Growth, Finance, VA Program, Settings), plus role matrix (Admin/PM/Owner), common-workflow cheat sheets (post & fill assignment, worker onboarding/verification, blast campaign, VA commission payout, emergency kill switch), and a quick-reference table.
+- Documentation-only change; no code touched, no testing required.
+
