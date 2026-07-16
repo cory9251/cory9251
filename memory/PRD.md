@@ -2282,3 +2282,15 @@ Terminal off-ramps: `void`, `self_fulfilled`
   - Send button label auto-composes: "Send — 874 email + 2 SMS" or single-channel variants.
 - **Verified** via curl: preview returns 874 email / 2 SMS counts, test-send returns per-channel skip reasons, 400 raised when SMS body missing. Screenshots confirm updated header, dual audience counters, and SMS composer + preview render correctly.
 
+
+## W-9 + Signed Agreement Uploads (Jul 16, 2026) — DONE
+- **Backend**:
+  - New `_upload_user_file(user_id, kind, file, allow_pdf=True)` helper (`routes/profile.py`) that supports PDFs up to 15 MB. `_upload_user_image` now delegates to it (`allow_pdf=False`, 10 MB cap unchanged for backwards compat).
+  - `POST /api/profile/w9` — stores `w9_path`, sets `w9_verified=false`, stamps `w9_uploaded_at`. Replacements reset the verified flag so admin must re-review.
+  - `POST /api/profile/agreement` — same shape for `agreement_path`, `agreement_verified`, `agreement_uploaded_at`.
+  - `POST /api/admin/workers/{user_id}/verify-w9` and `.../verify-agreement` — flip verified to true and stamp `*_verified_at` + `*_verified_by`. Mirrors the existing `/verify-id` endpoint.
+- **Frontend**:
+  - `WorkerProfile.jsx`: new reusable `DocumentUploadCard` component. Renders below Emergency Contact for both W-9 and Signed Agreement. Shows a PDF-aware preview (image thumbnail via `ProtectedImg` for JPG/PNG; "View uploaded PDF" credentialed link for PDFs), Verified / Pending badge, upload date, and Replace button. Accept attribute allows both images and PDFs.
+  - `WorkerDetail.jsx` (admin): new `DocumentReviewBlock` in the right sidebar under Verification. Same PDF/image awareness, empty-state message when the worker hasn't uploaded, and a green "Mark verified" button that hits the corresponding admin endpoint.
+- **Verified**: curl end-to-end (worker uploads PDF → both flags false → admin verifies both → flags true). Screenshots confirm mobile worker profile shows both new sections with correct badges, and desktop admin worker detail page shows both review blocks with PDF links and verified state.
+

@@ -78,6 +78,16 @@ export default function WorkerDetail() {
     }
   };
 
+  const verifyDoc = async (kind, label) => {
+    try {
+      await api.post(`/admin/workers/${userId}/verify-${kind}`);
+      toast.success(`${label} verified`);
+      load();
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+
   const doReset = async () => {
     setResetting(true);
     try {
@@ -287,6 +297,28 @@ export default function WorkerDetail() {
               Worker has not uploaded an ID yet.
             </div>
           )}
+
+          {/* W-9 review */}
+          <DocumentReviewBlock
+            label="W-9 Tax Form"
+            path={w.w9_path}
+            verified={!!w.w9_verified}
+            uploadedAt={w.w9_uploaded_at}
+            verifiedAt={w.w9_verified_at}
+            onVerify={() => verifyDoc("w9", "W-9")}
+            testidPrefix="w9"
+          />
+
+          {/* Signed agreement review */}
+          <DocumentReviewBlock
+            label="Signed Agreement"
+            path={w.agreement_path}
+            verified={!!w.agreement_verified}
+            uploadedAt={w.agreement_uploaded_at}
+            verifiedAt={w.agreement_verified_at}
+            onVerify={() => verifyDoc("agreement", "Agreement")}
+            testidPrefix="agreement"
+          />
 
           {w.avatar_path && (
             <div className="mt-8">
@@ -1308,4 +1340,83 @@ function ProtectedImg({ path, alt }) {
   }, [path]);
   if (!blob) return <div className="h-48 w-full animate-pulse bg-[#F0F4FF]" />;
   return <img src={blob} alt={alt} className="w-full" />;
+}
+/**
+ * Admin-side review block for worker-uploaded documents (W-9, Agreement).
+ * Mirrors the visual pattern of the ID review — thumbnail for images,
+ * "Open PDF" link for PDFs, verify button that flips *_verified=true
+ * server-side. Empty-state message when the worker hasn't uploaded yet
+ * so admins can see whether they need to nudge them.
+ */
+function DocumentReviewBlock({
+  label,
+  path,
+  verified,
+  uploadedAt,
+  verifiedAt,
+  onVerify,
+  testidPrefix,
+}) {
+  const isPdf = typeof path === "string" && path.toLowerCase().endsWith(".pdf");
+  return (
+    <div className="mt-8" data-testid={`${testidPrefix}-review-block`}>
+      <div className="font-mono-label">{label}</div>
+      {path ? (
+        <>
+          {isPdf ? (
+            <a
+              href={`${API}/files/${path}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={`${testidPrefix}-open-file`}
+              className="mt-3 inline-flex items-center gap-2 border border-[#E5E7EB] bg-white px-4 py-3 text-sm font-semibold text-[#0044FF] hover:bg-[#F0F4FF]"
+            >
+              Open uploaded PDF →
+            </a>
+          ) : (
+            <div className="mt-3 overflow-hidden border border-[#E5E7EB] bg-white">
+              <ProtectedImg path={path} alt={label} />
+            </div>
+          )}
+          <div className="mt-3 text-xs text-[#4B5563]">
+            Status:{" "}
+            <span
+              data-testid={`${testidPrefix}-status`}
+              className={`font-bold ${
+                verified ? "text-[#10B981]" : "text-[#F59E0B]"
+              }`}
+            >
+              {verified ? "VERIFIED" : "PENDING REVIEW"}
+            </span>
+            {uploadedAt && (
+              <span className="ml-2 text-[10px] text-[#9CA3AF]">
+                uploaded {new Date(uploadedAt).toLocaleDateString()}
+              </span>
+            )}
+            {verified && verifiedAt && (
+              <span className="ml-2 text-[10px] text-[#9CA3AF]">
+                · verified {new Date(verifiedAt).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          {!verified && (
+            <Button
+              data-testid={`${testidPrefix}-verify-btn`}
+              onClick={onVerify}
+              className="mt-3 h-11 w-full rounded-none bg-[#10B981] text-white hover:bg-[#0e9971]"
+            >
+              <CheckCircle weight="fill" size={16} className="mr-2" /> Mark {label} verified
+            </Button>
+          )}
+        </>
+      ) : (
+        <div
+          data-testid={`${testidPrefix}-missing`}
+          className="mt-3 border border-dashed border-[#E5E7EB] p-4 text-sm text-[#4B5563]"
+        >
+          Worker has not uploaded {label} yet.
+        </div>
+      )}
+    </div>
+  );
 }

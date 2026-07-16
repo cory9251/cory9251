@@ -114,13 +114,25 @@ async def update_profile(payload: ProfileUpdateIn, request: Request, user: dict 
 
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_DOC_BYTES = 15 * 1024 * 1024  # W9 / signed agreement PDFs run larger than IDs
 
 
 async def _upload_user_image(user_id: str, kind: str, file: UploadFile) -> str:
+    return await _upload_user_file(user_id, kind, file, allow_pdf=False)
+
+
+async def _upload_user_file(
+    user_id: str, kind: str, file: UploadFile, allow_pdf: bool = False
+) -> str:
+    """Shared upload path for worker-owned documents.
+    `kind` is a short slug like 'id', 'w9', 'agreement' and controls the
+    storage prefix. When `allow_pdf` is True we accept PDF uploads (W9s
+    are almost always PDFs); otherwise only images are allowed."""
     data = await file.read()
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(400, "Image too large (max 10MB)")
-    ext, content_type = validate_upload(data, file.filename or "")
+    limit = MAX_DOC_BYTES if allow_pdf else MAX_IMAGE_BYTES
+    if len(data) > limit:
+        raise HTTPException(400, f"File too large (max {limit // (1024 * 1024)}MB)")
+    ext, content_type = validate_upload(data, file.filename or "", allow_pdf=allow_pdf)
     path = f"{APP_NAME}/users/{user_id}/{kind}/{uuid.uuid4().hex}.{ext}"
     result = await asyncio.to_thread(put_object, path, data, content_type)
     await db.files.insert_one(
@@ -159,6 +171,42 @@ async def upload_id(
         {"$set": {"id_image_path": path, "id_verified": False}},
     )
     return {"id_image_path": path}
+
+
+# ----- W9 tax form + signed contractor agreement ---------------------------
+# Same pattern as `/profile/id`: worker uploads, we flip the *_verified flag
+# to False so admin has to review. Both accept PDFs since that's how these
+# forms are almost always shared.
+@router.post("/profile/w9")
+async def upload_w9(
+    file: UploadFile = File(...), user: dict = Depends(get_current_user)
+):
+    path = await _upload_user_file(user["user_id"], "w9", file, allow_pdf=True)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "w9_path": path,
+            "w9_verified": False,
+            "w9_uploaded_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"w9_path": path}
+
+
+@router.post("/profile/agreement")
+async def upload_agreement(
+    file: UploadFile = File(...), user: dict = Depends(get_current_user)
+):
+    path = await _upload_user_file(user["user_id"], "agreement", file, allow_pdf=True)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "agreement_path": path,
+            "agreement_verified": False,
+            "agreement_uploaded_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"agreement_path": path}
 
 
 # ----- Available Now -------------------------------------------------------

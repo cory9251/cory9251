@@ -11,6 +11,8 @@ import PushNotificationToggle from "@/components/worker/PushNotificationToggle";
 import {
   Camera,
   IdentificationCard,
+  FileText,
+  Signature,
   CheckCircle,
   UserCircle,
   UploadSimple,
@@ -62,6 +64,8 @@ export default function WorkerProfile() {
   const [saving, setSaving] = useState(false);
   const avatarInput = useRef(null);
   const idInput = useRef(null);
+  const w9Input = useRef(null);
+  const agreementInput = useRef(null);
 
   // Load enum options
   useEffect(() => {
@@ -152,6 +156,27 @@ export default function WorkerProfile() {
       toast.error(getErr(e));
     }
   };
+
+  // W9 and signed agreement — same shape as ID upload but PDFs are allowed
+  // and we hit different endpoints. The user's document flips *_verified
+  // back to false on every replacement so admins re-review.
+  const uploadDoc = async (endpoint, successMsg, file) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      await api.post(endpoint, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      await checkAuth();
+      toast.success(successMsg);
+    } catch (e) {
+      toast.error(getErr(e));
+    }
+  };
+  const uploadW9 = (f) => uploadDoc("/profile/w9", "W-9 uploaded — pending review", f);
+  const uploadAgreement = (f) =>
+    uploadDoc("/profile/agreement", "Agreement uploaded — pending review", f);
 
   const missing = user?.profile_missing_fields || [];
   const needsId = !user?.id_image_path;
@@ -398,6 +423,32 @@ export default function WorkerProfile() {
             />
           </Field>
         </Section>
+
+        {/* Section: W-9 form */}
+        <DocumentUploadCard
+          title="W-9 Tax Form"
+          hint="Upload a signed W-9. PDF, JPG or PNG."
+          icon={FileText}
+          path={user.w9_path}
+          verified={!!user.w9_verified}
+          uploadedAt={user.w9_uploaded_at}
+          inputRef={w9Input}
+          onFile={uploadW9}
+          testidPrefix="w9"
+        />
+
+        {/* Section: Signed contractor agreement */}
+        <DocumentUploadCard
+          title="Signed Agreement"
+          hint="Upload your signed HCOB contractor agreement. PDF, JPG or PNG."
+          icon={Signature}
+          path={user.agreement_path}
+          verified={!!user.agreement_verified}
+          uploadedAt={user.agreement_uploaded_at}
+          inputRef={agreementInput}
+          onFile={uploadAgreement}
+          testidPrefix="agreement"
+        />
 
         {/* Section: Text updates — SMS opt-in / opt-out (A2P 10DLC) */}
         <SmsOptInSection user={user} onChanged={checkAuth} />
@@ -664,6 +715,104 @@ function CompletionBanner({ missing, needsId, idPending, idVerified, progressPct
     </div>
   );
 }
+
+/**
+ * Worker-uploadable document with an admin verification lifecycle.
+ * Renders the ID-style pattern for any single-file worker doc (W-9,
+ * Agreement, etc). Accepts PDFs — for image files we show a thumbnail
+ * via ProtectedImg, for PDFs we surface an "Open PDF" link that streams
+ * with credentials. Uploading a replacement flips *_verified back to
+ * false on the server, so the "Pending review" badge reappears until
+ * admin re-verifies.
+ */
+function DocumentUploadCard({
+  title,
+  hint,
+  icon: Icon,
+  path,
+  verified,
+  uploadedAt,
+  inputRef,
+  onFile,
+  testidPrefix,
+}) {
+  const isPdf = typeof path === "string" && path.toLowerCase().endsWith(".pdf");
+  return (
+    <Section title={title} icon={Icon}>
+      <div className="text-xs text-[#4B5563]">{hint}</div>
+      {path ? (
+        <div className="mt-3">
+          {isPdf ? (
+            <a
+              href={`${API}/files/${path}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={`${testidPrefix}-open-pdf`}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-sm font-semibold text-[#0044FF] hover:bg-[#F0F4FF]"
+            >
+              <FileText size={16} weight="duotone" /> View uploaded PDF
+            </a>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-[#E5E7EB]">
+              <ProtectedImg path={path} className="w-full" />
+            </div>
+          )}
+          <div className="mt-2 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              {verified ? (
+                <span
+                  data-testid={`${testidPrefix}-verified-badge`}
+                  className="inline-flex items-center gap-1 text-[#10B981]"
+                >
+                  <CheckCircle size={12} weight="fill" /> Verified
+                </span>
+              ) : (
+                <span
+                  data-testid={`${testidPrefix}-pending-badge`}
+                  className="font-semibold text-[#F59E0B]"
+                >
+                  Pending review
+                </span>
+              )}
+              {uploadedAt && (
+                <span className="text-[10px] text-[#9CA3AF]">
+                  uploaded {new Date(uploadedAt).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              data-testid={`${testidPrefix}-replace-btn`}
+              onClick={() => inputRef.current?.click()}
+              className="font-semibold text-[#0044FF]"
+            >
+              Replace
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          data-testid={`${testidPrefix}-upload-dropzone`}
+          onClick={() => inputRef.current?.click()}
+          className="gb-dropzone mt-2 flex w-full flex-col items-center justify-center rounded-xl bg-white p-6 text-center"
+        >
+          <UploadSimple size={28} weight="duotone" className="text-[#0044FF]" />
+          <div className="mt-2 text-sm font-semibold">Upload {title}</div>
+          <div className="mt-1 text-xs text-[#4B5563]">PDF, JPG, PNG · 15MB max</div>
+        </button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => onFile(e.target.files?.[0])}
+      />
+    </Section>
+  );
+}
+
 
 function Section({ title, icon: Icon, required, children }) {
   return (

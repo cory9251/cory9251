@@ -690,6 +690,32 @@ async def verify_worker_id(user_id: str, admin: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+@router.post("/admin/workers/{user_id}/verify-w9")
+async def verify_worker_w9(user_id: str, admin: dict = Depends(require_admin)):
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "w9_verified": True,
+            "w9_verified_at": datetime.now(timezone.utc).isoformat(),
+            "w9_verified_by": admin.get("user_id"),
+        }},
+    )
+    return {"ok": True}
+
+
+@router.post("/admin/workers/{user_id}/verify-agreement")
+async def verify_worker_agreement(user_id: str, admin: dict = Depends(require_admin)):
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "agreement_verified": True,
+            "agreement_verified_at": datetime.now(timezone.utc).isoformat(),
+            "agreement_verified_by": admin.get("user_id"),
+        }},
+    )
+    return {"ok": True}
+
+
 @router.put("/admin/workers/{user_id}/profile")
 async def admin_update_worker_profile(
     user_id: str,
