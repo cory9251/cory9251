@@ -110,6 +110,15 @@ export default function AdminEmailBlast() {
     setBodyHtml(t.body_html || "");
     setCtaLabel(t.cta_label || "");
     setCtaPath(t.cta_path || "/crew/me");
+    // SMS body — only overwrite when the template has one AND the user's
+    // current sms_body is empty or was pulled from a previous template
+    // (i.e. don't clobber a custom text they've already typed unless they
+    // click "Custom" which explicitly wipes fields).
+    if (t.key === "custom") {
+      setSmsBody("");
+    } else if (typeof t.sms_body === "string") {
+      setSmsBody(t.sms_body);
+    }
   };
 
   // Live preview — fires whenever audience filter changes (debounced)

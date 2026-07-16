@@ -212,6 +212,10 @@ EMAIL_TEMPLATES = [
         ),
         "cta_label": "Add my payment method",
         "cta_path": "/crew/me",
+        "sms_body": (
+            "HCOB: Hey {{first_name}}, add a payout method (Zelle/Chime/Apple Cash)"
+            " so we can pay you fast - takes 30 sec."
+        ),
     },
     {
         "key": "profile_complete",
@@ -226,6 +230,10 @@ EMAIL_TEMPLATES = [
         ),
         "cta_label": "Complete my profile",
         "cta_path": "/crew/me",
+        "sms_body": (
+            "HCOB: {{first_name}}, finish your profile so we can send you gigs -"
+            " phone, address, emergency contact, ID photo. A few minutes tops."
+        ),
     },
     {
         "key": "id_upload",
@@ -240,6 +248,10 @@ EMAIL_TEMPLATES = [
         ),
         "cta_label": "Upload my ID",
         "cta_path": "/crew/me",
+        "sms_body": (
+            "HCOB: {{first_name}}, upload a photo of your ID so we can clear you"
+            " for shifts. 30 sec - we never share it."
+        ),
     },
     {
         "key": "shift_availability",
@@ -254,6 +266,10 @@ EMAIL_TEMPLATES = [
         ),
         "cta_label": "I'm available this week",
         "cta_path": "/crew",
+        "sms_body": (
+            "HCOB: {{first_name}}, got time this week? Tap 'Available' in the app"
+            " and we'll surface your name first when shifts drop."
+        ),
     },
     {
         "key": "custom",
@@ -262,6 +278,7 @@ EMAIL_TEMPLATES = [
         "body_html": "",
         "cta_label": "",
         "cta_path": "",
+        "sms_body": "",
     },
 ]
 
