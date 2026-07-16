@@ -17,14 +17,20 @@ Safeguards:
 from datetime import datetime, timedelta, timezone
 from html import escape as _html_escape
 import re
-from typing import Optional
+import asyncio
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from auth_deps import require_admin
 from config import db, logger
-from notifications import _send_user_email, is_blast_disabled
+from notifications import (
+    _send_user_email,
+    _send_sms_sync,
+    _resolve_sms_creds,
+    is_blast_disabled,
+)
 from routes.admin import _filter_workers
 
 router = APIRouter()
@@ -311,6 +317,15 @@ async def _build_audience(f: AudienceFilter) -> list[dict]:
     return [w for w in workers if (w.get("email") or "").strip()]
 
 
+def _sms_eligible(workers: list[dict]) -> list[dict]:
+    """Twilio A2P 10DLC: only text workers with an explicit opt-in AND a
+    phone number of record. This is a hard gate — no override, ever."""
+    return [
+        w for w in workers
+        if w.get("sms_opt_in") is True and (w.get("phone") or "").strip()
+    ]
+
+
 # ============================================================================
 # Preview — count + first 5 recipients
 # ============================================================================
@@ -321,11 +336,18 @@ class PreviewIn(BaseModel):
 @router.post("/admin/email-blast/preview")
 async def preview_blast(payload: PreviewIn, admin: dict = Depends(require_admin)):
     audience = await _build_audience(payload.audience)
+    sms_pool = _sms_eligible(audience)
     return {
         "count": len(audience),
+        "email_count": len(audience),
+        "sms_count": len(sms_pool),
         "preview": [
             {"user_id": w["user_id"], "name": w.get("name") or "(no name)", "email": w["email"]}
             for w in audience[:5]
+        ],
+        "sms_preview": [
+            {"user_id": w["user_id"], "name": w.get("name") or "(no name)", "phone": w.get("phone")}
+            for w in sms_pool[:5]
         ],
     }
 
@@ -342,6 +364,9 @@ class BlastSendIn(BaseModel):
     template_key: str = Field(default="custom")  # for cooldown bucketing
     test_only: bool = False  # send ONE copy to admin's email and stop
     bypass_cooldown: bool = False  # admin override
+    # Multichannel blast (channels default to email-only for back-compat)
+    channels: List[str] = Field(default_factory=lambda: ["email"])
+    sms_body: Optional[str] = Field(default=None, max_length=1600)
 
 
 def _render(template: str, worker: dict) -> str:
@@ -381,6 +406,12 @@ async def send_blast(payload: BlastSendIn, admin: dict = Depends(require_admin))
     if payload.cta_path and not payload.cta_path.startswith("/"):
         raise HTTPException(400, "cta_path must start with '/'")
 
+    channels = [c for c in (payload.channels or ["email"]) if c in ("email", "sms")]
+    if not channels:
+        raise HTTPException(400, "Pick at least one channel (email or sms).")
+    if "sms" in channels and not (payload.sms_body or "").strip():
+        raise HTTPException(400, "SMS body is required when the SMS channel is selected.")
+
     # Always render an absolute URL for the CTA so the email button works.
     cta_url = (
         f"{_public_base().rstrip('/')}{payload.cta_path}"
@@ -389,72 +420,149 @@ async def send_blast(payload: BlastSendIn, admin: dict = Depends(require_admin))
     )
 
     # TEST send — one copy to the admin who clicked the button. Doesn't
-    # touch cooldown logs. Useful for proofreading the email before firing.
+    # touch cooldown logs. Useful for proofreading before firing.
+    # For a test with the SMS channel selected we ALSO fire an SMS to the
+    # admin's own phone (if any) so they can proof the text body too.
     if payload.test_only:
-        ok = await _send_user_email(
-            admin,
-            kind="blast_test",
-            subject=_render(payload.subject, admin),
-            body_html=_render_body(payload.body_html, admin),
-            cta_label=payload.cta_label or "",
-            cta_url=cta_url or "",
-        )
-        return {"sent": 1 if ok else 0, "skipped_cooldown": 0, "test_only": True, "ok": ok}
+        result = {"test_only": True, "email": {"sent": 0}, "sms": {"sent": 0, "skipped": None}}
+        if "email" in channels:
+            ok = await _send_user_email(
+                admin,
+                kind="blast_test",
+                subject=_render(payload.subject, admin),
+                body_html=_render_body(payload.body_html, admin),
+                cta_label=payload.cta_label or "",
+                cta_url=cta_url or "",
+            )
+            result["email"] = {"sent": 1 if ok else 0, "ok": bool(ok)}
+        if "sms" in channels:
+            admin_phone = (admin.get("phone") or "").strip()
+            if not admin_phone:
+                result["sms"] = {"sent": 0, "skipped": "admin_has_no_phone"}
+            else:
+                creds = await _resolve_sms_creds()
+                try:
+                    r = await asyncio.to_thread(
+                        _send_sms_sync, creds["sid"], creds["token"], creds["from_"],
+                        admin_phone, _render(payload.sms_body or "", admin),
+                    )
+                    result["sms"] = {"sent": 0 if r.get("skipped") else 1, "raw": r}
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"blast test SMS failed: {e}")
+                    result["sms"] = {"sent": 0, "skipped": "send_error"}
+        # Back-compat top-level fields (older UIs read `sent`)
+        result["sent"] = result["email"]["sent"] + result["sms"]["sent"]
+        result["skipped_cooldown"] = 0
+        return result
 
     audience = await _build_audience(payload.audience)
     if not audience:
         raise HTTPException(400, "Audience is empty — no workers match the filters.")
 
     cooldown_cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
-    sent = 0
-    skipped_cooldown = 0
-    failed = 0
 
-    for w in audience:
-        # Per-template, per-worker 3-day cooldown.
-        if not payload.bypass_cooldown:
-            recent = await db.email_blast_log.find_one({
-                "template_key": payload.template_key,
-                "user_id": w["user_id"],
-                "sent_at": {"$gt": cooldown_cutoff},
-            })
-            if recent:
-                skipped_cooldown += 1
-                continue
-        try:
-            ok = await _send_user_email(
-                w,
-                kind="blast",
-                subject=_render(payload.subject, w),
-                body_html=_render_body(payload.body_html, w),
-                cta_label=payload.cta_label or "",
-                cta_url=cta_url or "",
-            )
-            # Log the cooldown record regardless of delivery success — we
-            # never want a transient Resend failure to result in the same
-            # worker getting emailed twice on the next click. The admin will
-            # see the `failed` count and can fix Resend creds and re-send
-            # with bypass_cooldown=True if they truly need a retry.
-            await db.email_blast_log.insert_one({
-                "template_key": payload.template_key,
-                "user_id": w["user_id"],
-                "email": w["email"],
-                "subject": payload.subject,
-                "sent_at": datetime.now(timezone.utc).isoformat(),
-                "sent_by_admin_id": admin.get("user_id"),
-                "delivered": bool(ok),
-            })
-            if ok:
-                sent += 1
-            else:
-                failed += 1
-        except Exception as e:  # noqa: BLE001
-            failed += 1
-            logger.warning(f"email-blast send to {w.get('email')} failed: {e}")
+    # ---- Email fan-out --------------------------------------------------
+    email_sent = email_skipped = email_failed = 0
+    if "email" in channels:
+        for w in audience:
+            if not payload.bypass_cooldown:
+                recent = await db.email_blast_log.find_one({
+                    "template_key": payload.template_key,
+                    "user_id": w["user_id"],
+                    "channel": {"$in": [None, "email"]},
+                    "sent_at": {"$gt": cooldown_cutoff},
+                })
+                if recent:
+                    email_skipped += 1
+                    continue
+            try:
+                ok = await _send_user_email(
+                    w,
+                    kind="blast",
+                    subject=_render(payload.subject, w),
+                    body_html=_render_body(payload.body_html, w),
+                    cta_label=payload.cta_label or "",
+                    cta_url=cta_url or "",
+                )
+                await db.email_blast_log.insert_one({
+                    "template_key": payload.template_key,
+                    "channel": "email",
+                    "user_id": w["user_id"],
+                    "email": w["email"],
+                    "subject": payload.subject,
+                    "sent_at": datetime.now(timezone.utc).isoformat(),
+                    "sent_by_admin_id": admin.get("user_id"),
+                    "delivered": bool(ok),
+                })
+                if ok:
+                    email_sent += 1
+                else:
+                    email_failed += 1
+            except Exception as e:  # noqa: BLE001
+                email_failed += 1
+                logger.warning(f"email-blast send to {w.get('email')} failed: {e}")
+
+    # ---- SMS fan-out (opt-in gated) ------------------------------------
+    sms_sent = sms_skipped_cooldown = sms_skipped_consent = sms_failed = 0
+    if "sms" in channels:
+        sms_pool = _sms_eligible(audience)
+        # Anyone in the base audience who isn't SMS-eligible counts as a
+        # consent skip so the admin can see WHY the sms number is smaller.
+        sms_skipped_consent = len(audience) - len(sms_pool)
+        creds = await _resolve_sms_creds()
+        for w in sms_pool:
+            if not payload.bypass_cooldown:
+                recent = await db.email_blast_log.find_one({
+                    "template_key": payload.template_key,
+                    "user_id": w["user_id"],
+                    "channel": "sms",
+                    "sent_at": {"$gt": cooldown_cutoff},
+                })
+                if recent:
+                    sms_skipped_cooldown += 1
+                    continue
+            body = _render(payload.sms_body or "", w)
+            try:
+                r = await asyncio.to_thread(
+                    _send_sms_sync, creds["sid"], creds["token"], creds["from_"],
+                    (w.get("phone") or "").strip(), body,
+                )
+                delivered = not r.get("skipped")
+                await db.email_blast_log.insert_one({
+                    "template_key": payload.template_key,
+                    "channel": "sms",
+                    "user_id": w["user_id"],
+                    "phone": w.get("phone"),
+                    "subject": payload.subject,  # kept for consistency with email rows
+                    "sent_at": datetime.now(timezone.utc).isoformat(),
+                    "sent_by_admin_id": admin.get("user_id"),
+                    "delivered": bool(delivered),
+                })
+                if delivered:
+                    sms_sent += 1
+                else:
+                    sms_failed += 1
+            except Exception as e:  # noqa: BLE001
+                sms_failed += 1
+                logger.warning(f"sms-blast send to {w.get('phone')} failed: {e}")
 
     return {
-        "sent": sent,
-        "skipped_cooldown": skipped_cooldown,
-        "failed": failed,
+        # Legacy top-level fields (used by older frontend versions)
+        "sent": email_sent,
+        "skipped_cooldown": email_skipped,
+        "failed": email_failed,
         "audience_size": len(audience),
+        # New per-channel breakdown
+        "channels": channels,
+        "email": {
+            "sent": email_sent,
+            "skipped_cooldown": email_skipped,
+            "failed": email_failed,
+        },
+        "sms": {
+            "sent": sms_sent,
+            "skipped_cooldown": sms_skipped_cooldown,
+            "skipped_consent": sms_skipped_consent,
+            "failed": sms_failed,
+        },
     }

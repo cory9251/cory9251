@@ -2266,3 +2266,19 @@ Terminal off-ramps: `void`, `self_fulfilled`
 - **Frontend (b) Dashboard nudge**: new `SmsOptInNudge.jsx` component rendered inside `WorkerFeed` after the customer-chats inbox. Green banner, one-tap "YES, TEXT ME" CTA (fires opt-in with `source: "dashboard_nudge"`), phone-missing variant deep-links to profile. "Not now" or the X dismiss writes `hcob_sms_nudge_dismissed_at` to localStorage for a **7-day cooldown**. Auto-hides if user already opted in.
 - Verified end-to-end via curl (opt-in / opt-out / re-opt-in cycle + phone-missing 400) and mobile screenshots (feed nudge + profile toggle both rendering correctly).
 
+
+## Blast — Unified Email + SMS Composer (Jul 15, 2026) — DONE
+- **Rename**: "Email Blast" → **"Blast"** across the app (nav label under Growth, page h1, `<title>`, subtitle copy). Route stays `/ops/email-blast` and `data-testid="admin-email-blast-page"` intact for back-compat.
+- **Backend** (`routes/admin_blasts.py`):
+  - Preview response now returns `email_count`, `sms_count` (subset with `sms_opt_in=true` + non-empty `phone`), plus a `sms_preview` sample list.
+  - `BlastSendIn` gained `channels: List[str] = ["email"]` and `sms_body: Optional[str]` (max 1600 chars). Payload must include SMS body when SMS channel selected (400 otherwise).
+  - Multi-channel send loop: independent 3-day cooldown per template/channel (`email_blast_log` rows carry a new `channel` field: `"email"` or `"sms"`), SMS-consent gate applied automatically, STOP footer appended by existing `_send_sms_sync`.
+  - Test-only fires email to admin AND text to admin's phone; returns per-channel skip reasons (`admin_has_no_phone` etc.).
+  - Response shape: `{email:{sent,skipped_cooldown,failed}, sms:{sent,skipped_cooldown,skipped_consent,failed}, channels}` plus legacy top-level `sent/skipped_cooldown/failed` (email only) so older clients keep working.
+- **Frontend** (`AdminEmailBlast.jsx`):
+  - Step 1 preview pane shows dual counters (`audience-email-count` / `audience-sms-count`) — SMS panel highlights green when SMS channel is toggled on.
+  - Step 2 gains a **Channels** section (email + SMS toggles) at the top. Email fields (subject, body, CTA) collapse when email channel is off. New **Text message body** textarea (`sms-blast-body`) with merge-tag hint + live segment counter (`sms-blast-counter`, GSM-7/UCS-2 detection). Right column stacks an email preview card and an iMessage-style SMS preview bubble (auto-appends "Reply STOP to opt out.").
+  - Step 3 shows both "Final email" and "Final text message" cards when active, per-channel recipient tallies (`confirm-email-count` / `confirm-sms-count`), and a safety-checks note about A2P consent gating.
+  - Send button label auto-composes: "Send — 874 email + 2 SMS" or single-channel variants.
+- **Verified** via curl: preview returns 874 email / 2 SMS counts, test-send returns per-channel skip reasons, 400 raised when SMS body missing. Screenshots confirm updated header, dual audience counters, and SMS composer + preview render correctly.
+

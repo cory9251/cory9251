@@ -8,12 +8,14 @@ import {
   Warning,
   Users,
   EnvelopeSimple,
+  ChatText,
   Sparkle,
 } from "@phosphor-icons/react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import RichEmailEditor from "@/components/admin/RichEmailEditor";
 
 const SKILL_OPTIONS = [
@@ -84,10 +86,14 @@ export default function AdminEmailBlast() {
   const [ctaLabel, setCtaLabel] = useState("");
   const [ctaPath, setCtaPath] = useState("/crew/me");
   const [previewCount, setPreviewCount] = useState(null);
+  const [smsCount, setSmsCount] = useState(null);
   const [previewRows, setPreviewRows] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [bypassCooldown, setBypassCooldown] = useState(false);
+  // Multi-channel state (default = email only, matches back-compat backend)
+  const [channels, setChannels] = useState(["email"]);
+  const [smsBody, setSmsBody] = useState("");
 
   // Load templates and apply the default one
   useEffect(() => {
@@ -141,6 +147,7 @@ export default function AdminEmailBlast() {
         });
         if (cancelled) return;
         setPreviewCount(r.data?.count ?? 0);
+        setSmsCount(r.data?.sms_count ?? 0);
         setPreviewRows(r.data?.preview || []);
       } catch (e) {
         if (!cancelled) {
@@ -167,22 +174,37 @@ export default function AdminEmailBlast() {
   };
 
   const sendTest = async () => {
-    if (!subject.trim() || !bodyHtml.trim()) {
-      toast.error("Subject and body required");
+    if (channels.includes("email") && (!subject.trim() || !bodyHtml.trim())) {
+      toast.error("Subject and email body required");
+      return;
+    }
+    if (channels.includes("sms") && !smsBody.trim()) {
+      toast.error("SMS body required");
       return;
     }
     setSending(true);
     try {
-      await api.post("/admin/email-blast/send", {
+      const r = await api.post("/admin/email-blast/send", {
         audience: audienceQuery,
         subject,
         body_html: bodyHtml,
         cta_label: ctaLabel,
         cta_path: ctaPath,
         template_key: templateKey,
+        channels,
+        sms_body: smsBody,
         test_only: true,
       });
-      toast.success("Test email sent — check your inbox");
+      const bits = [];
+      if (channels.includes("email"))
+        bits.push(`email ${r.data?.email?.sent ? "sent" : "skipped"}`);
+      if (channels.includes("sms"))
+        bits.push(
+          r.data?.sms?.skipped
+            ? `sms ${r.data.sms.skipped.replace(/_/g, " ")}`
+            : `sms ${r.data?.sms?.sent ? "sent" : "not delivered"}`
+        );
+      toast.success(`Test: ${bits.join(" · ")}`);
     } catch (e) {
       toast.error(e.response?.data?.detail || "Test send failed");
     } finally {
@@ -191,12 +213,23 @@ export default function AdminEmailBlast() {
   };
 
   const sendBlast = async () => {
-    if (!previewCount) {
-      toast.error("No recipients match these filters");
+    if (channels.length === 0) {
+      toast.error("Pick at least one channel (email or SMS).");
       return;
     }
+    const emailRecipients = channels.includes("email") ? (previewCount || 0) : 0;
+    const smsRecipients = channels.includes("sms") ? (smsCount || 0) : 0;
+    if (emailRecipients === 0 && smsRecipients === 0) {
+      toast.error("No recipients match — check filters and channel selection.");
+      return;
+    }
+    const confirmParts = [];
+    if (channels.includes("email")) confirmParts.push(`${emailRecipients} email`);
+    if (channels.includes("sms")) confirmParts.push(`${smsRecipients} text`);
     const ok = window.confirm(
-      `Send this email to ${previewCount} worker${previewCount === 1 ? "" : "s"} now? This cannot be undone.`
+      `Send blast to ${confirmParts.join(" + ")} recipient${
+        emailRecipients + smsRecipients === 1 ? "" : "s"
+      } now? This cannot be undone.`
     );
     if (!ok) return;
     setSending(true);
@@ -208,14 +241,28 @@ export default function AdminEmailBlast() {
         cta_label: ctaLabel,
         cta_path: ctaPath,
         template_key: templateKey,
+        channels,
+        sms_body: smsBody,
         test_only: false,
         bypass_cooldown: bypassCooldown,
       });
-      toast.success(
-        `Blast sent: ${r.data.sent} delivered${
-          r.data.skipped_cooldown ? `, ${r.data.skipped_cooldown} skipped (3-day cooldown)` : ""
-        }${r.data.failed ? `, ${r.data.failed} failed` : ""}`
-      );
+      const em = r.data?.email || {};
+      const sm = r.data?.sms || {};
+      const summary = [];
+      if (channels.includes("email"))
+        summary.push(
+          `${em.sent || 0} email` +
+            (em.skipped_cooldown ? ` · ${em.skipped_cooldown} cooldown` : "") +
+            (em.failed ? ` · ${em.failed} failed` : "")
+        );
+      if (channels.includes("sms"))
+        summary.push(
+          `${sm.sent || 0} SMS` +
+            (sm.skipped_consent ? ` · ${sm.skipped_consent} no consent` : "") +
+            (sm.skipped_cooldown ? ` · ${sm.skipped_cooldown} cooldown` : "") +
+            (sm.failed ? ` · ${sm.failed} failed` : "")
+        );
+      toast.success(`Blast sent — ${summary.join(" ; ")}`);
       setStep(1);
     } catch (e) {
       toast.error(e.response?.data?.detail || "Blast failed");
@@ -227,7 +274,7 @@ export default function AdminEmailBlast() {
   // Apply page title
   useEffect(() => {
     const prev = document.title;
-    document.title = "Email Blast — HCOB Ops";
+    document.title = "Blast — HCOB Ops";
     return () => {
       document.title = prev;
     };
@@ -244,12 +291,12 @@ export default function AdminEmailBlast() {
         <div className="mt-1 flex items-center gap-3">
           <PaperPlaneTilt size={28} weight="fill" />
           <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">
-            Email Blast
+            Blast
           </h1>
         </div>
         <p className="mt-2 max-w-2xl text-sm text-[#4B5563]">
-          Send a mass email to any slice of your workforce. Pick a template,
-          edit the copy, preview the audience, send a test, then ship it.
+          Send an email, a text, or both to any slice of your workforce. Pick a
+          template, edit the copy, preview the audience, send a test, then ship it.
         </p>
         <StepBar step={step} setStep={setStep} />
       </div>
@@ -261,6 +308,8 @@ export default function AdminEmailBlast() {
             setAudience={setAudience}
             toggleArr={toggleArr}
             previewCount={previewCount}
+            smsCount={smsCount}
+            channels={channels}
             previewRows={previewRows}
             previewLoading={previewLoading}
           />
@@ -279,12 +328,19 @@ export default function AdminEmailBlast() {
             setCtaLabel={setCtaLabel}
             ctaPath={ctaPath}
             setCtaPath={setCtaPath}
+            channels={channels}
+            setChannels={setChannels}
+            smsBody={smsBody}
+            setSmsBody={setSmsBody}
           />
         )}
 
         {step === 3 && (
           <ConfirmStep
             previewCount={previewCount}
+            smsCount={smsCount}
+            channels={channels}
+            smsBody={smsBody}
             previewRows={previewRows}
             subject={subject}
             bodyHtml={bodyHtml}
@@ -321,12 +377,22 @@ export default function AdminEmailBlast() {
           ) : (
             <Button
               onClick={sendBlast}
-              disabled={sending || !previewCount}
+              disabled={sending || channels.length === 0 || (
+                (channels.includes("email") ? (previewCount || 0) : 0) +
+                (channels.includes("sms") ? (smsCount || 0) : 0)
+              ) === 0}
               data-testid="email-blast-send-btn"
               className="rounded-none bg-[#10B981] text-white hover:bg-[#059669]"
             >
               <PaperPlaneTilt size={14} className="mr-2" />
-              {sending ? "Sending..." : `Send to ${previewCount || 0} worker${previewCount === 1 ? "" : "s"}`}
+              {sending ? "Sending..." : `Send${(() => {
+                const em = channels.includes("email") ? (previewCount || 0) : 0;
+                const sm = channels.includes("sms") ? (smsCount || 0) : 0;
+                const parts = [];
+                if (channels.includes("email")) parts.push(`${em} email`);
+                if (channels.includes("sms")) parts.push(`${sm} SMS`);
+                return parts.length ? ` — ${parts.join(" + ")}` : "";
+              })()}`}
             </Button>
           )}
         </div>
@@ -373,11 +439,27 @@ function StepBar({ step, setStep }) {
   );
 }
 
+// GSM-7 vs UCS-2 SMS segment counter. Emojis or non-Latin characters flip
+// the encoding to UCS-2 (70-char segments) — we can't reliably detect that
+// per-char without a full table, so we do a fast heuristic: if the body
+// contains any code point outside basic Latin+extras, we assume UCS-2.
+function smsSegments(body) {
+  const len = (body || "").length;
+  if (len === 0) return { len: 0, segments: 0, encoding: "GSM-7", perSegment: 160 };
+  const isUnicode = /[^\u0000-\u007E]/.test(body || "");
+  const perSegment = isUnicode ? 67 : 153;
+  const singleMax = isUnicode ? 70 : 160;
+  const segments = len <= singleMax ? 1 : Math.ceil(len / perSegment);
+  return { len, segments, encoding: isUnicode ? "UCS-2" : "GSM-7", perSegment: singleMax };
+}
+
 function AudienceStep({
   audience,
   setAudience,
   toggleArr,
   previewCount,
+  smsCount,
+  channels,
   previewRows,
   previewLoading,
 }) {
@@ -561,6 +643,41 @@ function AudienceStep({
         <div className="mt-1 text-xs text-[#4B5563]">
           {previewCount === 1 ? "worker matches" : "workers match"}
         </div>
+
+        {/* Per-channel counts. SMS is always gated by opt-in + phone. */}
+        <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[#E5E7EB] pt-4">
+          <div
+            data-testid="audience-email-count"
+            className={`border px-3 py-2 ${
+              (channels || []).includes("email")
+                ? "border-[#0044FF] bg-[#F0F4FF]"
+                : "border-[#E5E7EB] bg-white"
+            }`}
+          >
+            <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
+              <EnvelopeSimple size={11} weight="fill" /> Email
+            </div>
+            <div className="mt-0.5 font-display text-2xl font-bold leading-none">
+              {previewCount ?? "—"}
+            </div>
+          </div>
+          <div
+            data-testid="audience-sms-count"
+            className={`border px-3 py-2 ${
+              (channels || []).includes("sms")
+                ? "border-[#10B981] bg-[#ECFDF5]"
+                : "border-[#E5E7EB] bg-white"
+            }`}
+          >
+            <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-[#065F46]">
+              <ChatText size={11} weight="fill" /> SMS opted in
+            </div>
+            <div className="mt-0.5 font-display text-2xl font-bold leading-none">
+              {smsCount ?? "—"}
+            </div>
+          </div>
+        </div>
+
         {previewRows.length > 0 && (
           <>
             <div className="mt-5 border-t border-[#E5E7EB] pt-4 text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
@@ -603,10 +720,44 @@ function ComposeStep({
   setCtaLabel,
   ctaPath,
   setCtaPath,
+  channels,
+  setChannels,
+  smsBody,
+  setSmsBody,
 }) {
+  const toggleChannel = (c) => {
+    setChannels((prev) =>
+      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
+    );
+  };
+  const seg = smsSegments(smsBody || "");
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
       <div className="space-y-6">
+        <Section title="Channels">
+          <div className="flex flex-wrap gap-2">
+            <Pill
+              testid="channel-email"
+              active={channels.includes("email")}
+              onClick={() => toggleChannel("email")}
+            >
+              <EnvelopeSimple size={12} weight="fill" className="mr-1 inline" />
+              Email
+            </Pill>
+            <Pill
+              testid="channel-sms"
+              active={channels.includes("sms")}
+              onClick={() => toggleChannel("sms")}
+            >
+              <ChatText size={12} weight="fill" className="mr-1 inline" />
+              SMS (text)
+            </Pill>
+          </div>
+          <div className="mt-2 text-[11px] text-[#4B5563]">
+            SMS is sent only to workers who have opted in to text updates AND have a phone number on file. &ldquo;Reply STOP to opt out.&rdquo; is appended automatically.
+          </div>
+        </Section>
+
         <Section title="Start from a template">
           <div className="flex flex-wrap gap-2">
             {templates.map((t) => (
@@ -622,91 +773,144 @@ function ComposeStep({
           </div>
         </Section>
 
-        <Section title="Subject">
-          <Input
-            data-testid="email-blast-subject"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Subject line shown in their inbox"
-            className="h-12 rounded-none border-[#030712] text-base"
-          />
-        </Section>
+        {channels.includes("email") && (
+          <>
+            <Section title="Email subject">
+              <Input
+                data-testid="email-blast-subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Subject line shown in their inbox"
+                className="h-12 rounded-none border-[#030712] text-base"
+              />
+            </Section>
 
-        <Section title="Body">
-          <RichEmailEditor
-            value={bodyHtml}
-            onChange={setBodyHtml}
-            placeholder="Write your message. Use the toolbar for bold, lists, links."
-            testid="email-blast-body"
-          />
-          <div className="mt-2 flex items-start gap-2 border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs">
-            <Sparkle size={14} weight="fill" />
-            <div>
-              <div className="font-bold">Merge tags</div>
+            <Section title="Email body">
+              <RichEmailEditor
+                value={bodyHtml}
+                onChange={setBodyHtml}
+                placeholder="Write your message. Use the toolbar for bold, lists, links."
+                testid="email-blast-body"
+              />
+              <div className="mt-2 flex items-start gap-2 border border-[#E5E7EB] bg-[#F9FAFB] p-3 text-xs">
+                <Sparkle size={14} weight="fill" />
+                <div>
+                  <div className="font-bold">Merge tags</div>
+                  <div className="text-[#4B5563]">
+                    Type these literally — they swap in per recipient:{" "}
+                    <code className="bg-white px-1">{"{{first_name}}"}</code> ·{" "}
+                    <code className="bg-white px-1">{"{{name}}"}</code> ·{" "}
+                    <code className="bg-white px-1">{"{{email}}"}</code>
+                  </div>
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Call-to-action button (optional, email only)">
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  data-testid="email-blast-cta-label"
+                  value={ctaLabel}
+                  onChange={(e) => setCtaLabel(e.target.value)}
+                  placeholder='Button text (e.g. "Add my payment")'
+                  className="h-10 rounded-none border-[#030712]"
+                />
+                <Input
+                  data-testid="email-blast-cta-path"
+                  value={ctaPath}
+                  onChange={(e) => setCtaPath(e.target.value)}
+                  placeholder='Path (e.g. "/crew/me")'
+                  className="h-10 rounded-none border-[#030712]"
+                />
+              </div>
+              <div className="mt-1 text-[10px] tracking-widest text-[#4B5563]">
+                Leave blank to send a plain-text email with no button.
+              </div>
+            </Section>
+          </>
+        )}
+
+        {channels.includes("sms") && (
+          <Section title="Text message body">
+            <Textarea
+              data-testid="sms-blast-body"
+              value={smsBody}
+              onChange={(e) => setSmsBody(e.target.value)}
+              rows={4}
+              placeholder="Hey {{first_name}}, new gig just dropped in your area. Open the app to claim →"
+              className="rounded-none border-[#030712]"
+              maxLength={1400}
+            />
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-[11px]">
               <div className="text-[#4B5563]">
-                Type these literally — they swap in per recipient:{" "}
-                <code className="bg-white px-1">{"{{first_name}}"}</code> ·{" "}
-                <code className="bg-white px-1">{"{{name}}"}</code> ·{" "}
-                <code className="bg-white px-1">{"{{email}}"}</code>
+                Merge tags:{" "}
+                <code className="bg-[#F9FAFB] px-1">{"{{first_name}}"}</code>{" · "}
+                <code className="bg-[#F9FAFB] px-1">{"{{name}}"}</code>
+              </div>
+              <div
+                data-testid="sms-blast-counter"
+                className="font-mono-label"
+              >
+                {seg.len} chars · {seg.segments} segment{seg.segments === 1 ? "" : "s"} ({seg.encoding})
               </div>
             </div>
-          </div>
-        </Section>
-
-        <Section title="Call-to-action button (optional)">
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              data-testid="email-blast-cta-label"
-              value={ctaLabel}
-              onChange={(e) => setCtaLabel(e.target.value)}
-              placeholder='Button text (e.g. "Add my payment")'
-              className="h-10 rounded-none border-[#030712]"
-            />
-            <Input
-              data-testid="email-blast-cta-path"
-              value={ctaPath}
-              onChange={(e) => setCtaPath(e.target.value)}
-              placeholder='Path (e.g. "/crew/me")'
-              className="h-10 rounded-none border-[#030712]"
-            />
-          </div>
-          <div className="mt-1 text-[10px] tracking-widest text-[#4B5563]">
-            Leave blank to send a plain-text email with no button.
-          </div>
-        </Section>
+            <div className="mt-2 text-[11px] text-[#92400E]">
+              Each segment past the first is billed separately. Keep it under {seg.perSegment} for a single-segment text.
+            </div>
+          </Section>
+        )}
       </div>
 
-      {/* Live email preview */}
-      <div className="sticky top-6 h-fit border border-[#030712] bg-white p-5">
-        <div className="font-mono-label text-[10px] tracking-widest text-[#4B5563]">
-          Live preview (sample recipient: &quot;Alex Smith&quot;)
-        </div>
-        <div className="mt-3 border border-[#E5E7EB] bg-[#F9FAFB] p-4">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
-            Subject
-          </div>
-          <div className="mb-3 font-display text-base font-bold">
-            {renderPreview(subject) || <span className="text-[#9CA3AF]">(empty)</span>}
-          </div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
-            Body
-          </div>
-          <div
-            className="email-preview-html mt-1 max-w-none"
-            dangerouslySetInnerHTML={{
-              __html:
-                renderPreview(bodyHtml) ||
-                '<span style="color:#9CA3AF">(empty)</span>',
-            }}
-          />
-          {ctaLabel && ctaPath && (
-            <div className="mt-3">
-              <div className="inline-block bg-[#030712] px-5 py-2 text-xs font-bold uppercase tracking-widest text-white">
-                {ctaLabel} →
-              </div>
+      {/* Live preview */}
+      <div className="sticky top-6 h-fit space-y-4">
+        {channels.includes("email") && (
+          <div className="border border-[#030712] bg-white p-5">
+            <div className="font-mono-label text-[10px] tracking-widest text-[#4B5563]">
+              Email preview (sample recipient: &quot;Alex Smith&quot;)
             </div>
-          )}
-        </div>
+            <div className="mt-3 border border-[#E5E7EB] bg-[#F9FAFB] p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
+                Subject
+              </div>
+              <div className="mb-3 font-display text-base font-bold">
+                {renderPreview(subject) || <span className="text-[#9CA3AF]">(empty)</span>}
+              </div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
+                Body
+              </div>
+              <div
+                className="email-preview-html mt-1 max-w-none"
+                dangerouslySetInnerHTML={{
+                  __html:
+                    renderPreview(bodyHtml) ||
+                    '<span style="color:#9CA3AF">(empty)</span>',
+                }}
+              />
+              {ctaLabel && ctaPath && (
+                <div className="mt-3">
+                  <div className="inline-block bg-[#030712] px-5 py-2 text-xs font-bold uppercase tracking-widest text-white">
+                    {ctaLabel} →
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {channels.includes("sms") && (
+          <div className="border border-[#10B981] bg-white p-5">
+            <div className="font-mono-label text-[10px] tracking-widest text-[#065F46]">
+              SMS preview
+            </div>
+            <div className="mt-3 max-w-[280px] rounded-2xl rounded-bl-sm bg-[#ECFDF5] p-3 text-sm text-[#065F46]">
+              {renderPreview(smsBody) || <span className="text-[#9CA3AF]">(empty)</span>}
+              {smsBody?.trim() && (
+                <div className="mt-2 text-[10px] text-[#065F46]/70">
+                  Reply STOP to opt out.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -714,6 +918,9 @@ function ComposeStep({
 
 function ConfirmStep({
   previewCount,
+  smsCount,
+  channels,
+  smsBody,
   previewRows,
   subject,
   bodyHtml,
@@ -728,38 +935,62 @@ function ConfirmStep({
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
       <div className="space-y-6">
-        <Section title="Final email">
-          <div className="border border-[#030712] bg-white p-5">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
-              Subject
-            </div>
-            <div className="mb-3 font-display text-base font-bold">
-              {renderPreview(subject)}
-            </div>
-            <div
-              className="email-preview-html max-w-none"
-              dangerouslySetInnerHTML={{ __html: renderPreview(bodyHtml) }}
-            />
-            {ctaLabel && (
-              <div className="mt-4">
-                <div className="inline-block bg-[#030712] px-5 py-2 text-xs font-bold uppercase tracking-widest text-white">
-                  {ctaLabel} →
+        {channels.includes("email") && (
+          <Section title="Final email">
+            <div className="border border-[#030712] bg-white p-5">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-[#4B5563]">
+                Subject
+              </div>
+              <div className="mb-3 font-display text-base font-bold">
+                {renderPreview(subject)}
+              </div>
+              <div
+                className="email-preview-html max-w-none"
+                dangerouslySetInnerHTML={{ __html: renderPreview(bodyHtml) }}
+              />
+              {ctaLabel && (
+                <div className="mt-4">
+                  <div className="inline-block bg-[#030712] px-5 py-2 text-xs font-bold uppercase tracking-widest text-white">
+                    {ctaLabel} →
+                  </div>
+                  <div className="mt-1 text-[10px] tracking-widest text-[#4B5563]">
+                    Links to: {ctaPath}
+                  </div>
                 </div>
-                <div className="mt-1 text-[10px] tracking-widest text-[#4B5563]">
-                  Links to: {ctaPath}
+              )}
+            </div>
+          </Section>
+        )}
+
+        {channels.includes("sms") && (
+          <Section title="Final text message">
+            <div className="border border-[#10B981] bg-white p-5">
+              <div className="max-w-[320px] rounded-2xl rounded-bl-sm bg-[#ECFDF5] p-3 text-sm text-[#065F46]">
+                {renderPreview(smsBody)}
+                <div className="mt-2 text-[10px] text-[#065F46]/70">
+                  Reply STOP to opt out.
                 </div>
               </div>
-            )}
-          </div>
-        </Section>
+            </div>
+          </Section>
+        )}
 
         <Section title="Safety checks">
           <ul className="space-y-2 text-sm">
             <li className="flex items-start gap-2">
               <CheckCircle size={16} weight="fill" className="text-[#10B981]" />
               <span>
-                3-day per-template cooldown: workers who got this exact template
-                in the last 3 days will be auto-skipped.
+                3-day per-template cooldown, tracked per channel: workers who
+                got this exact template on the same channel in the last 3 days
+                will be auto-skipped.
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle size={16} weight="fill" className="text-[#10B981]" />
+              <span>
+                SMS is delivered only to workers who opted in AND have a phone
+                on file. &ldquo;Reply STOP to opt out&rdquo; is appended
+                automatically for A2P 10DLC compliance.
               </span>
             </li>
             <li className="flex items-start gap-2">
@@ -795,31 +1026,53 @@ function ConfirmStep({
         </div>
       </div>
 
-      <div className="sticky top-6 h-fit border border-[#030712] bg-[#F9FAFB] p-5">
-        <div className="font-mono-label text-[10px] tracking-widest text-[#4B5563]">
-          Recipients
-        </div>
-        <div className="mt-1 font-display text-5xl font-bold leading-none">
-          {previewCount ?? 0}
-        </div>
-        <div className="mt-1 text-xs text-[#4B5563]">
-          worker{previewCount === 1 ? "" : "s"} will receive this email
-        </div>
-        {previewRows.length > 0 && (
-          <ul className="mt-5 space-y-2 border-t border-[#E5E7EB] pt-4 text-xs">
-            {previewRows.map((p) => (
-              <li key={p.user_id}>
-                <div className="font-bold">{p.name}</div>
-                <div className="text-[#4B5563]">{p.email}</div>
+      <div className="sticky top-6 h-fit space-y-3">
+        <div className="border border-[#030712] bg-[#F9FAFB] p-5">
+          <div className="font-mono-label text-[10px] tracking-widest text-[#4B5563]">
+            Recipients
+          </div>
+          {channels.includes("email") && (
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-widest text-[#4B5563]">
+                <EnvelopeSimple size={11} weight="fill" /> Email
+              </span>
+              <span
+                data-testid="confirm-email-count"
+                className="font-display text-3xl font-bold"
+              >
+                {previewCount ?? 0}
+              </span>
+            </div>
+          )}
+          {channels.includes("sms") && (
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-widest text-[#065F46]">
+                <ChatText size={11} weight="fill" /> SMS
+              </span>
+              <span
+                data-testid="confirm-sms-count"
+                className="font-display text-3xl font-bold text-[#065F46]"
+              >
+                {smsCount ?? 0}
+              </span>
+            </div>
+          )}
+          {previewRows.length > 0 && (
+            <ul className="mt-4 space-y-2 border-t border-[#E5E7EB] pt-4 text-xs">
+              {previewRows.map((p) => (
+                <li key={p.user_id}>
+                  <div className="font-bold">{p.name}</div>
+                  <div className="text-[#4B5563]">{p.email}</div>
+                </li>
+              ))}
+              <li className="text-[#9CA3AF]">
+                {previewCount > previewRows.length
+                  ? `+ ${previewCount - previewRows.length} more`
+                  : ""}
               </li>
-            ))}
-            <li className="text-[#9CA3AF]">
-              {previewCount > previewRows.length
-                ? `+ ${previewCount - previewRows.length} more`
-                : ""}
-            </li>
-          </ul>
-        )}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );

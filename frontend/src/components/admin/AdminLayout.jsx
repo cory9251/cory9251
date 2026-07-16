@@ -77,7 +77,7 @@ const groups = [
     label: "Growth",
     icon: Megaphone,
     items: [
-      { to: "/ops/email-blast", label: "Email Blast", icon: PaperPlaneTilt, end: false },
+      { to: "/ops/email-blast", label: "Blast", icon: PaperPlaneTilt, end: false },
       { to: "/ops/sms-consent", label: "SMS Consent", icon: ShieldCheck, end: false },
       { to: "/ops/services", label: "Service Catalog", icon: Tag, end: false },
       { to: "/ops/announcements", label: "Announcements", icon: Megaphone, end: false },
